@@ -1,0 +1,10 @@
+---
+- name: playbook
+  become: yes
+  become_method: "sudo"
+  hosts: "{{entorno}}"
+  tasks:
+    - name: Copying config-servidores
+      ansible.builtin.copy:
+        src: ~/PycharmProjects/pythonProject/resources/
+        dest: /home/ubuntu/proyectos
