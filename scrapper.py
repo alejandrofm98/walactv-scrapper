@@ -39,7 +39,6 @@ class ScrapperElPlanDeportes:
 
   def vacia_lista(self):
     del self.lista_canales[44:len(self.lista_canales)]
-    print(self.lista_canales)
 
   def regex_titulo(self):
     cont = 0
@@ -116,7 +115,6 @@ class ScrapperFutbolenlatv:
           equipos = strip(equipos +" vs"+tds[3].text)
         cont+=1
         eventos[cont]={"hora": hora, "competicion": competicion, "equipos": equipos,"canales": self.canales}
-        print("pasa")
     return eventos
 
 
