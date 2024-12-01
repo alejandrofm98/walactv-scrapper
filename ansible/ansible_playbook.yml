@@ -6,5 +6,5 @@
   tasks:
     - name: Copying config-servidores
       ansible.builtin.copy:
-        src: ~/PycharmProjects/pythonProject/resources/
+        src: ~/PycharmProjects/walactv-scrapper/resources/
         dest: /home/ubuntu/proyectos
