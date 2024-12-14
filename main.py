@@ -12,12 +12,12 @@ from database import Database
 if __name__ == '__main__':
   #CALENDARIO
   scrapper = ScrapperFutbolenlatv()
-  document_name = scrapper.generate_document_name()
-  if scrapper.comprueba_fecha():
-    eventos = scrapper.obtener_partidos()
-    eventos = json.dumps(eventos, ensure_ascii=False)
-    db = Database("calendario", document_name, eventos)
-    db.add_data_firebase()
+  fechas = scrapper.obtener_fechas()
+  for fecha in fechas:
+    eventos = scrapper.obtener_partidos(fecha)
+    if eventos is not None:
+      scrapper.guarda_partidos(eventos, fecha)
+
 
   #CANALES  NO ES NECESARIO ACTUALIZARLO A DIARIO
   # scrapper = ScrapperElPlanDeportes()

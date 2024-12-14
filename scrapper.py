@@ -6,8 +6,9 @@ from bs4 import BeautifulSoup
 from lxml.doctestcompare import strip
 from lxml.html import fromstring
 import re
-from _datetime import date
 from database import Database
+from _datetime import datetime, timedelta
+import json
 
 
 
@@ -77,6 +78,10 @@ class ScrapperElPlanDeportes:
     return lista_enlaces
 
 
+
+
+
+
 class ScrapperFutbolenlatv:
   publicidad = ["DAZN (Regístrate)", "Amazon Prime Video (Prueba gratis)",
                 "GolStadium Premium (acceder)", "MAX",
@@ -85,6 +90,23 @@ class ScrapperFutbolenlatv:
   COLUMNAS_EVENTO_NORMAL = 5
   COLUMNAS_EVENTO_DIFERENTE = 4
 
+  @staticmethod
+  def generate_document_name(fecha):
+    return "calendario_" + fecha.replace("/", ".")
+
+  @staticmethod
+  def guarda_partidos(eventos, fecha):
+    eventos = json.dumps(eventos, ensure_ascii=False)
+    db = Database("calendario", ScrapperFutbolenlatv.generate_document_name(fecha), eventos)
+    db.add_data_firebase()
+
+
+  @staticmethod
+  def obtener_fechas():
+    today = datetime.now().strftime("%d/%m/%Y")
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%d/%m/%Y")
+    return [today, tomorrow]
+
   def __init__(self):
     self.url = "https://www.futbolenlatv.es/deporte"
     self.soup = BeautifulSoup(requests.get(self.url).text, "html.parser")
@@ -92,13 +114,18 @@ class ScrapperFutbolenlatv:
     db  = Database("mapeo_canales", "mapeo_canales", None)
     self.mapeo_canales = db.get_doc_firebase().to_dict()
 
-  def comprueba_fecha(self):
-    cabecera_tabla = self.soup.find("td")
-    fecha = re.search(r"\d.+", cabecera_tabla.text).group()
-    return fecha == date.today().strftime("%d/%m/%Y")
 
-  def obtener_partidos(self):
-    trs = self.soup.find("tbody").find_all("tr")
+  def existe_fecha(self, fecha):
+    db = Database("calendario", self.generate_document_name(fecha), None)
+    if not db.check_if_document_exist():
+      cabecera_tabla = self.soup.find("td", string=re.compile(fecha))
+      return cabecera_tabla.is_empty_element
+    return True
+
+  def obtener_partidos(self, fecha):
+    if self.existe_fecha(fecha):
+      return
+    trs = self.soup.find("td", string=re.compile(fecha)).find_parent("tbody").find_all("tr")
     eventos = {}
     cont=0
     for tr in trs:
@@ -116,7 +143,6 @@ class ScrapperFutbolenlatv:
         cont+=1
         eventos[cont]={"hora": hora, "competicion": competicion, "equipos": equipos,"canales": self.canales}
     return eventos
-
 
   def existe_mapeo(self, td):
     lista_canales = td.find_all("li")
@@ -140,5 +166,3 @@ class ScrapperFutbolenlatv:
         lista_canales[cont]["title"] = lista_canales[cont]["title"].strip()
       cont += 1
 
-  def generate_document_name(self):
-    return "calendario_"+date.today().strftime("%d.%m.%Y")

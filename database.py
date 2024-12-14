@@ -24,13 +24,14 @@ class Database:
     db = firestore.client()
     enlaces = db.collection(self.collection).document(self.document_name)
     enlaces.set(json.loads(self.json_document))
+    print("Saved "+self.document_name+" in firebase correctly")
 
   def check_if_document_exist(self):
     db = firestore.client()
     doc = db.collection(self.collection).document(self.document_name).get()
     if doc.exists:
       print(
-        'Document exists for today in firestore with the name ' + self.document_name)
+        'Document already exists in firestore with the name ' + self.document_name)
       return True
     else:
       return False
