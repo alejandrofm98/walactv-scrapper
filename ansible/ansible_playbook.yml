@@ -7,6 +7,7 @@
         repo: "https://github.com/alejandrofm98/walactv-scrapper"
         dest: "/home/proyectos/walactv-scrapper"
         force: true
+        update: true
 
     - name: Copiando la carpeta resources
       ansible.builtin.copy:
@@ -51,11 +52,19 @@
         virtualenv: /home/proyectos/walactv-scrapper/.venv
         virtualenv_command: python3 -m venv
 
-    - name: Crear job para ejecutar el script de python walactv-scrapper a las 10 de la mañana
+    - name: Set SHELL to /bin/bash in crontab
+      ansible.builtin.cron:
+        name: SHELL
+        env: yes
+        job: /bin/bash
+        state: present
+
+    #Se pone 1h menos porque el servidor tiene otra zona horaria
+    - name: Crear job para ejecutar el script de python walactv-scrapper a las 8 de la mañana
       cron:
-        name: "Ejecutar el script de python walactv-scrapper a las 10 de la mañana"
-        minute: "35"
-        hour: "18"
-        job: "source /home/proyectos/walactv-scrapper/venv/bin/activate &&
+        name: "Ejecutar el script de python walactv-scrapper a las 8 de la mañana"
+        minute: "0"
+        hour: "7"
+        job: "source /home/proyectos/walactv-scrapper/.venv/bin/activate &&
          python3 /home/proyectos/walactv-scrapper/scripts/main.py"
         state: present
