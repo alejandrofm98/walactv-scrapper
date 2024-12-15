@@ -2,7 +2,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import json
 
-clave_privada = 'resources/walactv_clave_privada.json'
+clave_privada = './resources/walactv_clave_privada.json'
 
 
 def login_firebase():
