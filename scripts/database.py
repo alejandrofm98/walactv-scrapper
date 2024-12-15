@@ -1,8 +1,9 @@
 import firebase_admin
 from firebase_admin import credentials, firestore
 import json
+import pathlib
 
-clave_privada = './resources/walactv_clave_privada.json'
+clave_privada = str(pathlib.Path(__file__).parent.resolve())+'/../resources/walactv_clave_privada.json'
 
 
 def login_firebase():
