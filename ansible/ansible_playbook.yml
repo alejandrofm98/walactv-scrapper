@@ -1,10 +1,63 @@
 ---
 - name: playbook
-  become: yes
-  become_method: "sudo"
   hosts: "{{entorno}}"
   tasks:
-    - name: Copying config-servidores
+#    - name: Crear carpeta proyectos
+#      command:
+#        cmd: mkdir /home/proyectos
+
+    - name: Cloning git
+      git:
+        repo: "https://github.com/alejandrofm98/walactv-scrapper"
+        dest: "/home/proyectos/walactv-scrapper"
+        force: true
+
+    - name: Copying resources
       ansible.builtin.copy:
-        src: ~/PycharmProjects/walactv-scrapper/resources/
-        dest: /home/ubuntu/proyectos
+        src: ~/PycharmProjects/walactv-scrapper/resources
+        dest: /home/proyectos/walactv-scrapper
+
+
+    - name: Crear entorno virtual en la ruta deseada
+      ansible.builtin.command:
+        cmd: python3 -m venv /home/proyectos/walactv-scrapper/.venv
+        creates: /home/proyectos/walactv-scrapper/.venv/bin/activate
+
+    - name: Activar el entorno virtual
+      ansible.builtin.shell: |
+          source /home/proyectos/walactv-scrapper/.venv/bin/activate
+          pip install --upgrade pip  # Asegurarse de que pip esté actualizado
+      args:
+        executable: /bin/bash
+
+    - name:
+      command:
+        cmd: chown -R ubuntu:ubuntu /home/proyectos/
+
+    - name: Instalar pipreq
+      pip:
+        name: pipreqs
+        virtualenv: /home/proyectos/walactv-scrapper/.venv
+
+    - name: Crear fichero requirements.txt usando pipreqs
+      shell: |
+        source /home/proyectos/walactv-scrapper/.venv/bin/activate
+        pipreqs /home/proyectos/walactv-scrapper/scripts --force
+      args:
+        executable: /bin/bash
+        chdir: /home/proyectos/walactv-scrapper/scripts  # Ruta donde está el proyecto de Python
+        creates: /home/proyectos/walactv-scrapper/requirements.txt
+
+
+    - name: Instalar las dependencias desde requirements.txt en el entorno virtual
+      pip:
+        requirements: /home/proyectos/walactv-scrapper/requirements.txt
+        virtualenv: /home/proyectos/walactv-scrapper/.venv
+        virtualenv_command: python3 -m venv
+
+#    - name: Creating job for executing python script
+#      ansible.builtin.cron:
+#        name:  "Execute walactv-scrapper python script"
+#        minute: "0"
+#        hour: "10"
+#        job:
