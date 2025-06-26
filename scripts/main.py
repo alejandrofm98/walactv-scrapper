@@ -8,15 +8,16 @@ from datetime import datetime
 from scrapper import ScrapperElPlanDeportes
 from scrapper import ScrapperFutbolenlatv
 from database import Database
+import newScrapper
 
 if __name__ == '__main__':
   #CALENDARIO
-  scrapper = ScrapperFutbolenlatv()
-  fechas = scrapper.obtener_fechas()
-  for fecha in fechas:
-    eventos = scrapper.obtener_partidos(fecha)
-    if eventos is not None:
-      scrapper.guarda_partidos(eventos, fecha)
+  # scrapper = ScrapperFutbolenlatv()
+  # fechas = scrapper.obtener_fechas()
+  # for fecha in fechas:
+  #   eventos = scrapper.obtener_partidos(fecha)
+  #   if eventos is not None:
+  #     scrapper.guarda_partidos(eventos, fecha)
 
 
   #CANALES  NO ES NECESARIO ACTUALIZARLO A DIARIO
@@ -26,3 +27,7 @@ if __name__ == '__main__':
   # canales = json.dumps(canales, ensure_ascii=False)
   # db = Database("canales", "canales", canales)
   # db.add_data_firebase()
+
+  tvlibre = newScrapper.NewScrapper()
+  eventos = tvlibre.obtener_eventos()
+  tvlibre.chrome()
