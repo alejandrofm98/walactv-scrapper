@@ -5,10 +5,13 @@ from _datetime import datetime
 from collections import defaultdict
 import json
 from datetime import datetime
+
+from newScrapper import guarda_partidos
 from scrapper import ScrapperElPlanDeportes
 from scrapper import ScrapperFutbolenlatv
 from database import Database
 import newScrapper
+import openRouter
 
 if __name__ == '__main__':
   #CALENDARIO
@@ -29,5 +32,12 @@ if __name__ == '__main__':
   # db.add_data_firebase()
 
   tvlibre = newScrapper.NewScrapper()
-  eventos = tvlibre.obtener_eventos()
-  tvlibre.chrome()
+  tvlibre.obtener_titulo_eventos()
+  eventos = tvlibre.process_streams()
+
+  openRouter = openRouter.OpenRouter(events=eventos["eventos"])
+  eventos = openRouter.get_category_events()
+  guarda_partidos(eventos)
+  print(eventos)
+
+  print("termina")
