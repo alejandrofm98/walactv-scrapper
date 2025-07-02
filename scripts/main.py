@@ -5,9 +5,13 @@ from _datetime import datetime
 from collections import defaultdict
 import json
 from datetime import datetime
+
+from newScrapper import guarda_partidos
 from scrapper import ScrapperElPlanDeportes
 from scrapper import ScrapperFutbolenlatv
 from database import Database
+import newScrapper
+import openRouter
 
 if __name__ == '__main__':
   #CALENDARIO
@@ -19,10 +23,11 @@ if __name__ == '__main__':
       scrapper.guarda_partidos(eventos, fecha)
 
 
-  #CANALES  NO ES NECESARIO ACTUALIZARLO A DIARIO
-  # scrapper = ScrapperElPlanDeportes()
-  # scrapper.get_html()
-  # canales = scrapper.get_json_enlaces()
-  # canales = json.dumps(canales, ensure_ascii=False)
-  # db = Database("canales", "canales", canales)
-  # db.add_data_firebase()
+  # CANALES  NO ES NECESARIO ACTUALIZARLO A DIARIO
+  scrapper = ScrapperElPlanDeportes()
+  scrapper.get_html()
+  canales = scrapper.get_json_enlaces()
+  canales = json.dumps(canales, ensure_ascii=False)
+  db = Database("canales", "canales", canales)
+  db.add_data_firebase()
+
