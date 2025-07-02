@@ -15,29 +15,19 @@ import openRouter
 
 if __name__ == '__main__':
   #CALENDARIO
-  # scrapper = ScrapperFutbolenlatv()
-  # fechas = scrapper.obtener_fechas()
-  # for fecha in fechas:
-  #   eventos = scrapper.obtener_partidos(fecha)
-  #   if eventos is not None:
-  #     scrapper.guarda_partidos(eventos, fecha)
+  scrapper = ScrapperFutbolenlatv()
+  fechas = scrapper.obtener_fechas()
+  for fecha in fechas:
+    eventos = scrapper.obtener_partidos(fecha)
+    if eventos is not None:
+      scrapper.guarda_partidos(eventos, fecha)
 
 
-  #CANALES  NO ES NECESARIO ACTUALIZARLO A DIARIO
-  # scrapper = ScrapperElPlanDeportes()
-  # scrapper.get_html()
-  # canales = scrapper.get_json_enlaces()
-  # canales = json.dumps(canales, ensure_ascii=False)
-  # db = Database("canales", "canales", canales)
-  # db.add_data_firebase()
+  # CANALES  NO ES NECESARIO ACTUALIZARLO A DIARIO
+  scrapper = ScrapperElPlanDeportes()
+  scrapper.get_html()
+  canales = scrapper.get_json_enlaces()
+  canales = json.dumps(canales, ensure_ascii=False)
+  db = Database("canales", "canales", canales)
+  db.add_data_firebase()
 
-  tvlibre = newScrapper.NewScrapper()
-  tvlibre.obtener_titulo_eventos()
-  eventos = tvlibre.process_streams()
-
-  openRouter = openRouter.OpenRouter(events=eventos["eventos"])
-  eventos = openRouter.get_category_events()
-  guarda_partidos(eventos)
-  print(eventos)
-
-  print("termina")

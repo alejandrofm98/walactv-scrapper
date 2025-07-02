@@ -68,3 +68,12 @@
         job: "source /home/proyectos/walactv-scrapper/.venv/bin/activate &&
          python3 /home/proyectos/walactv-scrapper/scripts/main.py"
         state: present
+
+    #Segundo script
+    - name: Crear job para ejecutar el nuevo script de python walactv-scrapper cada 1h
+      cron:
+        name: "Ejecutar script de python walactv-scrapper TvLibre cada 1h"
+        minute: "0"
+        job: "source /home/proyectos/walactv-scrapper/.venv/bin/activate &&
+         python3 /home/proyectos/walactv-scrapper/scripts/main2.py"
+        state: present
