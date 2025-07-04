@@ -103,6 +103,8 @@ class NewScrapper:
       return enlaces_data
 
     # Encontrar y extraer información del menú principal
+    print("INICIO")
+    time.sleep(5)
     menu = self.soup.find("ul", class_='menu')
     print(menu)
     dia_agenda = menu.find("b").text
