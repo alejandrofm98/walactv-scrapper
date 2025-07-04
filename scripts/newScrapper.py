@@ -104,6 +104,7 @@ class NewScrapper:
 
     # Encontrar y extraer información del menú principal
     menu = self.soup.find("ul", class_='menu')
+    print(menu)
     dia_agenda = menu.find("b").text
     eventos = menu.find_all("li", class_=lambda x: x != "subitem1")
 
@@ -143,6 +144,10 @@ class NewScrapper:
       """Configura y retorna una instancia de Chrome WebDriver."""
       chrome_options = Options()
       chrome_options.add_argument("--headless")
+      chrome_options.add_argument('--no-sandbox')
+      chrome_options.add_argument('--disable-dev-shm-usage')
+      chrome_options.add_argument('--disable-gpu')
+      chrome_options.add_argument('--window-size=1920,1080')
       return webdriver.Chrome(options=chrome_options)
 
   def _process_all_events(self, driver):
