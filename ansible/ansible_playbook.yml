@@ -45,6 +45,14 @@
         chdir: /home/proyectos/walactv-scrapper/scripts  # Ruta donde está el proyecto de Python
         creates: /home/proyectos/walactv-scrapper/requirements.txt
 
+    - name: Agregar bloque de texto
+      blockinfile:
+        path: /home/proyectos/walactv-scrapper/scripts/requirements.txt
+        block: |
+          blinker==1.7.0
+          setuptools
+        marker: ""
+        create: yes
 
     - name: Instalar las dependencias desde requirements.txt en el entorno virtual
       pip:
