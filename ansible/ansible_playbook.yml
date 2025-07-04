@@ -6,8 +6,9 @@
       git:
         repo: "https://github.com/alejandrofm98/walactv-scrapper"
         dest: "/home/proyectos/walactv-scrapper"
-        force: true
-        update: true
+        force: yes
+        update: yes
+        version: tvlibre
 
     - name: Copiando la carpeta resources
       ansible.builtin.copy:

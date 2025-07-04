@@ -72,7 +72,6 @@ class NewScrapper:
     self.url_agenda = "/agenda/"
     self.soup = BeautifulSoup(requests.get(self.url + self.url_agenda).text,
                               'html.parser')
-    self.soup.text.encode('latin-1').decode('utf-8')
 
   def obtener_titulo_eventos(self):
     """
@@ -105,6 +104,7 @@ class NewScrapper:
     # Encontrar y extraer información del menú principal
     print("INICIO")
     time.sleep(5)
+    print(self.soup.text.encode('latin-1').decode('utf-8'))
     menu = self.soup.find("ul", class_='menu')
     print(menu)
     dia_agenda = menu.find("b").text
