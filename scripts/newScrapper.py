@@ -169,6 +169,12 @@ class NewScrapper:
 
       return webdriver.Chrome(options=chrome_options,seleniumwire_options=seleniumwire_options)
 
+  def interceptor(self, request):
+    request.headers[
+      'User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
+    request.headers['Accept-Language'] = 'en-US,en;q=0.9'
+    request.headers['Referer'] = 'https://www.google.com/'
+
   def _process_all_events(self, driver):
       """Procesa todos los eventos y sus enlaces."""
       for evento in self.guarda_eventos["eventos"]:
@@ -187,6 +193,7 @@ class NewScrapper:
 
       enlace["m3u8"] = []
 
+      driver.requests_interceptor = self.interceptor
       # Procesa el enlace principal
       driver.requests.clear()
       driver.get(enlace["link"])
