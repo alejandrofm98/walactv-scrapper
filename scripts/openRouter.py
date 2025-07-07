@@ -7,7 +7,7 @@ class OpenRouter:
   def __init__(self, events=None):
     load_dotenv()
     self.events = events
-    self.mensaje = "Devuelvemelo en json, considera que todos los eventos que  te pase son de ayer/hoy/mañana quiero que me digas categoria,  una sola palabra para la categoria y que sea (Futbol,Motos,Coches,Baloncesto,Lucha,Tenis,Beisbol...) en caso de que no este en la lista consideralo 'Otros' para los siguientes eventos: "
+    self.mensaje = "Devuelvemelo en json, considera que todos los eventos que  te pase son de ayer/hoy/mañana quiero que me digas categoria,  una sola palabra para la categoria y que sea (Futbol,Motos,Coches,Baloncesto,Lucha,Tenis,Beisbol,Ciclismo...) en caso de que no este en la lista consideralo 'Otros' para los siguientes eventos: "
     for event in self.events:
       self.mensaje += event["titulo"] + ", "
     self.response = None

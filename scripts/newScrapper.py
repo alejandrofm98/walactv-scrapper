@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-
 from bs4 import BeautifulSoup
 import requests
 from selenium.webdriver.support.wait import WebDriverWait
@@ -145,15 +144,28 @@ class NewScrapper:
   def _setup_chrome_driver(self):
       """Configura y retorna una instancia de Chrome WebDriver."""
       chrome_options = Options()
-      chrome_options.add_argument("--headless")
+      # chrome_options.add_argument("--headless")
       chrome_options.add_argument('--no-sandbox')
       chrome_options.add_argument('--disable-dev-shm-usage')
       chrome_options.add_argument('--disable-gpu')
       chrome_options.add_argument('--window-size=1920,1080')
-      chrome_options.add_argument(
-        '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+      db = Database("configNewScrapper", 'proxy', None)
+      proxy = db.get_doc_firebase().to_dict()
 
-      return webdriver.Chrome(options=chrome_options)
+
+      proxy_ip = proxy.get("proxy_ip")
+      proxy_port = proxy.get("proxy_port")
+      proxy_user = proxy.get("proxy_user")
+      proxy_pass = proxy.get("proxy_pass")
+      seleniumwire_options = {
+        'proxy':{
+          'http': 'http://'+proxy_user+':'+proxy_pass+'@'+proxy_ip+':'+proxy_port,
+          'https': 'https://'+proxy_user+':'+proxy_pass+'@'+proxy_ip+':'+proxy_port
+        }
+      }
+
+
+      return webdriver.Chrome(options=chrome_options,seleniumwire_options=seleniumwire_options)
 
   def _process_all_events(self, driver):
       """Procesa todos los eventos y sus enlaces."""
@@ -172,13 +184,12 @@ class NewScrapper:
       print(f"CANAL: {enlace['canal']}")
 
       enlace["m3u8"] = []
-      contador = 1
 
       # Procesa el enlace principal
       driver.requests.clear()
       driver.get(enlace["link"])
       time.sleep(1)
-
+      contador = 1
       self._extract_m3u8_url(driver, enlace, contador)
 
       # Procesa los botones adicionales
@@ -199,18 +210,13 @@ class NewScrapper:
           driver.requests.clear()
           driver.execute_script("arguments[0].click();", boton)
           self._extract_m3u8_url(driver, enlace, contador)
+          contador+=1
 
   def _extract_m3u8_url(self, driver, enlace, contador):
       """Extrae y guarda la URL de M3U8 si es válida."""
       resultado = list(filter(lambda x: "m3u8" in x.url, driver.requests))
-
-      if not resultado:
-          return contador
-
-      new_url = resultado[-1].url
-      if new_url not in enlace["m3u8"] and not token_already_exists(new_url, enlace["m3u8"]):
-          enlace["m3u8"].append(new_url)
-          print(f"M3U8 BOTON {contador}: {new_url}")
-          contador += 1
-
-      return contador
+      if resultado:
+        new_url = resultado[-1].url
+        if new_url not in enlace["m3u8"] and not token_already_exists(new_url, enlace["m3u8"]):
+            enlace["m3u8"].append(new_url)
+            print(f"M3U8 BOTON {contador}: {new_url}")
