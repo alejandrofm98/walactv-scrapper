@@ -2,10 +2,9 @@ from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 import requests
 from selenium.webdriver.support.wait import WebDriverWait
-from seleniumwire import webdriver
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
+from seleniumwire.undetected_chromedriver import webdriver
 import time
 import re
 import json
@@ -143,15 +142,13 @@ class NewScrapper:
 
   def _setup_chrome_driver(self):
       """Configura y retorna una instancia de Chrome WebDriver."""
-      chrome_options = Options()
+      chrome_options = webdriver.ChromeOptions()
       chrome_options.add_argument("--headless")
       chrome_options.add_argument('--no-sandbox')
       chrome_options.add_argument('--disable-dev-shm-usage')
       chrome_options.add_argument('--disable-gpu')
       chrome_options.add_argument('--window-size=1920,1080')
       chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-      chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36')
-      options.add_argument('--lang=en-US,en;q=0.9')
       db = Database("configNewScrapper", 'proxy', None)
       proxy = db.get_doc_firebase().to_dict()
 
@@ -168,13 +165,8 @@ class NewScrapper:
       }
 
 
-      return webdriver.Chrome(options=chrome_options,seleniumwire_options=seleniumwire_options)
+      return webdriver.Chrome(options=chrome_options)
 
-  def interceptor(self, request):
-    request.headers[
-      'User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
-    request.headers['Accept-Language'] = 'en-US,en;q=0.9'
-    request.headers['Referer'] = 'https://www.google.com/'
 
   def _process_all_events(self, driver):
       """Procesa todos los eventos y sus enlaces."""
@@ -194,9 +186,7 @@ class NewScrapper:
 
       enlace["m3u8"] = []
 
-      driver.requests_interceptor = self.interceptor
       # Procesa el enlace principal
-      driver.requests.clear()
       driver.get(enlace["link"])
       time.sleep(1)
       contador = 1
