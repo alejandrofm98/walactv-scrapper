@@ -9,6 +9,7 @@ import time
 import re
 import json
 from database import Database
+from selenium_stealth import stealth
 
 
 
@@ -133,6 +134,12 @@ class NewScrapper:
   def process_streams(self):
       """Procesa los streams de video utilizando Chrome WebDriver."""
       driver = self._setup_chrome_driver()
+      stealth(driver, languages=["en-US", "en"],
+              vendor="Google Inc.",
+              platform="Win32",
+              webgl_vendor="Intel Inc.",
+              renderer="Intel Iris OpenGL Engine",
+              fix_hairline=True)
 
       try:
           self._process_all_events(driver)
