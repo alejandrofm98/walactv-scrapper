@@ -154,6 +154,7 @@ class NewScrapper:
 
     except Exception as e:
       print(f"An error occurred: {e}")
+    finally:
       self.driver.quit()
 
     
