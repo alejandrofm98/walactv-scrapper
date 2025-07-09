@@ -80,8 +80,15 @@ class NewScrapper:
       'http': 'http://' + proxy_user + ':' + proxy_pass + '@' + proxy_ip + ':' + proxy_port,
     }
 
+    headers = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
+      "Accept-Language": "en-US,en;q=0.5",
+      "Referer": "https://google.com",
+      "Connection": "keep-alive",
+    }
 
-    self.soup = BeautifulSoup(requests.get(self.url + self.url_agenda, proxies=proxies).text,
+    self.soup = BeautifulSoup(requests.get(self.url + self.url_agenda, proxies=proxies, headers=headers).text,
                               'html.parser')
 
   def obtener_titulo_eventos(self):
