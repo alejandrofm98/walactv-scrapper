@@ -39,8 +39,9 @@ class Prueba:
       # VPS or ARM system
       options.binary_location = "/usr/bin/chromium-browser"
       return Chrome(
-          service=Service("//usr/lib/chromium-browser/chromedriver"),
-          options=options
+          service=Service("/usr/bin/chromedriver"),
+          options=options,
+          seleniumwire_options=self.seleniumwire_options
       )
     else:
       # Desktop or x86 (assuming Chrome is installed and in PATH)
