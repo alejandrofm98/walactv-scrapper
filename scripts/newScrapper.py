@@ -9,6 +9,7 @@ from database import Database
 import platform
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+import concurrent.futures
 
 
 
@@ -84,7 +85,8 @@ class NewScrapper:
     self.seleniumwire_options = {
       "proxy": {
         'http': 'http://' + proxy_user + ':' + proxy_pass + '@' + proxy_ip + ':' + proxy_port
-      }
+      },
+      'mitm_http2': False
     }
 
     self.driver = self._setup_chrome_driver()
@@ -161,8 +163,10 @@ class NewScrapper:
       try:
           self._process_all_events()
           return self.guarda_eventos
+      except Exception as e:
+        print(f"An error occurred: {e}")
       finally:
-          self.driver.quit()
+        self.driver.quit()
 
   def _setup_chrome_driver(self):
       """Configura y retorna una instancia de Chrome WebDriver."""
@@ -224,19 +228,35 @@ class NewScrapper:
       )[1:]  # Excluye el primer botón
 
   def _process_buttons(self, botones, enlace, contador):
-      """Procesa los botones adicionales para extraer URLs de M3U8."""
-      for boton in botones:
-          time.sleep(5)
-          self.driver.requests.clear()
-          self.driver.execute_script("arguments[0].click();", boton)
-          self._extract_m3u8_url(enlace, contador)
-          contador+=1
+    """Procesa los botones adicionales para extraer URLs de M3U8."""
+    for i, boton in enumerate(botones):
+      with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(self._click_and_extract, boton, enlace,
+                                 contador)
+        try:
+          # If it takes more than 20 seconds, skip
+          future.result(timeout=20)
+          contador += 1
+        except concurrent.futures.TimeoutError:
+          print(
+            f"Botón {i + 1} excedió el tiempo límite de 20 segundos. Se omite.")
+        except Exception as e:
+          print(f"Error procesando botón {i + 1}: {e}")
+
+  def _click_and_extract(self, boton, enlace, contador):
+    time.sleep(5)
+    self.driver.requests.clear()
+    self.driver.execute_script("arguments[0].click();", boton)
+    self._extract_m3u8_url(enlace, contador)
 
   def _extract_m3u8_url(self, enlace, contador):
       """Extrae y guarda la URL de M3U8 si es válida."""
-      resultado = list(filter(lambda x: "m3u8" in x.url, self.driver.requests))
-      if resultado:
-        new_url = resultado[-1].url
-        if new_url not in enlace["m3u8"] and not token_already_exists(new_url, enlace["m3u8"]):
-            enlace["m3u8"].append(new_url)
-            print(f"M3U8 BOTON {contador}: {new_url}")
+      try:
+        resultado = list(filter(lambda x: "m3u8" in x.url, self.driver.requests))
+        if resultado:
+          new_url = resultado[-1].url
+          if new_url not in enlace["m3u8"] and not token_already_exists(new_url, enlace["m3u8"]):
+              enlace["m3u8"].append(new_url)
+              print(f"M3U8 BOTON {contador}: {new_url}")
+      except Exception as e:
+        print(f"Error extrayendo M3U8: {e}")
