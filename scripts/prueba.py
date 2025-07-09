@@ -12,7 +12,7 @@ class Prueba:
   def prueba(self):
     print("hola")
     options = Options()
-    # options.add_argument('--headless')  # Optional for no GUI
+    options.add_argument('--headless')  # Optional for no GUI
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
 
