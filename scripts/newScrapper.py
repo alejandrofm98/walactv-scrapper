@@ -69,7 +69,20 @@ class NewScrapper:
     self.guarda_eventos = None
     self.url = "https://tvlibreonline.org"
     self.url_agenda = "/agenda/"
-    self.soup = BeautifulSoup(requests.get(self.url + self.url_agenda).text,
+    db = Database("configNewScrapper", 'proxy', None)
+    proxy = db.get_doc_firebase().to_dict()
+
+    proxy_ip = proxy.get("proxy_ip")
+    proxy_port = proxy.get("proxy_port")
+    proxy_user = proxy.get("proxy_user")
+    proxy_pass = proxy.get("proxy_pass")
+    proxies = {
+      'http': 'http://' + proxy_user + ':' + proxy_pass + '@' + proxy_ip + ':' + proxy_port,
+      'https': 'https://' + proxy_user + ':' + proxy_pass + '@' + proxy_ip + ':' + proxy_port
+    }
+
+
+    self.soup = BeautifulSoup(requests.get(self.url + self.url_agenda, proxies=proxies).text,
                               'html.parser')
 
   def obtener_titulo_eventos(self):
@@ -156,20 +169,7 @@ class NewScrapper:
       chrome_options.add_argument('--disable-gpu')
       chrome_options.add_argument('--window-size=1920,1080')
       chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-      db = Database("configNewScrapper", 'proxy', None)
-      proxy = db.get_doc_firebase().to_dict()
 
-
-      proxy_ip = proxy.get("proxy_ip")
-      proxy_port = proxy.get("proxy_port")
-      proxy_user = proxy.get("proxy_user")
-      proxy_pass = proxy.get("proxy_pass")
-      seleniumwire_options = {
-        'proxy':{
-          'http': 'http://'+proxy_user+':'+proxy_pass+'@'+proxy_ip+':'+proxy_port,
-          'https': 'https://'+proxy_user+':'+proxy_pass+'@'+proxy_ip+':'+proxy_port
-        }
-      }
 
 
       return webdriver.Chrome(options=chrome_options)
