@@ -78,7 +78,6 @@ class NewScrapper:
     proxy_pass = proxy.get("proxy_pass")
     proxies = {
       'http': 'http://' + proxy_user + ':' + proxy_pass + '@' + proxy_ip + ':' + proxy_port,
-      'https': 'https://' + proxy_user + ':' + proxy_pass + '@' + proxy_ip + ':' + proxy_port
     }
 
 
