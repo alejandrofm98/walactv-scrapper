@@ -134,13 +134,6 @@ class NewScrapper:
   def process_streams(self):
       """Procesa los streams de video utilizando Chrome WebDriver."""
       driver = self._setup_chrome_driver()
-      stealth(driver, languages=["en-US", "en"],
-              vendor="Google Inc.",
-              platform="Win32",
-              webgl_vendor="Intel Inc.",
-              renderer="Intel Iris OpenGL Engine",
-              fix_hairline=True,
-              webdriver=False)
 
       try:
           self._process_all_events(driver)
@@ -157,6 +150,7 @@ class NewScrapper:
       chrome_options.add_argument('--disable-gpu')
       chrome_options.add_argument('--window-size=1920,1080')
       chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+      chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36')
       db = Database("configNewScrapper", 'proxy', None)
       proxy = db.get_doc_firebase().to_dict()
 
