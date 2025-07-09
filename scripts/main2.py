@@ -10,8 +10,11 @@ if __name__ == '__main__':
     tv_libre.obtener_titulo_eventos()
     eventos = tv_libre.process_streams()
 
+    print("ANTES OPEN ROUTER")
     open_router = openRouter.OpenRouter(events=eventos["eventos"])
+    print("DESPUES OPEN ROUTER")
     eventos["eventos"] = open_router.get_category_events()
+    print("ANTES GUARDAR")
     guarda_partidos(eventos)
     print(eventos)
     # prueba = prueba.Prueba()
