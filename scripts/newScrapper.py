@@ -86,7 +86,9 @@ class NewScrapper:
       "proxy": {
         'http': 'http://' + proxy_user + ':' + proxy_pass + '@' + proxy_ip + ':' + proxy_port
       },
-      'mitm_http2': False
+      'mitm_http2': False,
+      'suppress_connection_errors': True,
+      'connection_timeout': 20,
     }
 
     self.driver = self._setup_chrome_driver()
