@@ -173,7 +173,7 @@ class NewScrapper:
       }
 
 
-      return webdriver.Chrome(options=chrome_options)
+      return webdriver.Chrome(options=chrome_options, seleniumwire_options=seleniumwire_options)
 
 
   def _process_all_events(self, driver):
