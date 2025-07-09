@@ -39,7 +39,7 @@ class Prueba:
       # VPS or ARM system
       options.binary_location = "/usr/bin/chromium-browser"
       return Chrome(
-          service=Service("/usr/bin/chromedriver"),
+          service=Service("//usr/lib/chromium-browser/chromedriver"),
           options=options
       )
     else:
