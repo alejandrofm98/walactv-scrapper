@@ -139,7 +139,8 @@ class NewScrapper:
               platform="Win32",
               webgl_vendor="Intel Inc.",
               renderer="Intel Iris OpenGL Engine",
-              fix_hairline=True)
+              fix_hairline=True,
+              webdriver=False)
 
       try:
           self._process_all_events(driver)
