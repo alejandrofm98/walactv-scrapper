@@ -36,6 +36,6 @@ class Prueba:
       }
     }
 
-    driver = webdriver.Chrome(service=service, options=options, seleniumwire_options={"port": 4444})
+    driver = webdriver.Chrome(service=service, options=options, seleniumwire_options=seleniumwire_options)
     driver.get(self.url + self.url_agenda)
     print(driver.page_source)
