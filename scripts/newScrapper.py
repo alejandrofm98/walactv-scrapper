@@ -1,15 +1,12 @@
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 import requests
-from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from seleniumwire.undetected_chromedriver import webdriver
+from seleniumwire.undetected_chromedriver.v2 import Chrome, ChromeOptions
 import time
 import re
 import json
 from database import Database
-from selenium_stealth import stealth
 
 
 
@@ -143,7 +140,7 @@ class NewScrapper:
 
   def _setup_chrome_driver(self):
       """Configura y retorna una instancia de Chrome WebDriver."""
-      chrome_options = webdriver.ChromeOptions()
+      chrome_options = ChromeOptions()
       chrome_options.add_argument("--headless")
       chrome_options.add_argument('--no-sandbox')
       chrome_options.add_argument('--disable-dev-shm-usage')
@@ -167,7 +164,7 @@ class NewScrapper:
       }
 
 
-      return webdriver.Chrome(options=chrome_options, seleniumwire_options=seleniumwire_options)
+      return Chrome(options=chrome_options, seleniumwire_options=seleniumwire_options)
 
 
   def _process_all_events(self, driver):
