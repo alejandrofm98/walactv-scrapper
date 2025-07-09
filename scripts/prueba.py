@@ -1,5 +1,6 @@
-from seleniumwire.undetected_chromedriver.v2 import Chrome, ChromeOptions
+from seleniumwire.undetected_chromedriver.v2 import Chrome
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from database import Database
 import platform
 
@@ -29,7 +30,7 @@ class Prueba:
 
 
   def get_driver(self):
-    options = ChromeOptions()
+    options = Options()
     options.add_argument('--headless')  # Optional for no GUI
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
