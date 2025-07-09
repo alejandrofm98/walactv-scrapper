@@ -16,7 +16,7 @@ if __name__ == '__main__':
     # guarda_partidos(eventos)
     # print(eventos)
     prueba = prueba.Prueba()
-    prueba.prueba()
+    prueba.prueba2()
 
   # Optional: stop OpenVPN
   except Exception as e:
