@@ -1,10 +1,7 @@
-from seleniumwire import webdriver
+from seleniumwire.undetected_chromedriver.v2 import Chrome, ChromeOptions
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-
 from database import Database
 import platform
-import requests
 
 
 def is_arm():
@@ -32,7 +29,7 @@ class Prueba:
 
 
   def get_driver(self):
-    options = Options()
+    options = ChromeOptions()
     options.add_argument('--headless')  # Optional for no GUI
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
@@ -40,13 +37,13 @@ class Prueba:
     if is_arm():
       # VPS or ARM system
       options.binary_location = "/usr/bin/chromium-browser"
-      return webdriver.Chrome(
+      return Chrome(
           service=Service("/usr/bin/chromedriver"),
           options=options
       )
     else:
       # Desktop or x86 (assuming Chrome is installed and in PATH)
-      return webdriver.Chrome(options=options, seleniumwire_options=self.seleniumwire_options)
+      return Chrome(options=options, seleniumwire_options=self.seleniumwire_options)
   def prueba(self):
     print("hola")
     driver = self.get_driver()
