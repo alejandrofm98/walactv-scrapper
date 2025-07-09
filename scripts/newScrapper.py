@@ -153,9 +153,7 @@ class NewScrapper:
         self.guarda_eventos["eventos"].append(evento_data)
 
     except Exception as e:
-      print(f"An error occurred: {e}")
-    finally:
-      self.driver.quit()
+      print(f"An error occurred: {e.with_traceback(e.__traceback__)}")
 
     
   def process_streams(self):
@@ -165,7 +163,7 @@ class NewScrapper:
           self._process_all_events()
           return self.guarda_eventos
       except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"An error occurred: {e.with_traceback(e.__traceback__)}")
       finally:
         self.driver.quit()
 
