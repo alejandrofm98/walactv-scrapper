@@ -1,6 +1,6 @@
-from seleniumwire.undetected_chromedriver.v2 import Chrome
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from seleniumwire import webdriver
 from database import Database
 import platform
 
@@ -34,18 +34,20 @@ class Prueba:
     options.add_argument('--headless')  # Optional for no GUI
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36')
 
     if is_arm():
       # VPS or ARM system
       options.binary_location = "/usr/bin/chromium-browser"
-      return Chrome(
+      return webdriver.Chrome(
           service=Service("/usr/bin/chromedriver"),
           options=options,
           seleniumwire_options=self.seleniumwire_options
       )
     else:
       # Desktop or x86 (assuming Chrome is installed and in PATH)
-      return Chrome(options=options, seleniumwire_options=self.seleniumwire_options)
+      return webdriver.Chrome(options=options, seleniumwire_options=self.seleniumwire_options)
   def prueba(self):
     print("hola")
     driver = self.get_driver()
