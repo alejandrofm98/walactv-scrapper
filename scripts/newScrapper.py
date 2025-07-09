@@ -73,7 +73,22 @@ class NewScrapper:
     self.url = "https://tvlibreonline.org"
     self.url_agenda = "/agenda/"
     self.soup= None
+    db = Database("configNewScrapper", 'proxy', None)
+    proxy = db.get_doc_firebase().to_dict()
+
+    proxy_ip = proxy.get("proxy_ip")
+    proxy_port = proxy.get("proxy_port")
+    proxy_user = proxy.get("proxy_user")
+    proxy_pass = proxy.get("proxy_pass")
+
+    self.seleniumwire_options = {
+      "proxy": {
+        'http': 'http://' + proxy_user + ':' + proxy_pass + '@' + proxy_ip + ':' + proxy_port
+      }
+    }
+
     self.driver = self._setup_chrome_driver()
+
 
 
   def obtener_titulo_eventos(self):
@@ -155,31 +170,22 @@ class NewScrapper:
       chrome_options.add_argument('--headless')  # Optional for no GUI
       chrome_options.add_argument('--no-sandbox')
       chrome_options.add_argument('--disable-dev-shm-usage')
+      chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+      chrome_options.add_argument(
+        '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36')
 
       if is_arm():
         # VPS or ARM system
         chrome_options.binary_location = "/usr/bin/chromium-browser"
         return webdriver.Chrome(
             service=Service("/usr/bin/chromedriver"),
-            options=chrome_options
+            options=chrome_options,
+            seleniumwire_options=self.seleniumwire_options
         )
       else:
         # Desktop or x86 (assuming Chrome is installed and in PATH)
-        db = Database("configNewScrapper", 'proxy', None)
-        proxy = db.get_doc_firebase().to_dict()
-
-        proxy_ip = proxy.get("proxy_ip")
-        proxy_port = proxy.get("proxy_port")
-        proxy_user = proxy.get("proxy_user")
-        proxy_pass = proxy.get("proxy_pass")
-
-        seleniumwire_options = {
-          "proxy": {
-            'http': 'http://' + proxy_user + ':' + proxy_pass + '@' + proxy_ip + ':' + proxy_port
-          }
-        }
         return webdriver.Chrome(options=chrome_options,
-                                seleniumwire_options=seleniumwire_options)
+                                seleniumwire_options=self.seleniumwire_options)
 
 
 
