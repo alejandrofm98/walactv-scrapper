@@ -5,13 +5,14 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 class OpenRouter:
-  def __init__(self, events=None):
+  def __init__(self, events=None, mensaje=None):
     env_path = Path("../resources") / ".env"
     load_dotenv(dotenv_path=env_path)
     self.events = events
-    self.mensaje = "Devuelvemelo en json, considera que todos los eventos que  te pase son de ayer/hoy/mañana quiero que me digas categoria,  una sola palabra para la categoria y que sea (Futbol,Motos,Coches,Baloncesto,Lucha,Tenis,Beisbol,Ciclismo...) en caso de que no este en la lista consideralo 'Otros' para los siguientes eventos: "
-    for event in self.events:
-      self.mensaje += event["titulo"] + ", "
+    self.mensaje = mensaje
+    # self.mensaje = "Devuelvemelo en json, considera que todos los eventos que  te pase son de ayer/hoy/mañana quiero que me digas categoria,  una sola palabra para la categoria y que sea (Futbol,Motos,Coches,Baloncesto,Lucha,Tenis,Beisbol,Ciclismo...) en caso de que no este en la lista consideralo 'Otros' para los siguientes eventos: "
+    # for event in self.events:
+    #   self.mensaje += event["titulo"] + ", "
     self.response = None
     self.API_KEY = os.getenv('API_KEY')
 
