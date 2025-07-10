@@ -137,6 +137,7 @@ class NewScrapper:
       # Inicializar el diccionario de eventos
       self.guarda_eventos = {
         "dia": dia_agenda,
+        "fecha": obtener_fechas(),
         "eventos": []
       }
 
