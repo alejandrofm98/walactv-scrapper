@@ -1,13 +1,9 @@
 import newScrapper
 from newScrapper import guarda_partidos
 import openRouter
-import prueba2
-import openvpn
 
 if __name__ == '__main__':
-  OpenVPN = openvpn.OpenVpn()
   try:
-    # OpenVPN.start_openvpn()
     tv_libre = newScrapper.NewScrapper()
     tv_libre.obtener_titulo_eventos()
     eventos = tv_libre.process_streams()
@@ -17,6 +13,5 @@ if __name__ == '__main__':
     print(eventos)
     # prueba = prueba2.Prueba()
     # prueba.prueba2()
-  # Optional: stop OpenVPN
   except Exception as e:
     print(f"An error occurred1: {e.with_traceback(e.__traceback__)}")
