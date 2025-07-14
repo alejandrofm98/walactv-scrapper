@@ -114,7 +114,6 @@ async def handle_segment(target_url):
                         print(f"Segment Error: {response.status}")
                         return
 
-                    # Leer todo el contenido primero
                     data = await response.read()
                     yield data
 
