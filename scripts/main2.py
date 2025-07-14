@@ -1,6 +1,7 @@
 import newScrapper
 from newScrapper import guarda_partidos
 import openRouter
+import prueba
 
 if __name__ == '__main__':
   try:
@@ -11,7 +12,7 @@ if __name__ == '__main__':
     eventos["eventos"] = open_router.get_category_events()
     guarda_partidos(eventos)
     print(eventos)
-    # prueba = prueba2.Prueba()
-    # prueba.prueba2()
+    # prueba = prueba.Prueba()
+    # prueba.prueba()
   except Exception as e:
     print(f"An error occurred1: {e.with_traceback(e.__traceback__)}")

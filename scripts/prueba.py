@@ -3,7 +3,7 @@ from selenium.webdriver.chrome.options import Options
 from seleniumwire import webdriver
 from database import Database
 import platform
-
+import requests
 
 def is_arm():
   return platform.machine().startswith(
@@ -31,7 +31,7 @@ class Prueba:
 
   def get_driver(self):
     options = Options()
-    options.add_argument('--headless')  # Optional for no GUI
+    # options.add_argument('--headless')  # Optional for no GUI
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-blink-features=AutomationControlled')
@@ -42,7 +42,7 @@ class Prueba:
       options.binary_location = "/usr/bin/chromium-browser"
       return webdriver.Chrome(
           service=Service("/usr/bin/chromedriver"),
-          options=options,
+          # options=options,
           seleniumwire_options=self.seleniumwire_options
       )
     else:
@@ -51,5 +51,21 @@ class Prueba:
   def prueba(self):
     print("hola")
     driver = self.get_driver()
-    driver.get(self.url + self.url_agenda)
+    driver.get("https://8895.crackstreamslivehd.com/espn2/index.m3u8?token=39e9027c6428fa7da60551e18ae4ecddbf309162-7d-1752468092-1752414092&ip=38.170.104.180")
     print(driver.page_source)
+
+  def prueba2(self):
+    try:
+      m3u8_url = "https://madrid.crackstreamslivehd.com/tycsports/index.m3u8?token=c5d3be1709dd2e4779ecbb4c8501bd1c6aa22e30-88-1752392173-1752338173&ip=91.245.207.171"
+      headers = {
+        'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18',
+        'Accept': '*/*',
+        'Connection': 'keep-alive',
+        'Accept-Encoding': 'identity'
+      }
+
+      # Descargar el .m3u8 desde la fuente
+      r = requests.get(m3u8_url, headers=headers, proxies=self.seleniumwire_options["proxy"])
+      r.raise_for_status()
+    except Exception as e:
+      print(f"Error extrayendo M3U8: {e}")
