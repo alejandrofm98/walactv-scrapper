@@ -277,7 +277,7 @@ class NewScrapper:
   def _setup_chrome_driver(self):
     """Configura y retorna una instancia de Chrome WebDriver."""
     chrome_options = Options()
-    chrome_options.add_argument('--headless')  # Optional for no GUI
+    # chrome_options.add_argument('--headless')  # Optional for no GUI
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
@@ -376,9 +376,8 @@ class NewScrapper:
         result = self._execute_with_timeout(navigate_to_link)
         if result is not False and result is not None:
           contador = 1
-          self._extract_m3u8_url(enlace, contador)
 
-          # Procesa los botones adicionales
+          # Procesa los botones
           botones = self._get_stream_buttons()
           if botones:
             self._process_buttons(botones, enlace, contador, evento_idx,
@@ -407,7 +406,7 @@ class NewScrapper:
         return self.driver.find_elements(
             By.XPATH,
             "//a[@target='iframe' and @onclick and not(contains(@style, 'display:none'))]"
-        )[1:]  # Excluye el primer botón
+        )  # Excluye el primer botón
 
       result = self._execute_with_timeout(get_buttons)
       return result if result is not False and result is not None else []
@@ -419,10 +418,10 @@ class NewScrapper:
     """Procesa los botones adicionales para extraer URLs de M3U8."""
 
     if not botones:
-      print("No hay botones adicionales para procesar.")
+      print("No hay botones para procesar.")
       return
 
-    print(f"Procesando {len(botones)} botones adicionales...")
+    print(f"Procesando {len(botones)} botones ...")
 
     for i, boton in enumerate(botones):
       print(

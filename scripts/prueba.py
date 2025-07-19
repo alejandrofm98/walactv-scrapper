@@ -31,7 +31,7 @@ class Prueba:
 
   def get_driver(self):
     options = Options()
-    # options.add_argument('--headless')  # Optional for no GUI
+    options.add_argument('--headless')  # Optional for no GUI
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-blink-features=AutomationControlled')
