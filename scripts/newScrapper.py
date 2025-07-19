@@ -89,7 +89,7 @@ class NewScrapper:
     self.url = "https://tvlibreonline.org"
     self.url_agenda = "/agenda/"
     self.soup = None
-    self.driver_timeout = 20  # Timeout en segundos
+    self.driver_timeout = 30  # Timeout en segundos
     self.driver_responsive = True
     self.monitoring_thread = None
     self.stop_monitoring = False

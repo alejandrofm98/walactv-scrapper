@@ -6,9 +6,9 @@
       git:
         repo: "https://github.com/alejandrofm98/walactv-scrapper"
         dest: "/home/proyectos/walactv-scrapper"
+        version: tvlibre
         force: yes
         update: yes
-        version: tvlibre
 
     - name: Copiando la carpeta resources
       ansible.builtin.copy:
@@ -27,10 +27,6 @@
         pip install --upgrade pip  # Asegurarse de que pip esté actualizado
       args:
         executable: /bin/bash
-
-    - name: Dar permisos a las carpetas al usuario ubuntu
-      command:
-        cmd: chown -R ubuntu:ubuntu /home/proyectos/
 
     - name: Instalar pipreq
       pip:
@@ -52,6 +48,7 @@
         block: |
           blinker==1.7.0
           setuptools
+          selenium_wire==5.1.0
         marker: ""
         create: yes
 

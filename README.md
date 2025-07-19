@@ -1,25 +1,114 @@
+# 🏆 WALACTV-SCRAPPER
 
-# WALACTV-SCRAPPER
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Ansible](https://img.shields.io/badge/Ansible-2.9+-red.svg)](https://www.ansible.com/)
 
-## ¿Que es?
-Es un script de python que recoge los datos de eventos deportivos de la web https://www.futbolenlatv.es/
-para insertarlos en firebase y mapearlos con enlaces de acestream.
+Un scraper en Python que recopila y organiza información de eventos deportivos de [Fútbol en la TV](https://www.futbolenlatv.es/) y los integra con Firebase, incluyendo mapeo de enlaces Acestream para transmisiones en vivo.
 
-## ¿Cuando se ejecuta?
-El script se ejecuta todos los dias a las 8 de la mañana en un servidor propio usando un cron job y obtiene los eventos del dia actual y el siguiente (aunque se puede configurar para poner mas días).
+## 📋 Características
 
-## Como se usa
-Podemos ejecutarlo usando el fichero python3 main.py, el script esta en la version 3.12 de python.
-Tambien podemos usar los dos ansible playbook para configurar el servidor y que se ejecute solo con un cron job.
+- Extracción automática de eventos deportivos programados
+- Integración con Firebase para almacenamiento de datos
+- Mapeo de enlaces Acestream para transmisiones en vivo
+- Ejecución automatizada mediante cron jobs
+- Despliegue automatizado con Ansible
+- Configuración flexible para múltiples días de programación
 
-Deberemos tener instalado ansible en nuestra maquina local y crear el fichero maquinas basandonos en maquinas.example
+## 🚀 Requisitos Previos
 
-Para configurar librerias del servidor
+- Python 3.12
+- Ansible 2.9+
+- Cuenta de Firebase
+- Acceso SSH a servidor remoto para despliegue
+
+## 🛠 Instalación
+
+### Configuración Local
+
+1. Clona el repositorio:
+   ```bash
+   git clone https://github.com/tu-usuario/walactv-scrapper.git
+   cd walactv-scrapper
+   ```
+
+2. Crea un entorno virtual e instala las dependencias:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # En Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+
+3. Configura las variables de entorno:
+   - Copia `.env.example` a `.env`
+   - Completa con tus credenciales de Firebase
+
+### Configuración del Servidor
+
+1. Crea el archivo de inventario basado en el ejemplo:
+   ```bash
+   cp maquinas.example maquinas
+   ```
+   Edita el archivo `maquinas` con la información de tu servidor.
+
+2. Ejecuta el playbook de configuración del servidor:
+   ```bash
+   ansible-playbook ansible/servidores_playbook.yaml -e "entorno=utilidades"
+   ```
+
+3. Despliega la aplicación y configura el cron job:
+   ```bash
+   ansible-playbook ansible/ansible_playbook.yaml -e "entorno=utilidades"
+   ```
+
+## ⚙️ Configuración
+
+### Variables de Entorno
+
+Crea un archivo `.env` en la raíz del proyecto con las siguientes variables:
+
 ```
-ansible-playbook servidores_playbook.yml -e "entorno=utilidades"
+FIREBASE_API_KEY=tu_api_key
+FIREBASE_AUTH_DOMAIN=tu_proyecto.firebaseapp.com
+FIREBASE_DATABASE_URL=https://tu_proyecto.firebaseio.com
+FIREBASE_STORAGE_BUCKET=tu_proyecto.appspot.com
 ```
 
-Para mover los recursos y claves privadas y crear el cron job en el servidor
+### Configuración del Cron Job
+
+Por defecto, el script está configurado para ejecutarse diariamente a las 8:00 AM. Para modificar esta configuración:
+
+1. Edita el archivo `ansible/ansible_playbook.yaml`
+2. Busca la sección de configuración del cron job
+3. Modifica el horario según sea necesario
+
+## 🚦 Uso
+
+### Ejecución Manual
+
+Para ejecutar el script manualmente:
+
+```bash
+python3 scripts/main.py
 ```
-ansible-playbook ansible_playbook.yml -e "entorno=utilidades"
+
+### Parámetros Opcionales
+
+- `--days`: Número de días a consultar (por defecto: 2)
+- `--debug`: Activar modo depuración
+
+Ejemplo:
+```bash
+python3 scripts/main.py --days 3 --debug
 ```
+
+## 🤝 Contribución
+
+Las contribuciones son bienvenidas. Por favor, lee nuestras pautas de contribución antes de enviar un pull request.
+
+## 📄 Licencia
+
+Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
+
+## 📞 Contacto
+
+Para consultas o soporte, por favor abre un issue en el repositorio.

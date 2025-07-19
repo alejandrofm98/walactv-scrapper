@@ -69,3 +69,17 @@ class Prueba:
       r.raise_for_status()
     except Exception as e:
       print(f"Error extrayendo M3U8: {e}")
+
+  def prueba3(self):
+    headers = {
+      'Referer': 'https://latinlucha.upns.online/'
+    }
+    r = requests.get("https://sipt.presentationexpansion.sbs/v4/xy/mi16rd/m3u8", headers=headers, stream=True)
+    with open("downloaded.bin", "wb") as f:
+      # If the payload is small you can do it in one shot:
+      # f.write(r.content)
+      # Recommended for large payloads:
+      for chunk in r.iter_content(chunk_size=8192):
+        if chunk:  # filter out keep-alive chunks
+          f.write(chunk)
+    print(r.status_code)

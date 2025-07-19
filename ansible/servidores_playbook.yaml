@@ -45,6 +45,9 @@
           - python3-venv
           - virtualenv
           - python3-setuptools
+          - python3.12-venv
+          - chromium-browser
+          - chromium-chromedriver
         state: latest
         update_cache: true
     - name: Add Docker GPG apt Key
@@ -60,9 +63,9 @@
         name: docker-ce
         state: latest
         update_cache: true
-    - name: Install Docker Module for Python
-      pip:
-        name: docker
+#    - name: Install Docker Module for Python
+#      pip:
+#        name: docker
 
     - name: Create "docker" group
       group:
@@ -94,3 +97,12 @@
           - python3-certbot-nginx
         state: latest
         update_cache: true
+
+    - name: Ensure parent directory exists with correct ownership
+      become: yes
+      file:
+        path: /home/proyectos
+        state: directory
+        owner: "{{ ansible_user | default(ansible_ssh_user) }}"
+        group: "{{ ansible_user | default(ansible_ssh_user) }}"
+        mode: '0755'

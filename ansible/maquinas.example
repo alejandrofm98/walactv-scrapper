@@ -6,3 +6,11 @@ xxx.xxx.xxx.xx #ip servidor
 ansible_ssh_user=ubuntu
 ansible_connection=ssh
 ansible_ssh_private_key_file= #ruta al fichero private key de la conexion ssh
+
+[pro]
+xxx.xxx.xxx.xx #ip servidor
+
+[pro:vars]
+ansible_ssh_user=ubuntu
+ansible_connection=ssh
+ansible_ssh_private_key_file= #ruta al fichero private key de la conexion ssh
