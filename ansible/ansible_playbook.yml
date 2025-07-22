@@ -20,7 +20,9 @@
       community.docker.docker_compose_v2:
         project_src: /home/proyectos/walactv-scrapper/docker
         state: absent
+        remove_volumes: true
       register: output
+
 
     - name: Run `docker-compose up`
       community.docker.docker_compose_v2:

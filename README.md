@@ -50,16 +50,19 @@ Un scraper en Python que recopila y organiza información de eventos deportivos 
    ```
    Edita el archivo `maquinas` con la información de tu servidor.
 
-2. Ejecuta el playbook de configuración del servidor:
-   ```bash
-   ansible-playbook ansible/servidores_playbook.yaml -e "entorno=utilidades"
-   ```
 
-3. Despliega la aplicación y configura el cron job:
+2. Despliega la aplicación y configura el cron job:
    ```bash
-   ansible-playbook ansible/ansible_playbook.yaml -e "entorno=utilidades"
+   cd ansible &&
+   ansible-playbook ansible_playbook.yml -e "entorno=pro"
    ```
-
+   
+3. Levanta nginx:
+   ```bash
+   cd ~/IdeaProjects/config-servidores/configuraciones/ansible &&
+   ansible-playbook nginx_conf.yaml -e "entorno=pro"
+   ```
+   
 ## ⚙️ Configuración
 
 ### Variables de Entorno
