@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  walactv-proxificaurl:
+    build:
+      context: ../          # repo root
+      dockerfile: docker/Dockerfile
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    command: ["python", "proxificaUrl.py"]
+
+  walactv-new-scrapper:
+    build:
+      context: ../          # repo root
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    command: ["python", "main2.py"]

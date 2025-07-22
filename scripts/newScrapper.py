@@ -89,7 +89,7 @@ class NewScrapper:
     self.url = "https://tvlibreonline.org"
     self.url_agenda = "/agenda/"
     self.soup = None
-    self.driver_timeout = 30  # Timeout en segundos
+    self.driver_timeout = 25  # Timeout en segundos
     self.driver_responsive = True
     self.monitoring_thread = None
     self.stop_monitoring = False
@@ -108,11 +108,11 @@ class NewScrapper:
       },
       'mitm_http2': False,
       'suppress_connection_errors': True,
-      'connection_timeout': 20,
+      'connection_timeout': self.driver_timeout ,
     }
 
     self.driver = self._setup_chrome_driver()
-    self.driver.command_executor.set_timeout(20)
+    self.driver.command_executor.set_timeout(self.driver_timeout )
 
   def _start_driver_monitoring(self):
     """Inicia el monitoreo del driver en un hilo separado"""
@@ -148,7 +148,7 @@ class NewScrapper:
         last_response_time = time.time()
         self.driver_responsive = True
 
-      except Exception as e:
+      except Exception:
         current_time = time.time()
         if current_time - last_response_time > self.driver_timeout:
           print(
@@ -271,8 +271,7 @@ class NewScrapper:
       print(f"An error occurred3: {e.with_traceback(e.__traceback__)}")
       traceback.print_exc()
     finally:
-      self._stop_driver_monitoring()
-      self.driver.quit()
+      self._cerrar_driver_seguro()
 
   def _setup_chrome_driver(self):
     """Configura y retorna una instancia de Chrome WebDriver."""
@@ -297,38 +296,63 @@ class NewScrapper:
       return webdriver.Chrome(options=chrome_options,
                               seleniumwire_options=self.seleniumwire_options)
 
-  def _cerrar_driver_seguro(self):
-    """Cierra el driver de forma segura usando múltiples métodos"""
+  def _cerrar_driver_seguro(self) -> None:
+    """
+    Cierra el driver y sus procesos de forma segura e idempotente.
+    Cumple con buenas prácticas recomendadas por SonarQube.
+    """
+    # Detener cualquier monitor activo antes de cerrar
     try:
       self._stop_driver_monitoring()
-      # Intento de cierre forzado
-      print("Intentando cierre forzado del driver...")
-      if hasattr(self.driver, 'service') and hasattr(self.driver.service,
-                                                     'process'):
-        pid = self.driver.service.process.pid
-        if pid:
-          print(f"Terminando proceso {pid} y subprocesos...")
-          try:
-            parent = psutil.Process(pid)
-            for child in parent.children(recursive=True):
-              try:
-                child.terminate()
-              except:
-                try:
-                  os.kill(child.pid, signal.SIGTERM)
-                except:
-                  pass
-            parent.terminate()
-          except:
-            try:
-              os.kill(pid, signal.SIGTERM)
-            except:
-              pass
-    except Exception as e:
-      print(f"Error en cierre forzado: {str(e)}")
+    except Exception:
+      # No interrumpir el flujo si falla el monitoreo
+      pass
+
+    driver = getattr(self, "driver", None) or getattr(self, "_driver", None)
+    if driver is None:
+      return
+
+    pid = None
+    if hasattr(driver, "service") and hasattr(driver.service, "process"):
+      try:
+        pid = driver.service.process.pid
+      except Exception:
+        pid = None
+
+    if pid:
+      self._terminate_process_tree(pid)
+
+    try:
+      driver.quit()
+    except Exception:
+      # Ignorar errores de cierre
+      pass
     finally:
-      print("Driver cerrado. Reinicializando...")
       self.driver = None
+      self._driver = None
+
+  def _terminate_process_tree(self,pid: int) -> None:
+    """
+    Termina un proceso y todos sus hijos de forma segura.
+    """
+    try:
+      parent = psutil.Process(pid)
+      for process in parent.children(recursive=True) + [parent]:
+        self._terminate_process(process)
+    except psutil.NoSuchProcess:
+      pass
+
+  def _terminate_process(self,process: psutil.Process) -> None:
+    """
+    Intenta terminar un proceso, forzando si es necesario.
+    """
+    try:
+      process.terminate()
+      process.wait(timeout=2)
+    except psutil.TimeoutExpired:
+      process.kill()
+    except psutil.NoSuchProcess:
+      pass
 
   def _process_all_events(self):
     """Procesa todos los eventos y sus enlaces."""
@@ -344,23 +368,20 @@ class NewScrapper:
       print(
         f"📍 Procesando enlace {enlace_idx + 1}/{len(evento['enlaces'])} del evento {evento_idx + 1}")
       try:
-        self._process_single_link(enlace, evento_idx, enlace_idx)
+        self._process_single_link(enlace, enlace_idx)
       except Exception as e:
         print(f"Fallo al cargar el enlace {enlace['link']}: {e}")
 
-  def _process_single_link(self, enlace, evento_idx, enlace_idx):
+  def _process_single_link(self, enlace, enlace_idx):
     """Procesa un enlace individual y extrae las URLs de M3U8."""
     print(f"ENLACE: {enlace['link']}")
     print(f"CANAL: {enlace['canal']}")
 
     enlace["m3u8"] = []
     max_intentos = 3
-    intento = 0
-    exito = False
 
-    while intento < max_intentos and not exito:
+    for intento in range(1, max_intentos + 1):
       try:
-        intento += 1
         print(
           f"🔄 Intento {intento}/{max_intentos} para enlace {enlace_idx + 1}")
 
@@ -368,36 +389,47 @@ class NewScrapper:
         if self._check_driver_and_restart_if_needed():
           print("✅ Driver reiniciado correctamente")
 
-        def navigate_to_link():
-          self.driver.get(enlace["link"])
-          time.sleep(1)
-          return True
+        # Navegar al enlace con timeout
+        result = self._execute_with_timeout(
+          lambda: self._navigate(enlace["link"]))
 
-        result = self._execute_with_timeout(navigate_to_link)
-        if result is not False and result is not None:
+        if result:
           contador = 1
+          self._extract_m3u8_url(enlace, contador)
 
-          # Procesa los botones
+          # Procesar botones adicionales si existen
           botones = self._get_stream_buttons()
           if botones:
-            self._process_buttons(botones, enlace, contador, evento_idx,
-                                  enlace_idx)
+            self._process_buttons(botones, enlace, contador, enlace_idx)
 
-          exito = True
           print(f"✅ Enlace {enlace_idx + 1} procesado exitosamente")
-        else:
-          print(f"❌ No se pudo navegar al enlace en intento {intento}")
+          return  # Salir si todo fue exitoso
+
+        print(f"❌ No se pudo navegar al enlace en intento {intento}")
 
       except Exception as e:
-        print(f"❌ Error en intento {intento}: {str(e)}")
-        if intento < max_intentos:
-          time.sleep(2)
-        else:
-          print("🔄 Agotados los intentos, reinicializando driver...")
-          self._cerrar_driver_seguro()
-          time.sleep(3)
-          self.driver = self._setup_chrome_driver()
-          self._start_driver_monitoring()
+        print(f"❌ Error en intento {intento}: {e}")
+
+      # Retraso entre intentos excepto el último
+      if intento < max_intentos:
+        time.sleep(2)
+
+    # Si todos los intentos fallan, reinicializar el driver
+    print("🔄 Agotados los intentos, reinicializando driver...")
+    self._reiniciar_driver()
+
+  def _navigate(self, url):
+    """Navega a una URL y espera un poco para asegurar carga."""
+    self.driver.get(url)
+    time.sleep(1)
+    return True
+
+  def _reiniciar_driver(self):
+    """Cierra y reinicia el driver de manera segura."""
+    self._cerrar_driver_seguro()
+    time.sleep(3)
+    self.driver = self._setup_chrome_driver()
+    self._start_driver_monitoring()
 
   def _get_stream_buttons(self):
     """Obtiene los botones de stream adicionales."""
@@ -406,7 +438,7 @@ class NewScrapper:
         return self.driver.find_elements(
             By.XPATH,
             "//a[@target='iframe' and @onclick and not(contains(@style, 'display:none'))]"
-        )  # Excluye el primer botón
+        )[1:]  # Excluye el primer botón
 
       result = self._execute_with_timeout(get_buttons)
       return result if result is not False and result is not None else []
@@ -414,63 +446,88 @@ class NewScrapper:
       print(f"Error obteniendo botones: {e}")
       return []
 
-  def _process_buttons(self, botones, enlace, contador, evento_idx, enlace_idx):
-    """Procesa los botones adicionales para extraer URLs de M3U8."""
+  def _process_buttons(self, botones, enlace, contador, enlace_idx):
+    """Procesa los botones adicionales para extraer URLs de M3U8.
 
+    Args:
+        botones: Lista de botones a procesar
+        enlace: Diccionario con la información del enlace actual
+        contador: Contador para el seguimiento de botones
+        enlace_idx: Índice del enlace actual
+    """
     if not botones:
-      print("No hay botones para procesar.")
-      return
+        print("No hay botones adicionales para procesar.")
+        return
 
-    print(f"Procesando {len(botones)} botones ...")
+    print(f"Procesando {len(botones)} botones adicionales...")
+    self._process_button_list(botones, enlace, contador, enlace_idx)
 
+  def _process_button_list(self, botones, enlace, contador, enlace_idx):
+    """Procesa la lista de botones de manera secuencial."""
     for i, boton in enumerate(botones):
-      print(
-        f"\n🟡 Procesando botón {i + 1}/{len(botones)} del enlace {enlace_idx + 1}")
+        print(f"\n🟡 Procesando botón {i + 1}/{len(botones)} del enlace {enlace_idx + 1}")
 
-      # Verificar driver antes de cada botón
-      if self._check_driver_and_restart_if_needed():
+        if not self._handle_driver_status(enlace):
+            continue
+
+        boton = self._update_button_after_restart(i)
+        if not boton:
+            continue
+
+        self._process_single_button(boton, enlace, contador + i)
+
+  def _handle_driver_status(self, enlace):
+    """Verifica y maneja el estado del driver."""
+    if self._check_driver_and_restart_if_needed():
         print("✅ Driver reiniciado antes del botón")
-        # Renavegar al enlace después del reinicio
-        try:
-          def renavegate():
+        return self._navigate_after_restart(enlace)
+    return True
+
+  def _navigate_after_restart(self, enlace):
+    """Navega al enlace después de reiniciar el driver."""
+    try:
+        def navigate():
             self.driver.get(enlace["link"])
             time.sleep(2)
             return True
 
-          nav_result = self._execute_with_timeout(renavegate)
-          if nav_result is False or nav_result is None:
-            print(f"❌ Error renavegando tras reinicio")
-            continue
+        nav_result = self._execute_with_timeout(navigate)
+        return nav_result is not None and nav_result is not False
+    except Exception as e:
+        print(f"❌ Error renavegando tras reinicio: {e}")
+        return False
 
-          # Reobtener los botones
-          botones = self._get_stream_buttons()
-          if i < len(botones):
-            boton = botones[i]
-          else:
-            print(f"⚠️ Botón {i + 1} no disponible tras reinicio")
-            continue
-        except Exception as e:
-          print(f"❌ Error renavegando tras reinicio: {e}")
-          continue
+  def _update_button_after_restart(self, button_index):
+    """Actualiza la referencia al botón después de reiniciar el driver."""
+    botones = self._get_stream_buttons()
+    if button_index < len(botones):
+        return botones[button_index]
+    print(f"⚠️ Botón {button_index + 1} no disponible tras reinicio")
+    return None
 
-      try:
+  def _process_single_button(self, boton, enlace, button_counter):
+    """Procesa un solo botón en un hilo separado."""
+    try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-          future = executor.submit(self._click_and_extract, boton, enlace,
-                                   contador + i)
+            future = executor.submit(
+                self._click_and_extract,
+                boton,
+                enlace,
+                button_counter
+            )
+            self._handle_button_future(future, button_counter)
+    except Exception as e:
+        print(f"❌ Error procesando botón: {e}")
 
-          try:
-            future.result(timeout=self.driver_timeout)
-            print(f"✅ Botón {i + 1} procesado correctamente")
-          except concurrent.futures.TimeoutError:
-            print(
-              f"⏱️ Botón {i + 1} excedió el tiempo límite de {self.driver_timeout} segundos")
-            self.driver_responsive = False
-            if self._check_driver_and_restart_if_needed():
-              # Continuar con el siguiente botón tras reinicio
-              continue
-
-      except Exception as e:
-        print(f"❌ Error procesando botón {i + 1}: {e}")
+  def _handle_button_future(self, future, button_counter):
+    """Maneja el resultado del procesamiento asíncrono del botón."""
+    try:
+        future.result(timeout=self.driver_timeout)
+        print(f"✅ Botón {button_counter} procesado correctamente")
+    except concurrent.futures.TimeoutError:
+        print(f"⏱️ Botón {button_counter} excedió el tiempo límite de {self.driver_timeout} segundos")
+        self.driver_responsive = False
+        self._check_driver_and_restart_if_needed()
 
   def _click_and_extract(self, boton, enlace, contador):
     """Intenta hacer clic en el botón y extraer URLs M3U8 asociadas."""
