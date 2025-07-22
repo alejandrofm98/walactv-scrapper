@@ -17,6 +17,3 @@ COPY scripts/ .
 
 # copy resources folder
 COPY resources/ ../resources/
-
-
-EXPOSE 3000

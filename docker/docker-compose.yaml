@@ -5,10 +5,10 @@ services:
     build:
       context: ../          # repo root
       dockerfile: docker/Dockerfile
-    ports:
-      - "3000:3000"
     restart: unless-stopped
     command: ["python", "proxificaUrl.py"]
+    networks:
+      - nginx-net
 
   walactv-new-scrapper:
     build:
@@ -16,3 +16,8 @@ services:
       dockerfile: docker/Dockerfile
     restart: unless-stopped
     command: ["python", "main2.py"]
+
+
+networks:
+  nginx-net:
+    external: true
