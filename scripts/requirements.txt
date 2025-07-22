@@ -10,3 +10,4 @@ quart==0.20.0
 Requests==2.32.4
 selenium==4.34.2
 selenium_wire==5.1.0
+schedule==1.2.2
