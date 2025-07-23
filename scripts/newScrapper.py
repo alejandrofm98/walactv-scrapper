@@ -7,15 +7,13 @@ import re
 import json
 from database import Database
 import platform
-import os
-import signal
 import psutil
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 import concurrent.futures
 import traceback
 import threading
-from selenium.common.exceptions import TimeoutException, WebDriverException
+import tempfile
 
 
 def is_arm():
@@ -89,7 +87,7 @@ class NewScrapper:
     self.url = "https://tvlibreonline.org"
     self.url_agenda = "/agenda/"
     self.soup = None
-    self.driver_timeout = 25  # Timeout en segundos
+    self.driver_timeout = 30  # Timeout en segundos
     self.driver_responsive = True
     self.monitoring_thread = None
     self.stop_monitoring = False
@@ -276,12 +274,13 @@ class NewScrapper:
   def _setup_chrome_driver(self):
     """Configura y retorna una instancia de Chrome WebDriver."""
     chrome_options = Options()
-    # chrome_options.add_argument('--headless')  # Optional for no GUI
+    chrome_options.add_argument('--headless')  # Optional for no GUI
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
     chrome_options.add_argument(
         '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36')
+    chrome_options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
 
     if is_arm():
       # VPS or ARM system

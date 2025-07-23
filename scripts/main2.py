@@ -3,6 +3,7 @@ from newScrapper import guarda_partidos
 import openRouter
 import schedule
 import time     # ← new
+from openvpn import OpenVpn
 
 def job():
     """
