@@ -228,7 +228,7 @@ class NewScrapper:
 
       # Encontrar y extraer información del menú principal
       self.soup = BeautifulSoup(page_source, 'html.parser')
-      print("INICIO")
+      print("INICIO "+obtener_fecha_hora())
       print(self.soup.text)
       menu = self.soup.find("ul", class_='menu')
       print(menu)

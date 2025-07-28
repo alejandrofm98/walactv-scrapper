@@ -2,8 +2,7 @@ import newScrapper
 from newScrapper import guarda_partidos
 import openRouter
 import schedule
-import time     # ← new
-from openvpn import OpenVpn
+import time
 
 def job():
     """
@@ -22,7 +21,7 @@ def job():
 
     except Exception as e:
         print(f"An error occurred: {e}")
-        # You may log to file / send alert here
+        job()
 
 if __name__ == '__main__':
     # run immediately on start-up
