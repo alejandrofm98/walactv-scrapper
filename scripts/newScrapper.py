@@ -14,6 +14,7 @@ import concurrent.futures
 import traceback
 import threading
 import tempfile
+import zoneinfo
 
 
 def is_arm():
@@ -71,13 +72,13 @@ def guarda_partidos(eventos):
 
 
 def obtener_fechas():
-  today = datetime.now().strftime("%d/%m/%Y")
-  return today
+  madrid_tz = zoneinfo.ZoneInfo("Europe/Madrid")
+  return datetime.now(madrid_tz).strftime("%d/%m/%Y")
 
 
 def obtener_fecha_hora():
-  today = datetime.now().strftime("%d/%m/%Y %H:%M")
-  return today
+  madrid_tz = zoneinfo.ZoneInfo("Europe/Madrid")
+  return datetime.now(madrid_tz).strftime("%d/%m/%Y %H:%M")
 
 
 class NewScrapper:
@@ -107,6 +108,7 @@ class NewScrapper:
       'mitm_http2': False,
       'suppress_connection_errors': True,
       'connection_timeout': self.driver_timeout ,
+      'verify_ssl': False
     }
 
     self.driver = self._setup_chrome_driver()
