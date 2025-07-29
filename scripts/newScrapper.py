@@ -72,13 +72,11 @@ def guarda_partidos(eventos):
 
 
 def obtener_fechas():
-  madrid_tz = zoneinfo.ZoneInfo("Europe/Madrid")
-  return datetime.now(madrid_tz).strftime("%d/%m/%Y")
+  return datetime.now().strftime("%d/%m/%Y")
 
 
 def obtener_fecha_hora():
-  madrid_tz = zoneinfo.ZoneInfo("Europe/Madrid")
-  return datetime.now(madrid_tz).strftime("%d/%m/%Y %H:%M")
+  return datetime.now().strftime("%d/%m/%Y %H:%M")
 
 
 class NewScrapper:

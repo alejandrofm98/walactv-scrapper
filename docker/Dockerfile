@@ -7,7 +7,10 @@ RUN apk add --no-cache \
     chromium \
     chromium-chromedriver \
     linux-headers \
-    python3-dev
+    python3-dev \
+    tzdata && \
+    cp /usr/share/zoneinfo/Europe/Madrid /etc/localtime && \
+    echo "Europe/Madrid" > /etc/timezone
 # copy requirements and install
 COPY scripts/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
