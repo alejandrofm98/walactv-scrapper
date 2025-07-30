@@ -1,0 +1,42 @@
+---
+- name: playbook
+  hosts: "{{entorno}}"
+  vars:
+    remote_static_dir: "/home/proyectos/config-servidores/configuraciones/nginx/walactv_static"
+    local_app_dir: "/home/alejandro/FrontendProjects/walactv"
+  tasks:
+    - name: Leer package.json
+      slurp:
+        src: "{{ local_app_dir }}/package.json"
+      delegate_to: localhost
+      register: pkg_raw
+
+    - name: Extraer versión
+      set_fact:
+        version: "{{ (pkg_raw.content | b64decode | from_json).version }}"
+
+    - name: Borrar APKs antiguas
+      become: true
+      shell: rm -f {{ remote_static_dir }}/app-release-*.apk
+      changed_when: false
+
+    - name: Copiar APK versionado
+      become: true
+      copy:
+        src: "{{ local_app_dir }}/android/app/build/outputs/apk/release/app-release.apk"
+        dest: "{{ remote_static_dir }}/app-release-{{ version }}.apk"
+        mode: '0644'
+
+    - name: Generar manifest.json
+      become: true
+      copy:
+        content: |
+          {
+            "android": {
+              "version": "{{ version }}",
+              "url": "https://walactv.walerike.com/app-release-{{ version }}.apk",
+              "changelog": "Actualización v{{ version }}"
+            }
+          }
+        dest: "{{ remote_static_dir }}/manifest.json"
+        mode: '0644'

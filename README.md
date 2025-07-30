@@ -62,6 +62,12 @@ Un scraper en Python que recopila y organiza información de eventos deportivos 
    cd ~/IdeaProjects/config-servidores/configuraciones/ansible &&
    ansible-playbook nginx_conf.yaml -e "entorno=pro"
    ```
+
+4. Despliega nueva version apk:
+   ```bash
+   cd ansible &&
+   ansible-playbook despliegue_apk.yml -e "entorno=pro"
+   ```
    
 ## ⚙️ Configuración
 
