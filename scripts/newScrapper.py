@@ -563,6 +563,7 @@ class NewScrapper:
 
   def _extract_m3u8_url(self, enlace, contador):
     """Extrae y guarda la URL de M3U8 si es válida."""
+    proxy_url='https://walactv.walerike.com/proxy?url='
     try:
       def get_m3u8_requests():
         return list(filter(lambda x: "m3u8" in x.url, self.driver.requests))
@@ -574,7 +575,7 @@ class NewScrapper:
         if new_url not in enlace["m3u8"] and not token_already_exists(new_url,
                                                                       enlace[
                                                                         "m3u8"]):
-          enlace["m3u8"].append(new_url)
+          enlace["m3u8"].append(proxy_url+new_url)
           print(f"M3U8 BOTON {contador}: {new_url}")
       elif resultado is False:
         print(f"❌ Timeout al obtener requests M3U8 para botón {contador}")
