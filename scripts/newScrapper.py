@@ -14,7 +14,6 @@ import concurrent.futures
 import traceback
 import threading
 import tempfile
-import zoneinfo
 
 
 def is_arm():
@@ -238,7 +237,7 @@ class NewScrapper:
       # Inicializar el diccionario de eventos
       self.guarda_eventos = {
         "dia": dia_agenda,
-        "fecha": datetime.now(),
+        "fecha": datetime.now().isoformat(),
         "eventos": []
       }
 
