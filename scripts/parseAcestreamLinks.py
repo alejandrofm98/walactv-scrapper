@@ -45,25 +45,27 @@ def clear_text(texto):
   texto = texto.strip().replace('"', '')
   return texto
 
-def finish_parse(canales):
+
+def finish_parse(canales: list) -> dict:
   grouped = defaultdict(lambda: {"logo": "", "m3u8": []})
 
   for ch in canales:
     cid = ch["canal"]
-    grouped[cid]["logo"] = ch["logo"] or grouped[cid][
-      "logo"]  # nos quedamos con el primero que tenga logo
+    grouped[cid]["logo"] = ch["logo"] or grouped[cid]["logo"]
     grouped[cid]["m3u8"].append(ch["m3u8"])
 
-  # convertir a dict normal (claves numéricas)
-  grouped_dict = {str(i): {"id": k, "logo": v["logo"], "m3u8": v["m3u8"]}
-                  for i, (k, v) in enumerate(grouped.items(), 1)}
+  # Generamos un array de diccionarios
+  canales_array = [
+    {"canal": k, "logo": v["logo"], "m3u8": v["m3u8"]}
+    for k, v in grouped.items()
+  ]
 
-  return grouped_dict
+  return {"canales": canales_array}
 
 
 if __name__ == "__main__":
-  canales = parse_m3u_blocks("../resources/lista-ott.m3u")
-  canales = finish_parse(canales)
-  canales = json.dumps(canales, ensure_ascii=False)
-  db = Database("canales", "canales_2.0", canales)
-  db.add_data_firebase()
+    canales = parse_m3u_blocks("../resources/lista-ott.m3u")
+    payload = finish_parse(canales)          # → {"canales": [...]}
+    json_str = json.dumps(payload, ensure_ascii=False)
+    db = Database("canales", "canales_2.0", json_str)
+    db.add_data_firebase()
