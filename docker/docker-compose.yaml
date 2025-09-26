@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   walactv-proxificaurl:
     build:
@@ -21,3 +19,9 @@ services:
       interval: 1h
       timeout: 10s
       retries: 1
+    networks:
+      - nginx-net
+
+networks:
+  nginx-net:
+    driver: bridge
