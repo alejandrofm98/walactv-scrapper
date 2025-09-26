@@ -250,7 +250,7 @@ class NewScrapper:
         evento_data = {
           "titulo": titulo,
           "hora": hora,
-          "enlaces": _procesar_enlaces(evento)
+           "enlaces": _procesar_enlaces(evento)
         }
 
         self.guarda_eventos["eventos"].append(evento_data)
@@ -273,7 +273,7 @@ class NewScrapper:
   def _setup_chrome_driver(self):
     """Configura y retorna una instancia de Chrome WebDriver."""
     chrome_options = Options()
-    chrome_options.add_argument('--headless')  # Optional for no GUI
+    # chrome_options.add_argument('--headless')  # Optional for no GUI
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')

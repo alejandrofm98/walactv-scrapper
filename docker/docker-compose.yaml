@@ -3,7 +3,7 @@ version: "3.9"
 services:
   walactv-proxificaurl:
     build:
-      context: ../          # repo root
+      context: ../
       dockerfile: docker/Dockerfile
     restart: unless-stopped
     command: ["python", "proxificaUrl.py"]
@@ -12,12 +12,12 @@ services:
 
   walactv-new-scrapper:
     build:
-      context: ../          # repo root
+      context: ../
       dockerfile: docker/Dockerfile
     restart: unless-stopped
     command: ["python", "main2.py"]
-
-
-networks:
-  nginx-net:
-    external: true
+    healthcheck:
+      test: ["CMD-SHELL", "test $(date +%H) -eq 00 || exit 1"]
+      interval: 1h
+      timeout: 10s
+      retries: 1
