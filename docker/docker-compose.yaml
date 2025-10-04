@@ -5,8 +5,6 @@ services:
       dockerfile: docker/Dockerfile
     restart: unless-stopped
     command: ["python", "proxificaUrl.py"]
-    networks:
-      - nginx-net
 
   walactv-new-scrapper:
     build:
@@ -19,9 +17,3 @@ services:
       interval: 1h
       timeout: 10s
       retries: 1
-    networks:
-      - nginx-net
-
-networks:
-  nginx-net:
-    driver: bridge

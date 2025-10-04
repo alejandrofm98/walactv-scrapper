@@ -9,7 +9,7 @@ import pathlib, re, requests, threading, time
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 # ========== CONFIGURACIÓN ==========
-PLAYLIST_URL = "https://sipt.presentationexpansion.sbs/v4/xy/mi16rd/playlist.m3u8"
+PLAYLIST_URL = "https://sh9f.streamingmobilizer.sbs/v4/mf/h9cvij/index-f1-v1-a1.txt"
 REFERER      = "https://latinlucha.upns.online/"
 OUT_DIR      = pathlib.Path("./hls")
 CHUNK        = 1 << 16   # 64 KiB
@@ -31,45 +31,47 @@ def download(url: str, path: pathlib.Path):
                 f.write(chunk)
     print(f"✅  {path.name}")
 
-# 1. Descargar el playlist
-playlist_local = OUT_DIR / "playlist.m3u8"
-download(PLAYLIST_URL, playlist_local)
 
-# 2. Extraer init y segmentos
-init     = None
-segments = []
-with open(playlist_local, encoding="utf-8") as f:
-    for line in f:
-        line = line.strip()
-        if line.startswith("#EXT-X-MAP:URI="):
-            m = re.search(r'URI="([^"]+)"', line)
-            if m:
-                init = m.group(1)
-        elif line and not line.startswith("#"):
-            segments.append(line)
+if __name__ == '__main__':
+    # 1. Descargar el playlist
+    playlist_local = OUT_DIR / "playlist.m3u8"
+    download(PLAYLIST_URL, playlist_local)
 
-# 3. Descargar init
-if init:
-    init_url = requests.compat.urljoin(PLAYLIST_URL, init)
-    download(init_url, OUT_DIR / init)
+    # 2. Extraer init y segmentos
+    init     = None
+    segments = []
+    with open(playlist_local, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("#EXT-X-MAP:URI="):
+                m = re.search(r'URI="([^"]+)"', line)
+                if m:
+                    init = m.group(1)
+            elif line and not line.startswith("#"):
+                segments.append(line)
 
-# 4. Descargar segmentos
-for idx, seg in enumerate(segments, 1):
-    seg_url = requests.compat.urljoin(PLAYLIST_URL, seg)
-    download(seg_url, OUT_DIR / seg)
-    print(f"{idx}/{len(segments)}  {seg}")
+    # 3. Descargar init
+    if init:
+        init_url = requests.compat.urljoin(PLAYLIST_URL, init)
+        download(init_url, OUT_DIR / init)
 
-# 5. Servir con HTTP
-class Handler(SimpleHTTPRequestHandler):
-    def __init__(self, *a, **kw):
-        super().__init__(*a, directory=str(OUT_DIR), **kw)
+    # 4. Descargar segmentos
+    for idx, seg in enumerate(segments, 1):
+        seg_url = requests.compat.urljoin(PLAYLIST_URL, seg)
+        download(seg_url, OUT_DIR / seg)
+        print(f"{idx}/{len(segments)}  {seg}")
 
-httpd = HTTPServer(("", PORT), Handler)
-print(f"\n🚀 Servir en http://localhost:{PORT}/playlist.m3u8  (Ctrl+C para salir)")
-threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    # 5. Servir con HTTP
+    class Handler(SimpleHTTPRequestHandler):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, directory=str(OUT_DIR), **kw)
 
-try:
-    while True:
-        time.sleep(1)
-except KeyboardInterrupt:
-    httpd.shutdown()
+    httpd = HTTPServer(("", PORT), Handler)
+    print(f"\n🚀 Servir en http://localhost:{PORT}/playlist.m3u8  (Ctrl+C para salir)")
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        httpd.shutdown()
