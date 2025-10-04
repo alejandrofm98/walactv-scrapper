@@ -6,8 +6,9 @@
       git:
         repo: "https://github.com/alejandrofm98/walactv-scrapper"
         dest: "/home/proyectos/walactv-scrapper"
-        force: true
-        update: true
+        version: tvlibre
+        force: yes
+        update: yes
 
     - name: Copiando la carpeta resources
       ansible.builtin.copy:
@@ -15,73 +16,16 @@
         dest: /home/proyectos/walactv-scrapper
 
 
-    - name: Crear entorno virtual en la ruta deseada
-      ansible.builtin.command:
-        cmd: python3 -m venv /home/proyectos/walactv-scrapper/.venv
-        creates: /home/proyectos/walactv-scrapper/.venv/bin/activate
+    - name: Run `docker-compose down`
+      community.docker.docker_compose_v2:
+        project_src: /home/proyectos/walactv-scrapper/docker
+        state: absent
+        remove_volumes: true
+      register: output
 
-    - name: Activar el entorno virtual
-      ansible.builtin.shell: |
-        source /home/proyectos/walactv-scrapper/.venv/bin/activate
-        pip install --upgrade pip  # Asegurarse de que pip esté actualizado
-      args:
-        executable: /bin/bash
 
-    - name: Dar permisos a las carpetas al usuario ubuntu
-      command:
-        cmd: chown -R ubuntu:ubuntu /home/proyectos/
-
-    - name: Instalar pipreq
-      pip:
-        name: pipreqs
-        virtualenv: /home/proyectos/walactv-scrapper/.venv
-
-    - name: Crear fichero requirements.txt usando pipreqs
-      shell: |
-        source /home/proyectos/walactv-scrapper/.venv/bin/activate
-        pipreqs /home/proyectos/walactv-scrapper/scripts --force
-      args:
-        executable: /bin/bash
-        chdir: /home/proyectos/walactv-scrapper/scripts  # Ruta donde está el proyecto de Python
-        creates: /home/proyectos/walactv-scrapper/requirements.txt
-
-    - name: Agregar bloque de texto
-      blockinfile:
-        path: /home/proyectos/walactv-scrapper/scripts/requirements.txt
-        block: |
-          blinker==1.7.0
-          setuptools
-        marker: ""
-        create: yes
-
-    - name: Instalar las dependencias desde requirements.txt en el entorno virtual
-      pip:
-        requirements: /home/proyectos/walactv-scrapper/scripts/requirements.txt
-        virtualenv: /home/proyectos/walactv-scrapper/.venv
-        virtualenv_command: python3 -m venv
-
-    - name: Set SHELL to /bin/bash in crontab
-      ansible.builtin.cron:
-        name: SHELL
-        env: yes
-        job: /bin/bash
-        state: present
-
-    #Se pone 1h menos porque el servidor tiene otra zona horaria
-    - name: Crear job para ejecutar el script de python walactv-scrapper a las 8 de la mañana
-      cron:
-        name: "Ejecutar el script de python walactv-scrapper a las 8 de la mañana"
-        minute: "0"
-        hour: "7"
-        job: "source /home/proyectos/walactv-scrapper/.venv/bin/activate &&
-         python3 /home/proyectos/walactv-scrapper/scripts/main.py"
-        state: present
-
-    #Segundo script
-    - name: Crear job para ejecutar el nuevo script de python walactv-scrapper cada 1h
-      cron:
-        name: "Ejecutar script de python walactv-scrapper TvLibre cada 1h"
-        minute: "0"
-        job: "source /home/proyectos/walactv-scrapper/.venv/bin/activate &&
-         python3 /home/proyectos/walactv-scrapper/scripts/main2.py"
-        state: present
+    - name: Run `docker-compose up`
+      community.docker.docker_compose_v2:
+        project_src: /home/proyectos/walactv-scrapper/docker
+        build: always
+      register: output

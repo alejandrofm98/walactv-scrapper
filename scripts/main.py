@@ -24,10 +24,10 @@ if __name__ == '__main__':
 
 
   # CANALES  NO ES NECESARIO ACTUALIZARLO A DIARIO
-  scrapper = ScrapperElPlanDeportes()
-  scrapper.get_html()
-  canales = scrapper.get_json_enlaces()
-  canales = json.dumps(canales, ensure_ascii=False)
-  db = Database("canales", "canales", canales)
-  db.add_data_firebase()
+  # scrapper = ScrapperElPlanDeportes()
+  # scrapper.get_html()
+  # canales = scrapper.get_json_enlaces()
+  # canales = json.dumps(canales, ensure_ascii=False)
+  # db = Database("canales", "canales", canales)
+  # db.add_data_firebase()
 

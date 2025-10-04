@@ -1,0 +1,49 @@
+---
+- name: playbook
+  hosts: "{{ entorno }}"
+  vars:
+    remote_static_dir: "/home/proyectos/config-servidores/configuraciones/nginx/walactv_static"
+    local_app_dir: "/home/alejandro/FrontendProjects/walactv"
+  tasks:
+    - name: Leer package.json
+      slurp:
+        src: "{{ local_app_dir }}/package.json"
+      delegate_to: localhost
+      register: pkg_raw
+
+    - name: Extraer versión
+      set_fact:
+        version: "{{ (pkg_raw.content | b64decode | from_json).version }}"
+
+    - name: Borrar APKs antiguas
+      become: true
+      shell: rm -f {{ remote_static_dir }}/app-*-release-{{ version }}.apk
+      changed_when: false
+
+    - name: Copiar cada APK generada (ABI-split) con nombre versionado
+      become: true
+      copy:
+        src: "{{ item }}"
+        dest: "{{ remote_static_dir }}/app-{{ item | basename | regex_replace('app-(.*)-release\\.apk', '\\1') }}-release-{{ version }}.apk"
+        mode: '0644'
+      with_fileglob:
+        - "{{ local_app_dir }}/android/app/build/outputs/apk/release/app-*-release.apk"
+
+    - name: Generar manifest.json con todas las APKs
+      become: true
+      copy:
+        content: |
+          {
+            "android": {
+              "version": "{{ version }}",
+              "architectures": {
+                "armeabi-v7a": "https://walactv.walerike.com/app-armeabi-v7a-release-{{ version }}.apk",
+                "arm64-v8a":   "https://walactv.walerike.com/app-arm64-v8a-release-{{ version }}.apk",
+                "x86_64":      "https://walactv.walerike.com/app-x86_64-release-{{ version }}.apk",
+                "x86":         "https://walactv.walerike.com/app-x86-release-{{ version }}.apk"
+              },
+              "changelog": "Actualización v{{ version }}"
+            }
+          }
+        dest: "{{ remote_static_dir }}/manifest.json"
+        mode: '0644'
