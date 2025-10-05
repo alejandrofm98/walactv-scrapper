@@ -5,6 +5,8 @@ services:
       dockerfile: docker/Dockerfile
     restart: unless-stopped
     command: ["python", "proxificaUrl.py"]
+    env_file:
+      - path: ../resources/.env
 
   walactv-new-scrapper:
     build:
@@ -17,3 +19,5 @@ services:
       interval: 1h
       timeout: 10s
       retries: 1
+    env_file:
+      - path: ../resources/.env
