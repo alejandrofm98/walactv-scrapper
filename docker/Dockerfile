@@ -17,6 +17,3 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # copy the script
 COPY scripts/ .
-
-# copy resources folder
-COPY resources/ ./resources/
