@@ -10,7 +10,7 @@ class OpenRouter:
     self.mensaje = mensaje
 
     # Intentamos cargar el .env local
-    env_path = Path("../resources") / ".env"
+    env_path = Path("../docker") / ".env"
     load_dotenv(dotenv_path=env_path)
 
     # Primero intentamos obtener API_KEY desde el .env
