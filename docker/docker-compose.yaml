@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     command: ["python", "proxificaUrl.py"]
     env_file:
-      - path: ../resources/.env
+      - path: .env
 
   walactv-new-scrapper:
     build:
@@ -20,4 +20,4 @@ services:
       timeout: 10s
       retries: 1
     env_file:
-      - path: ../resources/.env
+      - path: .env
