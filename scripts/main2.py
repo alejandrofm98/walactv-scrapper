@@ -4,6 +4,10 @@ import openRouter
 import schedule
 import time
 import traceback
+from database import Database
+from scrapper import ScrapperFutbolenlatv
+import ast
+
 
 def job():
     tv_libre = None
@@ -15,6 +19,13 @@ def job():
         if not eventos or "eventos" not in eventos:
             print("⚠️ No se obtuvieron eventos")
             return
+
+        document_name = ScrapperFutbolenlatv.generate_document_name(
+            ScrapperFutbolenlatv.obtener_fechas()[0])
+        db = Database("calendario", document_name, None)
+        eventos_acestream = db.get_doc_firebase().to_dict()
+        newScrapper.unifica_listas_eventos(eventos,
+                                           eventos_acestream)
 
         open_router = openRouter.OpenRouter(events=eventos["eventos"])
         eventos["eventos"] = open_router.get_category_events()

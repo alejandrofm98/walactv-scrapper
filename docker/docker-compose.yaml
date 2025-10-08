@@ -16,3 +16,9 @@ services:
     command: ["python", "main2.py"]
     env_file:
       - path: .env
+
+  acestream-http-proxy:
+    image: ghcr.io/martinbjeldbak/acestream-http-proxy
+    container_name: acestream-http-proxy
+    ports:
+      - 6878:6878

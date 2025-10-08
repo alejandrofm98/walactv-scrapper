@@ -14,6 +14,8 @@ import concurrent.futures
 import traceback
 import threading
 import tempfile
+from difflib import SequenceMatcher
+import locale
 
 
 def is_arm():
@@ -76,6 +78,94 @@ def obtener_fechas():
 
 def obtener_fecha_hora():
   return datetime.now().strftime("%d/%m/%Y %H:%M")
+
+def similar(a, b):
+  return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+def get_key_by_value(dictionary, target_value):
+    for key, value in dictionary.items():
+      if value == target_value[0]:
+        return key
+    return None  # or raise an exception if not found
+
+def buscar_enlace_canal_por_nombre(lista_canales, nombre_canal):
+  for canal in lista_canales["canales"]:
+    if canal['canal'].lower() == nombre_canal.lower():
+      return canal["m3u8"]
+
+def unifica_listas_eventos(dic1,dic2, umbral=0.6):
+  lista1 = []
+  lista2 = []
+  cont=0
+  for event in dic1["eventos"]:
+    lista1.append({
+      "hora": event["hora"],
+      "titulo": event["titulo"],
+      "posicion": cont  # guardamos la posición
+    })
+    cont+=1
+  for pos, (key, value) in enumerate(dic2.items()):
+    lista2.append({
+      "hora": value["hora"],
+      "titulo": value["equipos"],
+      "posicion": pos
+      # o puedes usar 'key' si quieres guardar la clave original
+    })
+
+  db = Database("mapeo_canales", "mapeo_canales_2.0", None)
+  mapeo_canales = db.get_doc_firebase().to_dict()
+  db = Database("canales", "canales_2.0", None)
+  enlaces_canales = db.get_doc_firebase().to_dict()
+
+  if checkDateDictionary(dic1):
+    coincidencias = []
+
+    for ev1 in lista1:
+      for ev2 in lista2:
+        if ev1['hora'] == ev2['hora']:
+          similitud = similar(ev1['titulo'], ev2['titulo'])
+          if similitud >= umbral:
+            coincidencias.append({
+              'hora': ev1['hora'],
+              'titulo_1': ev1['titulo'],
+              'titulo_2': ev2['titulo'],
+              'posicion_1':ev1['posicion'],
+              'posicion_2':ev2['posicion'],
+              'similitud': round(similitud, 2)
+            })
+    print(coincidencias)
+    for coindicencia in coincidencias:
+      canal = get_key_by_value(mapeo_canales, dic2[str(coindicencia['posicion_2']+1)]['canales'][0])
+      canales=buscar_enlace_canal_por_nombre(enlaces_canales,canal)
+      aux = {"canal":  canal, "link":"acestream", "m3u8": canales}
+      dic1[coindicencia['posicion_1']]['enlaces'].append(aux)
+
+  for (key, value) in enumerate(dic2.items()):
+
+    canales = get_key_by_value(mapeo_canales,
+                             dic2[str(key+1)]['canales'])
+    dic1["eventos"].append({"titulo":dic2[str(key+1)]["competicion"]+" "+dic2[str(key+1)]["equipos"],"hora":dic2[str(key+1)]["hora"], "enlaces":[]})
+    canales_links = buscar_enlace_canal_por_nombre(enlaces_canales, canales)
+    aux = {"canal":  canales, "link":"acestream", "m3u8": canales_links}
+    dic1["eventos"][-1]['enlaces'].append(aux)
+
+
+
+def checkDateDictionary(dic1):
+  try:
+    locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')  # Linux/macOS
+  except locale.Error:
+    try:
+      locale.setlocale(locale.LC_TIME, 'Spanish_Spain.1252')  # Windows
+    except locale.Error:
+      print("No se pudo configurar el locale en español.")
+  hoy = datetime.today().date()
+  # Formato: "Agenda - [DíaSemana] [día] de [Mes] de [año]"
+  texto = hoy.strftime("Agenda - %A %d de %B de %Y")
+  # Eliminar el cero a la izquierda del día (ej. "05" → "5")
+  texto = texto.replace(" 0", " ")
+  print(texto)
+  return texto.lower() == dic1["dia"].lower()
 
 
 class NewScrapper:
