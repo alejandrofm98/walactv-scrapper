@@ -25,8 +25,23 @@ services:
     env_file:
       - path: .env
 
-  acestream-http-proxy:
-    image: ghcr.io/martinbjeldbak/acestream-http-proxy
-    container_name: acestream-http-proxy
+#PARA LOCAL
+#  acestream-http-proxy:
+#    image: ghcr.io/martinbjeldbak/acestream-http-proxy
+#    container_name: acestream-http-proxy
+#    ports:
+#      - 6878:6878
+
+  acestream:
+    image: plaza24/acestream-arm64v8:3.1.50-memory
+    container_name: acestream
+    privileged: true
+    restart: unless-stopped
     ports:
-      - 6878:6878
+      - "6878:6878"
+      - "8621:8621"
+    environment:
+      - TZ=Europe/Madrid
+      # Add other env vars if needed
+    volumes:
+      - ./acestream-config:/acestream.engine  # if config files
