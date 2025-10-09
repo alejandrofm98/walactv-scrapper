@@ -111,16 +111,14 @@ class ScrapperFutbolenlatv:
     self.url = "https://www.futbolenlatv.es/deporte"
     self.soup = BeautifulSoup(requests.get(self.url).text, "html.parser")
     self.canales = []
-    db  = Database("mapeo_canales", "mapeo_canales", None)
+    db  = Database("mapeo_canales", "mapeoCanalesFutbolEnLaTv", None)
     self.mapeo_canales = db.get_doc_firebase().to_dict()
 
 
   def existe_fecha(self, fecha):
     db = Database("calendario", self.generate_document_name(fecha), None)
-    if not db.check_if_document_exist():
-      cabecera_tabla = self.soup.find("td", string=re.compile(fecha))
-      return cabecera_tabla.is_empty_element
-    return True
+    cabecera_tabla = self.soup.find("td", string=re.compile(fecha))
+    return cabecera_tabla.is_empty_element
 
   def obtener_partidos(self, fecha):
     if self.existe_fecha(fecha):
@@ -148,10 +146,20 @@ class ScrapperFutbolenlatv:
     lista_canales = td.find_all("li")
     self.limpia_canales(lista_canales)
     resultado = False
+
     for canal in lista_canales:
-      if canal["title"].upper() in self.mapeo_canales:
+      canal_title = canal["title"].lower()
+      # Encontrar la key donde el value contiene canal_title
+      key_encontrada = next(
+          (key for key, value in self.mapeo_canales.items()
+           if canal_title in str(value).lower()),
+          None
+      )
+
+      if key_encontrada:
         resultado = True
-        self.canales.append(self.mapeo_canales[canal["title"].upper()])
+        self.canales.append(key_encontrada)
+
     return resultado
 
   def limpia_canales(self, lista_canales):

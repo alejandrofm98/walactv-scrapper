@@ -1,45 +1,69 @@
-import newScrapper
-from newScrapper import guarda_partidos
-import openRouter
 import schedule
 import time
 import traceback
+from database import Database
+from scrapper import ScrapperFutbolenlatv
+import openRouter
+from newScrapper import StreamScraper, DataManager, EventProcessor
+
+
+def unificar_con_acestream(eventos):
+  try:
+    document_name = ScrapperFutbolenlatv.generate_document_name(
+        ScrapperFutbolenlatv.obtener_fechas()[0]
+    )
+    db = Database("calendario", document_name, None)
+    eventos_acestream = db.get_doc_firebase().to_dict()
+
+    if eventos_acestream:
+      processor = EventProcessor()
+      processor.unificar_eventos(eventos, eventos_acestream)
+
+    return eventos
+  except Exception as e:
+    print(f"Error unificando: {e}")
+    return eventos
+
+
+def categorizar_eventos(eventos):
+  try:
+    if eventos.get("eventos"):
+      open_router = openRouter.OpenRouter(events=eventos["eventos"])
+      eventos_categorizados = open_router.get_category_events()
+      if eventos_categorizados:
+        eventos["eventos"] = eventos_categorizados
+    return eventos
+  except Exception as e:
+    print(f"Error categorizando: {e}")
+    return eventos
+
 
 def job():
-    tv_libre = None
-    try:
-        tv_libre = newScrapper.NewScrapper()
-        tv_libre.obtener_titulo_eventos()
-        eventos = tv_libre.process_streams()
+  scraper = None
+  try:
+    scraper = StreamScraper()
+    eventos = scraper.scrape()
 
-        if not eventos or "eventos" not in eventos:
-            print("⚠️ No se obtuvieron eventos")
-            return
+    if not eventos or "eventos" not in eventos:
+      return
 
-        open_router = openRouter.OpenRouter(events=eventos["eventos"])
-        eventos["eventos"] = open_router.get_category_events()
+    eventos = unificar_con_acestream(eventos)
+    eventos = categorizar_eventos(eventos)
+    DataManager.guardar_eventos(eventos)
 
-        guarda_partidos(eventos)
-        print("✅ Eventos guardados correctamente")
-
-    except Exception as e:
-        print(f"❌ Error en job(): {e}")
-        traceback.print_exc()
-        time.sleep(10)  # reintento después de un rato
-
-    finally:
-        if tv_libre and hasattr(tv_libre, "_cerrar_driver_seguro"):
-            tv_libre._cerrar_driver_seguro()
+  except Exception as e:
+    print(f"Error en job: {e}")
+    traceback.print_exc()
+    time.sleep(10)
+  finally:
+    if scraper:
+      scraper.driver_manager.close_driver()
 
 
 if __name__ == '__main__':
-    # run immediately on start-up
-    job()
+  job()
+  schedule.every(1).hours.do(job)
 
-    # schedule every hour
-    schedule.every(1).hours.do(job)
-
-    # keep the main thread alive
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+  while True:
+    schedule.run_pending()
+    time.sleep(60)
