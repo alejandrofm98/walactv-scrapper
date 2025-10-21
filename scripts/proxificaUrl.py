@@ -123,7 +123,7 @@ async def handle_segment(target_url):
 
         return Response(
             send_stream(),
-            content_type='application/octet-stream',
+            content_type='video/MP2T',
             headers={
                 'Cache-Control': 'no-cache',
                 'Connection': 'keep-alive'
