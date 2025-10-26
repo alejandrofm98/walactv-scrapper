@@ -4,7 +4,7 @@ services:
       context: ../
       dockerfile: docker/Dockerfile
     restart: unless-stopped
-    command: ["python", "proxificaUrl.py"]
+    command: [ "python", "proxificaUrl.py" ]
     env_file:
       - path: .env
 
@@ -13,7 +13,7 @@ services:
       context: ../
       dockerfile: docker/Dockerfile
     restart: unless-stopped
-    command: ["python", "main2.py"]
+    command: [ "python", "main2.py" ]
     env_file:
       - path: .env
 
@@ -25,14 +25,14 @@ services:
     env_file:
       - path: .env
 
-#PARA LOCAL
-#  acestream-http-proxy:
-#    image: ghcr.io/martinbjeldbak/acestream-http-proxy
-#    container_name: acestream-http-proxy
-#    ports:
-#      - 6878:6878
-#    environment:
-#      - ALLOW_REMOTE_ACCESS=yes
+  #PARA LOCAL
+  #  acestream-http-proxy:
+  #    image: ghcr.io/martinbjeldbak/acestream-http-proxy
+  #    container_name: acestream-http-proxy
+  #    ports:
+  #      - 6878:6878
+  #    environment:
+  #      - ALLOW_REMOTE_ACCESS=yes
 
   acestream-arm:
     image: jopsis/acestream:arm64
@@ -58,54 +58,51 @@ services:
       - ./acestream-config:/acestream.engine
     networks:
       - walactv-network
-      - dokploy-network
+      - dokploy-network  # ⚠️ AÑADE LA RED DE TRAEFIK (usa el nombre exacto que encontraste)
     labels:
-      # Habilitar Traefik
       - "traefik.enable=true"
-
-      # Router HTTPS con nombre ÚNICO
       - "traefik.http.routers.acestream-walactv-https.rule=Host(`walactv.walerike.com`) && PathPrefix(`/acestream`)"
       - "traefik.http.routers.acestream-walactv-https.entrypoints=websecure"
       - "traefik.http.routers.acestream-walactv-https.tls.certresolver=letsencrypt"
-
-      # Servicio con nombre ÚNICO
       - "traefik.http.services.acestream-walactv-svc.loadbalancer.server.port=6878"
-
-      # Middleware con nombre ÚNICO
       - "traefik.http.middlewares.acestream-walactv-strip.stripprefix.prefixes=/acestream"
-
-      # Conectar todo
       - "traefik.http.routers.acestream-walactv-https.middlewares=acestream-walactv-strip"
       - "traefik.http.routers.acestream-walactv-https.service=acestream-walactv-svc"
+      # ⚠️ IMPORTANTE: Decirle a Traefik qué red usar
+      - "traefik.docker.network=dokploy-network"  # ⚠️ Usa el nombre exacto de la red de Traefik
 
 
-#  acestream-arm2:
-#    image: jopsis/acestream:arm64
-#    container_name: acestream-arm2
-#    platform: linux/arm64          # <-- Emulación ARM64 en host AMD64
-#    privileged: true
-#    restart: unless-stopped
-#    command: [
-#      "python", "main.py",
-#      "--bind-all",
-#      "--client-console",
-#      "--live-cache-type", "memory",
-#      "--live-mem-cache-size", "104857600",
-#      "--disable-sentry",
-#      "--log-stdout"
-#    ]
-#    ports:
-#      - "6878:6878"                # AceStream engine HTTP
-#      - "8621:8621"                # AceStream web interface
-#    environment:
-#      - TZ=Europe/Madrid
-#      - ACESTREAM_REMOTE=yes        # Permite acceso remoto
-#    volumes:
-#      - ./acestream-config:/acestream.engine
-#    networks:
-#      - walactv-network
+
+
+  #  acestream-arm2:
+  #    image: jopsis/acestream:arm64
+  #    container_name: acestream-arm2
+  #    platform: linux/arm64          # <-- Emulación ARM64 en host AMD64
+  #    privileged: true
+  #    restart: unless-stopped
+  #    command: [
+  #      "python", "main.py",
+  #      "--bind-all",
+  #      "--client-console",
+  #      "--live-cache-type", "memory",
+  #      "--live-mem-cache-size", "104857600",
+  #      "--disable-sentry",
+  #      "--log-stdout"
+  #    ]
+  #    ports:
+  #      - "6878:6878"                # AceStream engine HTTP
+  #      - "8621:8621"                # AceStream web interface
+  #    environment:
+  #      - TZ=Europe/Madrid
+  #      - ACESTREAM_REMOTE=yes        # Permite acceso remoto
+  #    volumes:
+  #      - ./acestream-config:/acestream.engine
+  #    networks:
+  #      - walactv-network
 
 
 networks:
   walactv-network:
+    external: true
+  dokploy-network: # ⚠️ Añade la red de Traefik
     external: true
