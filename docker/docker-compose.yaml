@@ -45,7 +45,7 @@ services:
     environment:
       - TZ=Europe/Madrid
       # Permitir acceso remoto si lo necesitas
-      - ACESTREAM_REMOTE=yes
+      - ALLOW_REMOTE_ACCESS=yes
     volumes:
       - ./acestream-config:/acestream.engine  # Config persistente
 
