@@ -26,13 +26,13 @@ services:
       - path: .env
 
 #PARA LOCAL
-  acestream-http-proxy:
-    image: ghcr.io/martinbjeldbak/acestream-http-proxy
-    container_name: acestream-http-proxy
-    ports:
-      - 6878:6878
-    environment:
-      - ALLOW_REMOTE_ACCESS=yes
+#  acestream-http-proxy:
+#    image: ghcr.io/martinbjeldbak/acestream-http-proxy
+#    container_name: acestream-http-proxy
+#    ports:
+#      - 6878:6878
+#    environment:
+#      - ALLOW_REMOTE_ACCESS=yes
 
   acestream-arm:
     image: jopsis/acestream:arm64
