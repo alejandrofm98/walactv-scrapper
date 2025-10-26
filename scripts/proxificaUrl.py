@@ -1,4 +1,5 @@
 from quart import Quart, request, Response
+from quart_cors import cors
 import aiohttp
 import asyncio
 from urllib.parse import urljoin
@@ -6,6 +7,7 @@ import ssl
 from database import Database
 
 app = Quart(__name__)
+app = cors(app, allow_origin="https://walactvweb.walerike.com")
 
 # Configuración del proxy
 db = Database("configNewScrapper", 'proxy', None)
