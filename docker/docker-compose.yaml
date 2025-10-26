@@ -49,17 +49,24 @@ services:
       "--log-stdout"
     ]
     ports:
-      - "6878:6878"  # AceStream engine HTTP
-      - "8621:8621"  # AceStream web interface (si la usa)
+      - "6878:6878"
     environment:
       - TZ=Europe/Madrid
-      # Permitir acceso remoto si lo necesitas
       - ALLOW_REMOTE_ACCESS=yes
       - ACESTREAM_ARGS=--bind-all
     volumes:
-      - ./acestream-config:/acestream.engine  # Config persistente
+      - ./acestream-config:/acestream.engine
     networks:
       - walactv-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.acestream.rule=Host(`walactv.walerike.com`) && PathPrefix(`/acestream`)"
+      - "traefik.http.routers.acestream.entrypoints=websecure"
+      - "traefik.http.routers.acestream.tls=true"
+      - "traefik.http.routers.acestream.tls.certresolver=letsencrypt"
+      - "traefik.http.services.acestream.loadbalancer.server.port=6878"
+      - "traefik.http.middlewares.acestream-stripprefix.stripprefix.prefixes=/acestream"
+      - "traefik.http.routers.acestream.middlewares=acestream-stripprefix"
 
 #  acestream-arm2:
 #    image: jopsis/acestream:arm64
