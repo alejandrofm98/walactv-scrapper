@@ -62,25 +62,32 @@ services:
       # Habilitar Traefik
       - "traefik.enable=true"
 
-      # Router para HTTPS
-      - "traefik.http.routers.acestream.rule=Host(`walactv.walerike.com`) && PathPrefix(`/acestream`)"
-      - "traefik.http.routers.acestream.entrypoints=websecure"
-      - "traefik.http.routers.acestream.tls=true"
-      - "traefik.http.routers.acestream.tls.certresolver=letsencrypt"
+      # Router HTTP (redirigir a HTTPS)
+      - "traefik.http.routers.acestream-http.rule=Host(`walactv.walerike.com`) && PathPrefix(`/acestream`)"
+      - "traefik.http.routers.acestream-http.entrypoints=web"
+      - "traefik.http.routers.acestream-http.middlewares=redirect-to-https"
 
-      # Servicio (puerto del contenedor)
-      - "traefik.http.services.acestream-svc.loadbalancer.server.port=6878"
+      # Router HTTPS
+      - "traefik.http.routers.acestream-https.rule=Host(`walactv.walerike.com`) && PathPrefix(`/acestream`)"
+      - "traefik.http.routers.acestream-https.entrypoints=websecure"
+      - "traefik.http.routers.acestream-https.tls=true"
+      - "traefik.http.routers.acestream-https.tls.certresolver=letsencrypt"
 
-      # Middleware para quitar el prefijo /acestream
+      # Servicio
+      - "traefik.http.services.acestream.loadbalancer.server.port=6878"
+
+      # Middleware: Quitar prefijo /acestream
       - "traefik.http.middlewares.acestream-strip.stripprefix.prefixes=/acestream"
-      - "traefik.http.routers.acestream.middlewares=acestream-strip"
-      - "traefik.http.routers.acestream.service=acestream-svc"
 
-      # CORS (opcional pero recomendado)
-      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolallowmethods=GET,OPTIONS,PUT,POST,DELETE"
-      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolalloworigin=*"
+      # Middleware: CORS (sintaxis correcta)
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolallowmethods=GET,OPTIONS,POST"
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolalloworiginlist=*"
       - "traefik.http.middlewares.acestream-cors.headers.accesscontrolmaxage=100"
       - "traefik.http.middlewares.acestream-cors.headers.addvaryheader=true"
+
+      # Aplicar middlewares al router HTTPS
+      - "traefik.http.routers.acestream-https.middlewares=acestream-strip,acestream-cors"
+      - "traefik.http.routers.acestream-https.service=acestream"
 
 
 #  acestream-arm2:
