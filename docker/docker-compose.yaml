@@ -48,3 +48,19 @@ services:
       - ACESTREAM_REMOTE=yes
     volumes:
       - ./acestream-config:/acestream.engine  # Config persistente
+
+
+#  acestream-arm2:
+#    image: jopsis/acestream:arm64
+#    container_name: acestream-arm2
+#    platform: linux/arm64          # <-- Emulación ARM64 en host AMD64
+#    privileged: true
+#    restart: unless-stopped
+#    ports:
+#      - "6878:6878"                # AceStream engine HTTP
+#      - "8621:8621"                # AceStream web interface
+#    environment:
+#      - TZ=Europe/Madrid
+#      - ACESTREAM_REMOTE=yes        # Permite acceso remoto
+#    volumes:
+#      - ./acestream-config:/acestream.engine
