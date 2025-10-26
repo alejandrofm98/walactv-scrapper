@@ -51,7 +51,7 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
 
-      # HTTPS Router con middleware de headers
+      # HTTPS Router
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls=true"
@@ -65,26 +65,32 @@ services:
       - "traefik.http.routers.acestream-web.middlewares=acestream-redirect"
       - "traefik.http.routers.acestream-web.service=acestream-service"
 
-      # Service
+      # Service - FORZAR HTTP/1.1 y deshabilitar healthcheck
       - "traefik.http.services.acestream-service.loadbalancer.server.port=6878"
       - "traefik.http.services.acestream-service.loadbalancer.server.scheme=http"
+      - "traefik.http.services.acestream-service.loadbalancer.passhostheader=true"
 
-      # Middleware de redirección HTTP->HTTPS
+      # ServersTransport para forzar HTTP/1.1
+      - "traefik.http.services.acestream-service.loadbalancer.serverstransport=acestream-transport"
+      - "traefik.http.serversTransports.acestream-transport.forwardingTimeouts.dialTimeout=30s"
+      - "traefik.http.serversTransports.acestream-transport.forwardingTimeouts.responseHeaderTimeout=0s"
+      - "traefik.http.serversTransports.acestream-transport.forwardingTimeouts.idleConnTimeout=0s"
+
+      # Middleware de redirección
       - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
       - "traefik.http.middlewares.acestream-redirect.redirectscheme.permanent=true"
 
-      # Middleware de headers para corregir las redirecciones
+      # Middleware de headers
       - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
       - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Forwarded-Host=acestream.walerike.com"
       - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Forwarded-Port=443"
-
-      # Middleware para reescribir Location header en respuestas
       - "traefik.http.middlewares.acestream-headers.headers.customresponseheaders.Access-Control-Allow-Origin=*"
 
     networks:
       dokploy-network:
         aliases:
           - acestream-arm
+
 
 
 
