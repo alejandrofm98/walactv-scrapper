@@ -39,6 +39,7 @@ services:
   acestream-arm:
     image: jopsis/acestream:arm64
     container_name: acestream-arm
+    hostname: acestream-arm
     privileged: true
     restart: unless-stopped
     platform: linux/arm64
@@ -49,30 +50,33 @@ services:
       - ./acestream-config:/acestream.engine
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
 
-      # HTTPS Router - Nombre único y específico
+      # HTTPS Router
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls=true"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
       - "traefik.http.routers.acestream-secure.service=acestream-service"
 
-      # HTTP Router - Redirección a HTTPS
+      # HTTP Router
       - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-web.entrypoints=web"
       - "traefik.http.routers.acestream-web.middlewares=acestream-redirect"
       - "traefik.http.routers.acestream-web.service=acestream-service"
 
-      # Service - Puerto del contenedor
+      # Service - AÑADE ESTAS DOS LÍNEAS
       - "traefik.http.services.acestream-service.loadbalancer.server.port=6878"
-      - "traefik.http.services.acestream-service.loadbalancer.passhostheader=true"
+      - "traefik.http.services.acestream-service.loadbalancer.server.scheme=http"
 
-      # Middleware de redirección
+      # Middlewares
       - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
       - "traefik.http.middlewares.acestream-redirect.redirectscheme.permanent=true"
 
     networks:
-      - dokploy-network
+      dokploy-network:
+        aliases:
+          - acestream-arm
 
 
 
