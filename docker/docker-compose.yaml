@@ -59,14 +59,29 @@ services:
     networks:
       - walactv-network
     labels:
+      # Habilitar Traefik
       - "traefik.enable=true"
+
+      # Router para HTTPS
       - "traefik.http.routers.acestream.rule=Host(`walactv.walerike.com`) && PathPrefix(`/acestream`)"
       - "traefik.http.routers.acestream.entrypoints=websecure"
       - "traefik.http.routers.acestream.tls=true"
       - "traefik.http.routers.acestream.tls.certresolver=letsencrypt"
-      - "traefik.http.services.acestream.loadbalancer.server.port=6878"
-      - "traefik.http.middlewares.acestream-stripprefix.stripprefix.prefixes=/acestream"
-      - "traefik.http.routers.acestream.middlewares=acestream-stripprefix"
+
+      # Servicio (puerto del contenedor)
+      - "traefik.http.services.acestream-svc.loadbalancer.server.port=6878"
+
+      # Middleware para quitar el prefijo /acestream
+      - "traefik.http.middlewares.acestream-strip.stripprefix.prefixes=/acestream"
+      - "traefik.http.routers.acestream.middlewares=acestream-strip"
+      - "traefik.http.routers.acestream.service=acestream-svc"
+
+      # CORS (opcional pero recomendado)
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolallowmethods=GET,OPTIONS,PUT,POST,DELETE"
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolalloworigin=*"
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.acestream-cors.headers.addvaryheader=true"
+
 
 #  acestream-arm2:
 #    image: jopsis/acestream:arm64
