@@ -37,38 +37,36 @@ services:
 
   acestream-arm:
     image: jopsis/acestream:arm64
+    container_name: acestream-arm
     privileged: true
+    restart: unless-stopped
+    platform: linux/arm64
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
     volumes:
-      - acestream-config:/acestream.engine
-    deploy:
-      mode: replicated
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-      labels:
-        # --- Traefik Integration ---
-        - "traefik.enable=true"
+      - ./acestream-config:/acestream.engine
+    labels:
+      - "traefik.enable=true"
 
-        # Router HTTPS
-        - "traefik.http.routers.acestream.rule=Host(`acestream.walerike.com`)"
-        - "traefik.http.routers.acestream.entrypoints=websecure"
-        - "traefik.http.routers.acestream.tls=true"
-        - "traefik.http.routers.acestream.tls.certresolver=myresolver"
+      # HTTPS Router
+      - "traefik.http.routers.acestream-https.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acestream-https.entrypoints=websecure"
+      - "traefik.http.routers.acestream-https.tls.certresolver=myresolver"
+      - "traefik.http.routers.acestream-https.service=acestream-svc"
 
-        # Service (IMPORTANTE: el puerto en swarm)
-        - "traefik.http.services.acestream.loadbalancer.server.port=6878"
+      # HTTP Router (redirect to HTTPS)
+      - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acestream-http.entrypoints=web"
+      - "traefik.http.routers.acestream-http.middlewares=acestream-https-redirect"
+      - "traefik.http.routers.acestream-http.service=acestream-svc"
 
-        # Router HTTP (redirección)
-        - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
-        - "traefik.http.routers.acestream-http.entrypoints=web"
-        - "traefik.http.routers.acestream-http.middlewares=redirect-to-https"
+      # Service
+      - "traefik.http.services.acestream-svc.loadbalancer.server.port=6878"
 
-        # Middleware de redirección
-        - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-        - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+      # Middleware
+      - "traefik.http.middlewares.acestream-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.acestream-https-redirect.redirectscheme.permanent=true"
     networks:
       - dokploy-network
 
