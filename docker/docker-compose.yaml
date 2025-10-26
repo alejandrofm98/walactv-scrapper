@@ -62,32 +62,20 @@ services:
       # Habilitar Traefik
       - "traefik.enable=true"
 
-      # Router HTTP (redirigir a HTTPS)
-      - "traefik.http.routers.acestream-http.rule=Host(`walactv.walerike.com`) && PathPrefix(`/acestream`)"
-      - "traefik.http.routers.acestream-http.entrypoints=web"
-      - "traefik.http.routers.acestream-http.middlewares=redirect-to-https"
+      # Router HTTPS con nombre ÚNICO
+      - "traefik.http.routers.acestream-walactv-https.rule=Host(`walactv.walerike.com`) && PathPrefix(`/acestream`)"
+      - "traefik.http.routers.acestream-walactv-https.entrypoints=websecure"
+      - "traefik.http.routers.acestream-walactv-https.tls.certresolver=letsencrypt"
 
-      # Router HTTPS
-      - "traefik.http.routers.acestream-https.rule=Host(`walactv.walerike.com`) && PathPrefix(`/acestream`)"
-      - "traefik.http.routers.acestream-https.entrypoints=websecure"
-      - "traefik.http.routers.acestream-https.tls=true"
-      - "traefik.http.routers.acestream-https.tls.certresolver=letsencrypt"
+      # Servicio con nombre ÚNICO
+      - "traefik.http.services.acestream-walactv-svc.loadbalancer.server.port=6878"
 
-      # Servicio
-      - "traefik.http.services.acestream.loadbalancer.server.port=6878"
+      # Middleware con nombre ÚNICO
+      - "traefik.http.middlewares.acestream-walactv-strip.stripprefix.prefixes=/acestream"
 
-      # Middleware: Quitar prefijo /acestream
-      - "traefik.http.middlewares.acestream-strip.stripprefix.prefixes=/acestream"
-
-      # Middleware: CORS (sintaxis correcta)
-      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolallowmethods=GET,OPTIONS,POST"
-      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolalloworiginlist=*"
-      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolmaxage=100"
-      - "traefik.http.middlewares.acestream-cors.headers.addvaryheader=true"
-
-      # Aplicar middlewares al router HTTPS
-      - "traefik.http.routers.acestream-https.middlewares=acestream-strip,acestream-cors"
-      - "traefik.http.routers.acestream-https.service=acestream"
+      # Conectar todo
+      - "traefik.http.routers.acestream-walactv-https.middlewares=acestream-walactv-strip"
+      - "traefik.http.routers.acestream-walactv-https.service=acestream-walactv-svc"
 
 
 #  acestream-arm2:
