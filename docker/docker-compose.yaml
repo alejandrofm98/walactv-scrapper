@@ -65,16 +65,10 @@ services:
       - "traefik.http.routers.acestream-web.middlewares=acestream-redirect"
       - "traefik.http.routers.acestream-web.service=acestream-service"
 
-      # Service - FORZAR HTTP/1.1 y deshabilitar healthcheck
+      # Service
       - "traefik.http.services.acestream-service.loadbalancer.server.port=6878"
       - "traefik.http.services.acestream-service.loadbalancer.server.scheme=http"
       - "traefik.http.services.acestream-service.loadbalancer.passhostheader=true"
-
-      # ServersTransport para forzar HTTP/1.1
-      - "traefik.http.services.acestream-service.loadbalancer.serverstransport=acestream-transport"
-      - "traefik.http.serversTransports.acestream-transport.forwardingTimeouts.dialTimeout=30s"
-      - "traefik.http.serversTransports.acestream-transport.forwardingTimeouts.responseHeaderTimeout=0s"
-      - "traefik.http.serversTransports.acestream-transport.forwardingTimeouts.idleConnTimeout=0s"
 
       # Middleware de redirección
       - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
@@ -90,7 +84,6 @@ services:
       dokploy-network:
         aliases:
           - acestream-arm
-
 
 
 
