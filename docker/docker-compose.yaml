@@ -58,6 +58,7 @@ services:
       - ./acestream-config:/acestream.engine
     networks:
       - walactv-network
+      - dokploy-network
     labels:
       # Habilitar Traefik
       - "traefik.enable=true"
