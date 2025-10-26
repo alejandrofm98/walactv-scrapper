@@ -50,35 +50,30 @@ services:
     labels:
       - "traefik.enable=true"
 
-      # HTTPS Router
-      - "traefik.http.routers.acestream-https.rule=Host(`acestream.walerike.com`)"
-      - "traefik.http.routers.acestream-https.entrypoints=websecure"
-      - "traefik.http.routers.acestream-https.tls.certresolver=myresolver"
-      - "traefik.http.routers.acestream-https.service=acestream-svc"
-      - "traefik.http.routers.acestream-https.middlewares=acestream-headers"
+      # HTTPS Router - Nombre único y específico
+      - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acestream-secure.entrypoints=websecure"
+      - "traefik.http.routers.acestream-secure.tls=true"
+      - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.acestream-secure.service=acestream-service"
 
-      # HTTP Router (redirect to HTTPS)
-      - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
-      - "traefik.http.routers.acestream-http.entrypoints=web"
-      - "traefik.http.routers.acestream-http.middlewares=acestream-https-redirect"
-      - "traefik.http.routers.acestream-http.service=acestream-svc"
+      # HTTP Router - Redirección a HTTPS
+      - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acestream-web.entrypoints=web"
+      - "traefik.http.routers.acestream-web.middlewares=acestream-redirect"
+      - "traefik.http.routers.acestream-web.service=acestream-service"
 
-      # Service
-      - "traefik.http.services.acestream-svc.loadbalancer.server.port=6878"
+      # Service - Puerto del contenedor
+      - "traefik.http.services.acestream-service.loadbalancer.server.port=6878"
+      - "traefik.http.services.acestream-service.loadbalancer.passhostheader=true"
 
-      # Middlewares
-      - "traefik.http.middlewares.acestream-https-redirect.redirectscheme.scheme=https"
-      - "traefik.http.middlewares.acestream-https-redirect.redirectscheme.permanent=true"
-
-      # Headers middleware para Acestream
-      - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
-      - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Real-IP="
-      - "traefik.http.middlewares.acestream-headers.headers.accesscontrolalloworiginlist=*"
-      - "traefik.http.middlewares.acestream-headers.headers.accesscontrolallowmethods=GET,POST,OPTIONS"
-      - "traefik.http.middlewares.acestream-headers.headers.accesscontrolallowheaders=*"
+      # Middleware de redirección
+      - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.acestream-redirect.redirectscheme.permanent=true"
 
     networks:
       - dokploy-network
+
 
 
 
