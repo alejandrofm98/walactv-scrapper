@@ -40,17 +40,15 @@ services:
     privileged: true
     restart: unless-stopped
     platform: linux/arm64
+    ports:
+      - "6878:6878"  # ← AÑADIDO: exponer puerto para debugging
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
-      ACESTREAM_CACHE_SIZE: "512M"
-      ACESTREAM_MAX_PEERS: "40"
-      ACESTREAM_DEBUG: "0"
-
     volumes:
       - acestream-config:/acestream.engine
     networks:
-      - dokploy-network
+      - dokploy-network  # ← AÑADIDO: necesario para comunicarse con nginx
 
   acestream-proxy:
     image: openresty/openresty:alpine
