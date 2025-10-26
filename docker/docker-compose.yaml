@@ -47,8 +47,6 @@ services:
         - ACESTREAM_REMOTE=yes
     volumes:
       - ./acestream-config:/acestream.engine
-    networks:
-      - walactv-network
 
 
 
