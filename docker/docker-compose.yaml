@@ -48,14 +48,27 @@ services:
     labels:
       # --- Traefik Integration ---
       - "traefik.enable=true"
+
+      # Router HTTP (redirección a HTTPS)
+      - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acestream-http.entrypoints=web"
+      - "traefik.http.routers.acestream-http.middlewares=acestream-redirect"
+
+      # Router HTTPS
       - "traefik.http.routers.acestream.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream.entrypoints=websecure"
-      - "traefik.http.routers.acestream.tls.certresolver=myresolver"  # Usa el resolver que tengas en Dokploy (por defecto 'myresolver')
+      - "traefik.http.routers.acestream.tls=true"
+      - "traefik.http.routers.acestream.tls.certresolver=myresolver"
+
+      # Service
       - "traefik.http.services.acestream.loadbalancer.server.port=6878"
-      - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+
+      # Middlewares
+      - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.acestream-redirect.redirectscheme.permanent=true"
+
     networks:
-      - default
-      - dokploy-network  # 👈 asegúrate que coincide con la red interna de Traefik/Dokploy
+      - dokploy-network
 
 
 
