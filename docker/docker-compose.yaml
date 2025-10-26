@@ -37,11 +37,14 @@ services:
   acestream-arm:
     image: jopsis/acestream:arm64
     container_name: acestream-arm
-    network_mode: "host"
+    privileged: true
     restart: unless-stopped
+    ports:
+      - "6878:6878"                # AceStream engine HTTP
+      - "8621:8621"
     environment:
       - TZ=Europe/Madrid
-        - ACESTREAM_REMOTE=yes
+      - ACESTREAM_REMOTE=yes
     volumes:
       - ./acestream-config:/acestream.engine
 
