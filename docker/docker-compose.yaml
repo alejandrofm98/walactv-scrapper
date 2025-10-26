@@ -26,22 +26,25 @@ services:
       - path: .env
 
 #PARA LOCAL
-#  acestream-http-proxy:
-#    image: ghcr.io/martinbjeldbak/acestream-http-proxy
-#    container_name: acestream-http-proxy
-#    ports:
-#      - 6878:6878
+  acestream-http-proxy:
+    image: ghcr.io/martinbjeldbak/acestream-http-proxy
+    container_name: acestream-http-proxy
+    ports:
+      - 6878:6878
+    environment:
+      - ALLOW_REMOTE_ACCESS=yes
 
-  acestream:
-    image: plaza24/acestream-arm64v8:3.1.50-memory
-    container_name: acestream
+  acestream-arm:
+    image: jopsis/acestream:arm64
+    container_name: acestream-arm
     privileged: true
     restart: unless-stopped
     ports:
-      - "6878:6878"
-      - "8621:8621"
+      - "6878:6878"  # AceStream engine HTTP
+      - "8621:8621"  # AceStream web interface (si la usa)
     environment:
       - TZ=Europe/Madrid
-      # Add other env vars if needed
+      # Permitir acceso remoto si lo necesitas
+      - ACESTREAM_REMOTE=yes
     volumes:
-      - ./acestream-config:/acestream.engine  # if config files
+      - ./acestream-config:/acestream.engine  # Config persistente
