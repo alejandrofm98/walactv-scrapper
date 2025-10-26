@@ -39,6 +39,7 @@ services:
     container_name: acestream-arm
     privileged: true
     restart: unless-stopped
+    network_mode: "host"
     ports:
       - "6878:6878"
     environment:
