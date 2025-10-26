@@ -39,14 +39,24 @@ services:
     container_name: acestream-arm
     privileged: true
     restart: unless-stopped
-    ports:
-      - "6878:6878"                # AceStream engine HTTP
-      - "8621:8621"
+    platform: linux/arm64
     environment:
-      - TZ=Europe/Madrid
-      - ACESTREAM_REMOTE=yes
+      TZ: Europe/Madrid
+      ALLOW_REMOTE_ACCESS: "yes"
     volumes:
       - ./acestream-config:/acestream.engine
+    labels:
+      # --- Traefik Integration ---
+      - "traefik.enable=true"
+      - "traefik.http.routers.acestream.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acestream.entrypoints=websecure"
+      - "traefik.http.routers.acestream.tls.certresolver=myresolver"  # Usa el resolver que tengas en Dokploy (por defecto 'myresolver')
+      - "traefik.http.services.acestream.loadbalancer.server.port=6878"
+      - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+    networks:
+      - default
+      - dokploy-network  # 👈 asegúrate que coincide con la red interna de Traefik/Dokploy
+
 
 
 
@@ -64,3 +74,7 @@ services:
 #      - ACESTREAM_REMOTE=yes        # Permite acceso remoto
 #    volumes:
 #      - ./acestream-config:/acestream.engine
+
+networks:
+  dokploy-network:
+    external: true
