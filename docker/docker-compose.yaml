@@ -45,6 +45,9 @@ services:
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
+      ACESTREAM_CACHE_SIZE: "512M"
+      ACESTREAM_MAX_PEERS: "40"
+      ACESTREAM_DEBUG: "0"
     volumes:
       - acestream-config:/acestream.engine
     networks:
