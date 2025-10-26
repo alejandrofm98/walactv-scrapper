@@ -39,6 +39,15 @@ services:
     container_name: acestream-arm
     privileged: true
     restart: unless-stopped
+    command: [
+      "python", "main.py",
+      "--bind-all",
+      "--client-console",
+      "--live-cache-type", "memory",
+      "--live-mem-cache-size", "104857600",
+      "--disable-sentry",
+      "--log-stdout"
+    ]
     ports:
       - "6878:6878"  # AceStream engine HTTP
       - "8621:8621"  # AceStream web interface (si la usa)
@@ -58,6 +67,15 @@ services:
 #    platform: linux/arm64          # <-- Emulación ARM64 en host AMD64
 #    privileged: true
 #    restart: unless-stopped
+#    command: [
+#      "python", "main.py",
+#      "--bind-all",
+#      "--client-console",
+#      "--live-cache-type", "memory",
+#      "--live-mem-cache-size", "104857600",
+#      "--disable-sentry",
+#      "--log-stdout"
+#    ]
 #    ports:
 #      - "6878:6878"                # AceStream engine HTTP
 #      - "8621:8621"                # AceStream web interface
