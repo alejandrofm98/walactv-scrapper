@@ -66,10 +66,3 @@ services:
 #      - ./acestream-config:/acestream.engine
 #    networks:
 #      - walactv-network
-
-
-networks:
-  walactv-network:
-    external: true
-  dokploy-network: # ⚠️ Añade la red de Traefik
-    external: true
