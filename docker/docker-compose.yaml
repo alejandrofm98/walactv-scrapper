@@ -35,7 +35,6 @@ services:
   #      - ALLOW_REMOTE_ACCESS=yes
 
 
-
   acestream-arm:
     image: jopsis/acestream:arm64
     container_name: acestream-arm
@@ -52,12 +51,13 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
 
-      # HTTPS Router
+      # HTTPS Router con middleware de headers
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls=true"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
       - "traefik.http.routers.acestream-secure.service=acestream-service"
+      - "traefik.http.routers.acestream-secure.middlewares=acestream-headers"
 
       # HTTP Router
       - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
@@ -65,19 +65,26 @@ services:
       - "traefik.http.routers.acestream-web.middlewares=acestream-redirect"
       - "traefik.http.routers.acestream-web.service=acestream-service"
 
-      # Service - AÑADE ESTAS DOS LÍNEAS
+      # Service
       - "traefik.http.services.acestream-service.loadbalancer.server.port=6878"
       - "traefik.http.services.acestream-service.loadbalancer.server.scheme=http"
 
-      # Middlewares
+      # Middleware de redirección HTTP->HTTPS
       - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
       - "traefik.http.middlewares.acestream-redirect.redirectscheme.permanent=true"
+
+      # Middleware de headers para corregir las redirecciones
+      - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Forwarded-Host=acestream.walerike.com"
+      - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Forwarded-Port=443"
+
+      # Middleware para reescribir Location header en respuestas
+      - "traefik.http.middlewares.acestream-headers.headers.customresponseheaders.Access-Control-Allow-Origin=*"
 
     networks:
       dokploy-network:
         aliases:
           - acestream-arm
-
 
 
 
