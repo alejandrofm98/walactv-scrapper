@@ -228,9 +228,7 @@ class EventProcessor:
     """Obtiene el nombre del canal dado su posición."""
     try:
       canales_lista = dic[str(posicion + 1)]['canales']
-      for key, value in self.mapeo_canales.items():
-        if value == canales_lista[0]:
-          return key
+      return canales_lista[0]
     except (KeyError, IndexError):
       pass
     return None
