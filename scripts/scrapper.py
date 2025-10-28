@@ -85,7 +85,7 @@ class ScrapperElPlanDeportes:
 class ScrapperFutbolenlatv:
   publicidad = ["DAZN (Regístrate)", "Amazon Prime Video (Prueba gratis)",
                 "GolStadium Premium (acceder)", "MAX",
-                "DAZN App Gratis (Regístrate)"]
+                "DAZN App Gratis (Regístrate)", "DAZN (Ver en directo)"]
 
   COLUMNAS_EVENTO_NORMAL = 5
   COLUMNAS_EVENTO_DIFERENTE = 4

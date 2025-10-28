@@ -21,6 +21,8 @@ import locale
 from difflib import SequenceMatcher
 from typing import Dict, List, Optional, Any
 from database import Database
+import requests
+import urllib.parse
 
 
 # ==================== UTILIDADES ====================
@@ -100,7 +102,7 @@ class DataManager:
   @staticmethod
   def obtener_mapeo_canales() -> Dict:
     """Obtiene el mapeo de canales desde Firebase."""
-    db = Database("mapeo_canales", "mapeo_canales_2.0", None)
+    db = Database("mapeo_canales", "mapeoCanalesFutbolEnLaTv", None)
     return db.get_doc_firebase().to_dict()
 
   @staticmethod
@@ -131,6 +133,8 @@ class EventProcessor:
       self._agregar_enlaces_coincidencias(dic1, dic2, coincidencias)
 
     self._agregar_eventos_restantes(dic1, dic2)
+    self._ordenar_eventos_por_hora(dic1)
+
 
   @staticmethod
   def _crear_lista_eventos(eventos: List[Dict]) -> List[Dict]:
@@ -237,6 +241,42 @@ class EventProcessor:
       if canal['canal'].lower() == nombre_canal.lower():
         return canal.get("m3u8")
     return None
+
+  def _ordenar_eventos_por_hora(self, dic1: Dict) -> None:
+    """Ordena los eventos por hora considerando el origen de cada evento."""
+    def clave_ordenacion(evento: Dict) -> int:
+      """
+      Convierte hora HH:MM a minutos considerando el origen del evento.
+      - Lista1 (link != 'acestream'): horas 00-05 van al final (madrugada siguiente)
+      - Lista2 (link == 'acestream'): horas 00-05 van al principio (día actual)
+      """
+      try:
+        hora_str = evento.get('hora', '00:00')
+        horas, minutos = map(int, hora_str.split(':'))
+
+        # Determinar origen del evento
+        es_lista1 = False
+        if evento.get('enlaces'):
+          # Si tiene al menos un enlace con link != 'acestream', es de lista1
+          es_lista1 = any(
+            enlace.get('link') != 'acestream'
+            for enlace in evento['enlaces']
+          )
+
+        # Para eventos de lista1: horas 00-05 son madrugada (ir al final)
+        if es_lista1 and 0 <= horas <= 5:
+          horas += 24
+
+        # Para eventos de lista2: horas 00-05 son normales (quedan al principio)
+
+        # Convertir a minutos totales
+        return horas * 60 + minutos
+      except (ValueError, AttributeError):
+        # Si hay error al parsear, poner al final
+        return 9999
+
+    dic1["eventos"].sort(key=clave_ordenacion)
+    print(f"✅ Eventos ordenados por hora considerando origen")
 
 
 # ==================== MONITOR DE DRIVER ====================
@@ -439,7 +479,10 @@ class DriverManager:
 class StreamScraper:
   """Scraper principal para extraer eventos y streams."""
 
+  # Dominio proxy "base" que usas para exponer URLs al cliente
   PROXY_URL = 'https://walactv.walerike.com/proxy?url='
+  # Dominio base (para unir rutas relativas que empiecen por '/')
+  PROXY_DOMAIN = 'https://walactv.walerike.com'
 
   def __init__(self):
     self.url = "https://tvlibreonline.org"
@@ -450,11 +493,9 @@ class StreamScraper:
 
   @property
   def driver(self):
-    """Acceso directo al driver."""
     return self.driver_manager.driver
 
   def scrape(self) -> Optional[Dict]:
-    """Ejecuta el proceso completo de scraping."""
     try:
       self.extraer_eventos()
       self.procesar_streams()
@@ -467,18 +508,14 @@ class StreamScraper:
       self.driver_manager.close_driver()
 
   def extraer_eventos(self) -> None:
-    """Extrae los eventos de la página de agenda."""
-    print(f"🔍 Extrayendo eventos - {obtener_fecha_hora()}")
-
-    page_source = self.driver_manager.execute_with_timeout(
-      self._cargar_pagina_agenda)
+    print(f"🔍 Extrayendo eventos - {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    page_source = self.driver_manager.execute_with_timeout(self._cargar_pagina_agenda)
     if not page_source:
       print("❌ No se pudo cargar la página de agenda")
       return
 
     soup = BeautifulSoup(page_source, 'html.parser')
     menu = soup.find("ul", class_='menu')
-
     if not menu:
       print("❌ No se encontró el menú de eventos")
       return
@@ -486,12 +523,7 @@ class StreamScraper:
     dia_agenda = menu.find("b").text if menu.find("b") else ""
     eventos_elementos = menu.find_all("li", class_=lambda x: x != "subitem1")
 
-    self.eventos = {
-      "dia": dia_agenda,
-      "fecha": datetime.now().isoformat(),
-      "eventos": []
-    }
-
+    self.eventos = {"dia": dia_agenda, "fecha": datetime.now().isoformat(), "eventos": []}
     for evento in eventos_elementos:
       evento_data = self._extraer_datos_evento(evento)
       if evento_data:
@@ -500,34 +532,25 @@ class StreamScraper:
     print(f"✅ Extraídos {len(self.eventos['eventos'])} eventos")
 
   def _cargar_pagina_agenda(self) -> str:
-    """Carga la página de agenda."""
     self.driver.get(self.url + self.url_agenda)
     time.sleep(5)
     return self.driver.page_source
 
   def _extraer_datos_evento(self, evento) -> Optional[Dict]:
-    """Extrae los datos de un evento individual."""
     try:
       elemento_titulo = evento.find("a")
       if not elemento_titulo:
         return None
-
       hora = self._extraer_y_eliminar_span(elemento_titulo)
       titulo = elemento_titulo.get_text(strip=True)
       enlaces = self._extraer_enlaces_evento(evento)
-
-      return {
-        "titulo": titulo,
-        "hora": hora,
-        "enlaces": enlaces
-      }
+      return {"titulo": titulo, "hora": hora, "enlaces": enlaces}
     except Exception as e:
       print(f"Error extrayendo evento: {e}")
       return None
 
   @staticmethod
   def _extraer_y_eliminar_span(elemento) -> str:
-    """Extrae el texto del span y lo elimina del elemento."""
     if span := elemento.find("span"):
       texto = span.text
       span.extract()
@@ -535,23 +558,18 @@ class StreamScraper:
     return ""
 
   def _extraer_enlaces_evento(self, evento) -> List[Dict]:
-    """Extrae los enlaces de un evento."""
     enlaces = []
     for enlace_li in evento.find_all("li"):
       link = enlace_li.find("a")
       if not link:
         continue
-
       calidad = self._extraer_y_eliminar_span(link)
       canal = f"{link.text} {calidad}".strip()
       url = self.url + link["href"]
-
       enlaces.append({"canal": canal, "link": url, "m3u8": []})
-
     return enlaces
 
   def procesar_streams(self) -> None:
-    """Procesa todos los streams de los eventos."""
     if not self.eventos:
       print("❌ No hay eventos para procesar")
       return
@@ -564,68 +582,64 @@ class StreamScraper:
       print(f"{'=' * 60}")
       self._procesar_evento(evento, idx)
 
+    # Filtrar eventos sin enlaces válidos DESPUÉS de procesarlos
+    eventos_iniciales = len(self.eventos["eventos"])
+    self.eventos["eventos"] = [
+      evento for evento in self.eventos["eventos"]
+      if any(enlace.get("m3u8") for enlace in evento.get("enlaces", []))
+    ]
+    eventos_eliminados = eventos_iniciales - len(self.eventos["eventos"])
+
+    if eventos_eliminados > 0:
+      print(
+        f"\n🗑️ Eliminados {eventos_eliminados} eventos sin enlaces M3U8 válidos")
+    print(f"✅ Total eventos finales: {len(self.eventos['eventos'])}")
+
   def _procesar_evento(self, evento: Dict, evento_idx: int) -> None:
-    """Procesa un evento individual."""
     total_enlaces = len(evento["enlaces"])
     for idx, enlace in enumerate(evento["enlaces"]):
       print(f"\n🔗 Enlace {idx + 1}/{total_enlaces}: {enlace['canal']}")
       self._procesar_enlace(enlace, idx, evento_idx)
 
-  def _procesar_enlace(self, enlace: Dict, enlace_idx: int,
-      evento_idx: int) -> None:
-    """Procesa un enlace individual con reintentos."""
+  def _procesar_enlace(self, enlace: Dict, enlace_idx: int, evento_idx: int) -> None:
     max_intentos = 3
-
     for intento in range(1, max_intentos + 1):
       print(f"🔄 Intento {intento}/{max_intentos}")
-
       if self.driver_manager.check_and_restart_if_needed():
         print("✅ Driver reiniciado")
-
       try:
         if self._navegar_y_extraer(enlace):
           print(f"✅ Enlace procesado exitosamente")
           return
       except Exception as e:
         print(f"❌ Error en intento {intento}: {e}")
-
       if intento < max_intentos:
         time.sleep(2)
-
     print("🔄 Agotados los intentos, reinicializando driver...")
     self.driver_manager.restart_driver()
 
   def _navegar_y_extraer(self, enlace: Dict) -> bool:
-    """Navega al enlace y extrae URLs M3U8."""
-    result = self.driver_manager.execute_with_timeout(
-        lambda: self._navegar(enlace["link"])
-    )
-
+    result = self.driver_manager.execute_with_timeout(lambda: self._navegar(enlace["link"]))
     if not result:
       return False
-
     self._extraer_m3u8(enlace, 1)
-
     botones = self._obtener_botones_stream()
     if botones:
       self._procesar_botones(botones, enlace)
-
     return True
 
   def _navegar(self, url: str) -> bool:
-    """Navega a una URL."""
     self.driver.get(url)
     time.sleep(1)
     return True
 
   def _obtener_botones_stream(self) -> List:
-    """Obtiene los botones de stream adicionales."""
     try:
       result = self.driver_manager.execute_with_timeout(
-          lambda: self.driver.find_elements(
-              By.XPATH,
-              "//a[@target='iframe' and @onclick and not(contains(@style, 'display:none'))]"
-          )[1:]
+        lambda: self.driver.find_elements(
+          By.XPATH,
+          "//a[@target='iframe' and @onclick and not(contains(@style, 'display:none'))]"
+        )[1:]
       )
       return result if result else []
     except Exception as e:
@@ -633,12 +647,9 @@ class StreamScraper:
       return []
 
   def _procesar_botones(self, botones: List, enlace: Dict) -> None:
-    """Procesa los botones adicionales."""
     print(f"🎯 Procesando {len(botones)} botones adicionales")
-
     for idx, boton in enumerate(botones):
       print(f"\n🟡 Botón {idx + 1}/{len(botones)}")
-
       if self.driver_manager.check_and_restart_if_needed():
         print("✅ Driver reiniciado antes del botón")
         if not self._renavegar(enlace):
@@ -646,28 +657,22 @@ class StreamScraper:
         boton = self._actualizar_boton(idx)
         if not boton:
           continue
-
       self._procesar_boton(boton, enlace, idx + 2)
 
   def _renavegar(self, enlace: Dict) -> bool:
-    """Renavega al enlace después de reiniciar."""
     try:
-      result = self.driver_manager.execute_with_timeout(
-          lambda: self._navegar_con_espera(enlace["link"])
-      )
+      result = self.driver_manager.execute_with_timeout(lambda: self._navegar_con_espera(enlace["link"]))
       return result is not None
     except Exception as e:
       print(f"❌ Error renavegando: {e}")
       return False
 
   def _navegar_con_espera(self, url: str) -> bool:
-    """Navega a una URL con espera adicional."""
     self.driver.get(url)
     time.sleep(2)
     return True
 
   def _actualizar_boton(self, indice: int):
-    """Actualiza la referencia al botón."""
     botones = self._obtener_botones_stream()
     if indice < len(botones):
       return botones[indice]
@@ -675,7 +680,6 @@ class StreamScraper:
     return None
 
   def _procesar_boton(self, boton, enlace: Dict, contador: int) -> None:
-    """Procesa un botón individual."""
     try:
       with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(self._click_y_extraer, boton, enlace, contador)
@@ -690,65 +694,132 @@ class StreamScraper:
       print(f"❌ Error procesando botón: {e}")
 
   def _click_y_extraer(self, boton, enlace: Dict, contador: int) -> None:
-    """Hace click en el botón y extrae URLs M3U8."""
     try:
-      # Limpiar requests
-      clear_result = self.driver_manager.execute_with_timeout(
-          lambda: self._limpiar_requests()
-      )
-
+      clear_result = self.driver_manager.execute_with_timeout(lambda: self._limpiar_requests())
       if not clear_result:
         print(f"❌ No se pudieron limpiar requests")
         return
-
-      # Click en el botón
-      click_result = self.driver_manager.execute_with_timeout(
-          lambda: self._click_boton(boton)
-      )
-
+      click_result = self.driver_manager.execute_with_timeout(lambda: self._click_boton(boton))
       if click_result:
         print(f"✅ Botón {contador} clicado")
         self._extraer_m3u8(enlace, contador)
       else:
         print(f"⚠️ No se pudo hacer click en botón {contador}")
-
     except Exception as e:
       print(f"❌ Error en click y extracción: {e}")
 
   def _limpiar_requests(self) -> bool:
-    """Limpia las requests del driver."""
     self.driver.requests.clear()
     time.sleep(1)
     return True
 
   def _click_boton(self, boton) -> bool:
-    """Hace click en un botón."""
     if boton.is_displayed() and boton.is_enabled():
       self.driver.execute_script("arguments[0].click();", boton)
       time.sleep(5)
       return True
     return False
 
+  # -------------------
+  # Validación M3U8 y segmentos (.ts)
+  # -------------------
+  def _m3u8_funciona(self, url: str) -> bool:
+    """
+    Verifica si un enlace M3U8 realmente está activo:
+    - Descarga el playlist.
+    - Si contiene segmentos (.ts), prueba hasta 3 de ellos.
+    - Si las rutas son relativas o /proxy, las convierte a absolutas con PROXY_DOMAIN.
+    - Devuelve True si al menos uno de los segmentos responde 200.
+    """
+    try:
+      resp = requests.get(url, timeout=8)
+      if resp.status_code != 200:
+        return False
+
+      contenido = resp.text.strip()
+      if not contenido.startswith("#EXTM3U"):
+        return False
+
+      # Obtener las líneas con rutas (sin los comentarios #)
+      lineas = [l.strip() for l in contenido.splitlines() if
+                l.strip() and not l.startswith("#")]
+      ts_candidates = [l for l in lineas if ".ts" in l.lower()]
+      sub_m3u8 = [l for l in lineas if ".m3u8" in l.lower()]
+
+      # Si no hay segmentos, pero hay sub-playlists, verificar recursivamente
+      if not ts_candidates and sub_m3u8:
+        primera_sub = sub_m3u8[0]
+        if not primera_sub.startswith("http"):
+          primera_sub = urllib.parse.urljoin(url, primera_sub)
+        return self._m3u8_funciona(primera_sub)
+
+      if not ts_candidates:
+        return False
+
+      # Probar hasta 3 segmentos
+      for ts_rel in ts_candidates[:3]:
+        ts_url_full = ts_rel
+
+        # Normalizar URL del segmento
+        if ts_url_full.startswith("/proxy"):
+          # Ruta tipo /proxy?url=...
+          ts_url_full = self.PROXY_DOMAIN + ts_url_full
+        elif ts_url_full.lower().startswith("proxy?"):
+          # Ruta tipo proxy?url=...
+          ts_url_full = urllib.parse.urljoin(self.PROXY_DOMAIN + "/",
+                                             ts_url_full)
+        elif not ts_url_full.startswith("http"):
+          # Ruta relativa, unir con base del playlist
+          ts_url_full = urllib.parse.urljoin(url, ts_url_full)
+
+        try:
+          seg_resp = requests.head(ts_url_full, timeout=6, allow_redirects=True)
+          if seg_resp.status_code == 200:
+            return True
+          # Algunos servidores bloquean HEAD, intentamos GET parcial
+          if seg_resp.status_code in (403, 405,
+                                      400) or seg_resp.status_code >= 500:
+            get_r = requests.get(ts_url_full, timeout=6, stream=True)
+            if get_r.status_code == 200:
+              return True
+        except Exception:
+          continue
+
+      return False
+
+    except Exception:
+      return False
+
+  # -------------------
+  # Extracción y append seguro de m3u8 al array
+  # -------------------
   def _extraer_m3u8(self, enlace: Dict, contador: int) -> None:
-    """Extrae y guarda URLs M3U8."""
+    """Extrae y guarda URLs M3U8 verificando si funcionan antes de añadirlas."""
     try:
       result = self.driver_manager.execute_with_timeout(
-          lambda: [r for r in self.driver.requests if "m3u8" in r.url]
+        lambda: [r for r in self.driver.requests if "m3u8" in r.url]
       )
-
       if not result:
         return
 
       new_url = result[-1].url
-      if new_url not in enlace["m3u8"] and not TokenManager.token_exists(
-          new_url, enlace["m3u8"]):
-        url_completa = self.PROXY_URL + new_url
+
+      # Evitar duplicados y tokens repetidos
+      if new_url in enlace["m3u8"] or TokenManager.token_exists(new_url, enlace["m3u8"]):
+        return
+
+      # Construir url completa que el cliente verá (manteniendo tu PROXY_URL delante)
+      url_completa = self.PROXY_URL + new_url
+
+      # Validar playlist siguiendo la lógica avanzada
+      if self._m3u8_funciona(url_completa):
         enlace["m3u8"].append(url_completa)
-        print(f"✅ M3U8 botón {contador}: {new_url[:80]}...")
+        print(f"✅ M3U8 válido ({contador}): {new_url[:120]}...")
+      else:
+        print(f"❌ M3U8 inválido o inaccesible: {new_url[:120]}...")
 
     except Exception as e:
       print(f"Error extrayendo M3U8: {e}")
-
 
 # ==================== FUNCIÓN PRINCIPAL ====================
 
