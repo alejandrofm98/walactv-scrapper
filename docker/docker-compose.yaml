@@ -48,9 +48,9 @@ services:
       ALLOW_REMOTE_ACCESS: "yes"
     volumes:
       - acestream-config:/acestream.engine
-#    networks:
-#      dokploy-network:
-#        ipv4_address: 10.0.1.156
+    networks:
+      dokploy-network:
+        ipv4_address: 10.0.1.156
 
   acestream-proxy:
     image: openresty/openresty:alpine
@@ -73,8 +73,8 @@ services:
       - "traefik.http.routers.acestream-web.middlewares=redirect-to-https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
-#    networks:
-#      - dokploy-network
+    networks:
+      - dokploy-network
 
   # Watchdog para limpiar sesiones zombies
   acestream-watchdog:
