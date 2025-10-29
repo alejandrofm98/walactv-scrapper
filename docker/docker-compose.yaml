@@ -46,7 +46,6 @@ services:
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
-      # Configuración ESTABLE (menos agresiva)
       ACESTREAM_CACHE_SIZE: "1536M"
       ACESTREAM_MAX_PEERS: "30"
       ACESTREAM_DEBUG: "0"
@@ -65,7 +64,7 @@ services:
       - /dev/shm:size=2g,mode=1777
     networks:
       dokploy-network:
-        ipv4_address: 10.0.1.156  # IP fija para evitar cambios
+        ipv4_address: 10.0.1.156
     deploy:
       resources:
         limits:
@@ -78,11 +77,11 @@ services:
         soft: 65536
         hard: 65536
     healthcheck:
-      test: [ "CMD-SHELL", "wget -q --spider --timeout=5 http://localhost:6878/webui/api/service?method=get_version || exit 1" ]
-      interval: 2m
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      test: [ "CMD-SHELL", "nc -z localhost 6878 || exit 1" ]  # ← Más rápido
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s  # ← Aumentado a 40s
     logging:
       driver: "json-file"
       options:
@@ -97,17 +96,15 @@ services:
       - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
     depends_on:
       acestream-arm:
-        condition: service_healthy
+        condition: service_started  # ← Cambio: solo espera que arranque
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
-      # HTTPS Router
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls=true"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=80"
-      # HTTP Router
       - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-web.entrypoints=web"
       - "traefik.http.routers.acestream-web.middlewares=redirect-to-https"
@@ -115,11 +112,6 @@ services:
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
     networks:
       - dokploy-network
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -q --spider http://localhost/health || exit 1" ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
 
 
 
