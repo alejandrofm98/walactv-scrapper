@@ -46,47 +46,48 @@ services:
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
-      ACESTREAM_CACHE_SIZE: "2048M"  # Ajustado al tmpfs
-      ACESTREAM_MAX_PEERS: "50"      # Aumentado
-      ACESTREAM_DEBUG: "0"
-      ACESTREAM_MAX_CONNECTIONS: "300"  # Aumentado
-      ACESTREAM_MAX_UPLOAD_SLOTS: "15"
-      ACESTREAM_UPLOAD_RATE_LIMIT: "5M"  # Aumentado
+      # Configuración CONSERVADORA para evitar cuelgues
+      ACESTREAM_CACHE_SIZE: "512M"           # Reducido
+      ACESTREAM_MAX_PEERS: "20"              # Reducido
+      ACESTREAM_DEBUG: "1"                   # Activado para diagnóstico
+      ACESTREAM_MAX_CONNECTIONS: "100"       # Reducido
+      ACESTREAM_MAX_UPLOAD_SLOTS: "5"        # Reducido
+      ACESTREAM_UPLOAD_RATE_LIMIT: "1M"      # Reducido
       ACESTREAM_DOWNLOAD_RATE_LIMIT: "0"
-      ACESTREAM_LIVE_BUFFER_SIZE: "40"   # Aumentado
-      ACESTREAM_DISK_CACHE_LIMIT: "4096M"  # Ajustado
-      ACESTREAM_MEMORY_CACHE_LIMIT: "2048M"  # Ajustado al tmpfs
+      ACESTREAM_LIVE_BUFFER_SIZE: "20"       # Reducido
+      ACESTREAM_DISK_CACHE_LIMIT: "1024M"    # Reducido
+      ACESTREAM_MEMORY_CACHE_LIMIT: "512M"   # Reducido
       ACESTREAM_PORT: "6878"
       ACESTREAM_STATE_DIR: "/dev/shm/.ACEStream"
+      # Variables adicionales para estabilidad
+      ACESTREAM_VOD_BUFFER: "15"
+      ACESTREAM_LIVE_CACHE_TYPE: "memory"
     volumes:
       - acestream-config:/acestream.engine
     tmpfs:
-      - /dev/shm:size=4g,mode=1777  # Aumentado a 4GB
+      - /dev/shm:size=2g,mode=1777
     networks:
       dokploy-network:
         ipv4_address: 10.0.1.156
     deploy:
       resources:
         limits:
-          memory: 4G      # Aumentado
-          cpus: '2.5'     # Aumentado
+          memory: 2G
+          cpus: '2'
         reservations:
-          memory: 1G      # Aumentado
+          memory: 768M
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
-    healthcheck:
-      test: [ "CMD-SHELL", "pgrep -f acestream || exit 1" ]  # Cambio: verifica proceso
-      interval: 30s      # Menos agresivo
-      timeout: 10s
-      retries: 3
-      start_period: 90s  # Más tiempo de inicio
+    # Healthcheck DESACTIVADO temporalmente para diagnóstico
+    # healthcheck:
+    #   disable: true
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "50m"
+        max-file: "5"
 
   acestream-proxy:
     image: openresty/openresty:alpine
@@ -95,23 +96,23 @@ services:
     volumes:
       - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
     depends_on:
-      acestream-arm:
-        condition: service_started
+      - acestream-arm
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
-      - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"  # Corregido: faltaba backtick
+      - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls=true"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=80"
-      - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"  # Corregido
+      - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-web.entrypoints=web"
       - "traefik.http.routers.acestream-web.middlewares=redirect-to-https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
     networks:
       - dokploy-network
+
 
 
 
