@@ -46,22 +46,23 @@ services:
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
-      # Configuración CONSERVADORA para evitar cuelgues
-      ACESTREAM_CACHE_SIZE: "512M"           # Reducido
-      ACESTREAM_MAX_PEERS: "20"              # Reducido
-      ACESTREAM_DEBUG: "1"                   # Activado para diagnóstico
-      ACESTREAM_MAX_CONNECTIONS: "100"       # Reducido
-      ACESTREAM_MAX_UPLOAD_SLOTS: "5"        # Reducido
-      ACESTREAM_UPLOAD_RATE_LIMIT: "1M"      # Reducido
+      ACESTREAM_CACHE_SIZE: "512M"
+      ACESTREAM_MAX_PEERS: "20"
+      ACESTREAM_DEBUG: "1"
+      ACESTREAM_MAX_CONNECTIONS: "100"
+      ACESTREAM_MAX_UPLOAD_SLOTS: "5"
+      ACESTREAM_UPLOAD_RATE_LIMIT: "1M"
       ACESTREAM_DOWNLOAD_RATE_LIMIT: "0"
-      ACESTREAM_LIVE_BUFFER_SIZE: "20"       # Reducido
-      ACESTREAM_DISK_CACHE_LIMIT: "1024M"    # Reducido
-      ACESTREAM_MEMORY_CACHE_LIMIT: "512M"   # Reducido
+      ACESTREAM_LIVE_BUFFER_SIZE: "20"
+      ACESTREAM_DISK_CACHE_LIMIT: "1024M"
+      ACESTREAM_MEMORY_CACHE_LIMIT: "512M"
       ACESTREAM_PORT: "6878"
       ACESTREAM_STATE_DIR: "/dev/shm/.ACEStream"
-      # Variables adicionales para estabilidad
       ACESTREAM_VOD_BUFFER: "15"
       ACESTREAM_LIVE_CACHE_TYPE: "memory"
+      # CRÍTICO: Timeout de sesiones inactivas
+      ACESTREAM_SESSION_TIMEOUT: "300"  # 5 minutos
+      ACESTREAM_CLIENT_TIMEOUT: "180"   # 3 minutos
     volumes:
       - acestream-config:/acestream.engine
     tmpfs:
@@ -80,9 +81,6 @@ services:
       nofile:
         soft: 65536
         hard: 65536
-    # Healthcheck DESACTIVADO temporalmente para diagnóstico
-    # healthcheck:
-    #   disable: true
     logging:
       driver: "json-file"
       options:
@@ -112,6 +110,45 @@ services:
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
     networks:
       - dokploy-network
+
+  # Watchdog para limpiar sesiones zombies
+  acestream-watchdog:
+    image: alpine:latest
+    container_name: acestream-watchdog
+    restart: unless-stopped
+    depends_on:
+      - acestream-arm
+    networks:
+      - dokploy-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: >
+      sh -c "
+      apk add --no-cache docker-cli curl &&
+      while true; do
+        echo '[Watchdog] Verificando estado de Acestream...';
+
+        # Verificar si hay sesiones activas
+        ACTIVE_SESSIONS=$$(docker exec acestream-arm ps aux | grep -c 'acestream' || echo '0');
+        echo '[Watchdog] Sesiones activas: '$$ACTIVE_SESSIONS;
+
+        # Si hay muchas sesiones o problemas, reiniciar
+        if [ $$ACTIVE_SESSIONS -gt 50 ]; then
+          echo '[Watchdog] ⚠️ Demasiadas sesiones, reiniciando...';
+          docker restart acestream-arm;
+          sleep 60;
+        fi;
+
+        # Cada 10 minutos, limpiar cache si está lleno
+        CACHE_USAGE=$$(docker exec acestream-arm df /dev/shm | tail -1 | awk '{print $$5}' | sed 's/%//' || echo '0');
+        if [ $$CACHE_USAGE -gt 90 ]; then
+          echo '[Watchdog] 🧹 Cache lleno ($$CACHE_USAGE%), limpiando...';
+          docker exec acestream-arm sh -c 'rm -rf /dev/shm/.ACEStream/cache/*' || true;
+        fi;
+
+        sleep 300;
+      done
+      "
 
 
 
