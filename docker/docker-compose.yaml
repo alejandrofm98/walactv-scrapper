@@ -26,16 +26,24 @@ services:
       - path: .env
 
   #PARA LOCAL
-#  acestream-http-proxy:
-#    image: ghcr.io/martinbjeldbak/acestream-http-proxy
-#    container_name: acestream-http-proxy
+#  acestream-local:
+#    image: jopsis/acestream:x64
+#    container_name: acestream-local
+#    privileged: true
+#    restart: unless-stopped
+#    hostname: acestream-arm
+#    tmpfs:
+#      - /dev/shm:size=2g,mode=1777
 #    ports:
-#      - 6878:6878
+#      - "6878:6878"
 #    environment:
-#      - ALLOW_REMOTE_ACCESS=yes
+#      TZ: Europe/Madrid
+#      ALLOW_REMOTE_ACCESS: "yes"
+#    volumes:
+#      - acestream-config:/acestream.engine
 
   acestream-arm:
-    image: jopsis/acestream:arm64
+    image: jopsis/acestream:arm64-v3.2.14
     container_name: acestream-arm
     privileged: true
     restart: unless-stopped
