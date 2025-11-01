@@ -43,11 +43,10 @@ services:
 #      - acestream-config:/acestream.engine
 
   acestream-arm:
-    image: jopsis/acestream:arm64-v3.2.14
+    image: jopsis/acestream:x64
     container_name: acestream-arm
     privileged: true
     restart: unless-stopped
-    platform: linux/arm64
     hostname: acestream-arm
     tmpfs:
       - /dev/shm:size=2g,mode=1777
