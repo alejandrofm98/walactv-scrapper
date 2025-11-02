@@ -72,31 +72,16 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
-
-      # Router HTTPS
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls=true"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
-
-      # 🔥 NUEVO: Forzar HTTP/1.1 (deshabilitar HTTP/2)
-      - "traefik.http.services.acestream-secure.loadbalancer.server.scheme=http"
-      - "traefik.http.services.acestream-secure.loadbalancer.passhostheader=true"
-
-      # Service
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=80"
-
-      # Router HTTP (redirect a HTTPS)
       - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-web.entrypoints=web"
-      - "traefik.http.routers.acestream-web.middlewares=redirect-to-https@docker"
-
-      # Middleware: Redirect HTTP -> HTTPS
+      - "traefik.http.routers.acestream-web.middlewares=redirect-to-https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
-
-      # CRÍTICO: Deshabilitar buffering en Traefik para streaming
-      - "traefik.http.services.acestream-secure.loadbalancer.responseforwarding.flushinterval=100ms"
 
     networks:
       - dokploy-network
