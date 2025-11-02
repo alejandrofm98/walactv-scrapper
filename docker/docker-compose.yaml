@@ -87,6 +87,7 @@ services:
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=80"
 
       # Router HTTP (redirect a HTTPS)
+      -  "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-web.entrypoints=web"
       - "traefik.http.routers.acestream-web.middlewares=redirect-to-https@docker"
