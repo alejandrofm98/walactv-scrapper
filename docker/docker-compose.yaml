@@ -58,7 +58,8 @@ services:
     volumes:
       - acestream-config:/acestream.engine
     networks:
-      - dokploy-network
+      dokploy-network:
+        ipv4_address: 10.0.1.156
 
   acestream-proxy:
     build:
