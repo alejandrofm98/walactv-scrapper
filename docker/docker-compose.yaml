@@ -43,10 +43,9 @@ services:
 #      - acestream-config:/acestream.engine
 
   acestream-arm:
-    image: jopsis/acestream:x64
+    image: jopsis/acestream:latest  # Sin :x64
     container_name: acestream-arm
-    platform: linux/amd64
-    privileged: true
+    # ❌ SIN platform: linux/amd64
     restart: unless-stopped
     hostname: acestream-arm
     tmpfs:
