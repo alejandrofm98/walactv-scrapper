@@ -67,7 +67,7 @@ services:
     container_name: acestream-proxy
     restart: unless-stopped
     volumes:
-      - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
+      - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
     depends_on:
       - acestream-arm
     labels:
