@@ -62,20 +62,21 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
 
-      # Router HTTPS
+      # Router HTTPS con middleware para HTTP/1.1
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls=true"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
 
-      # 🔥 CRÍTICO: Deshabilitar HTTP/2 (solo HTTP/1.1)
+      # 🔥 USAR MIDDLEWARE DINÁMICO para forzar HTTP/1.1
+      - "traefik.http.routers.acestream-secure.middlewares=acestream-headers@file"
+
+      # Service con optimizaciones para streaming
       - "traefik.http.routers.acestream-secure.service=acestream-service"
       - "traefik.http.services.acestream-service.loadbalancer.server.port=80"
       - "traefik.http.services.acestream-service.loadbalancer.server.scheme=http"
-
-      # 🔥 NUEVO: Forzar HTTP/1.1 para streaming HLS
       - "traefik.http.services.acestream-service.loadbalancer.passhostheader=true"
-      - "traefik.http.services.acestream-service.loadbalancer.responseforwarding.flushinterval=100ms"
+      - "traefik.http.services.acestream-service.loadbalancer.responseforwarding.flushinterval=1ms"
 
       # Router HTTP (redirect a HTTPS)
       - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
