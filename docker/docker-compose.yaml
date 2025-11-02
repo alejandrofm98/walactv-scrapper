@@ -32,9 +32,9 @@ services:
       - dokploy-network
 
   acestream-arm:
-    image: jopsis/acestream:arm64-v3.2.14  # ✅ VOLVER A ARM NATIVO (mejor rendimiento)
+    image: jopsis/acestream:arm64-v3.2.14  # ✅ ARM nativo (mejor rendimiento)
     container_name: acestream-arm
-    # ❌ SIN platform: linux/amd64 (quitar emulación)
+    # ❌ SIN platform: linux/amd64 ni privileged (no necesario)
     restart: unless-stopped
     hostname: acestream-arm
     tmpfs:
@@ -48,48 +48,44 @@ services:
       - acestream-config:/acestream.engine
     networks:
       dokploy-network:
-        ipv4_address: 10.0.1.156  # ✅ IP FIJA (la que tenías antes)
+        ipv4_address: 10.0.1.156
 
   acestream-proxy:
-    build:
-      context: .
-      dockerfile: Dockerfile-proxy
+    image: openresty/openresty:alpine
     container_name: acestream-proxy
     restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
     depends_on:
       - acestream-arm
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
 
-      # Router HTTPS con middleware para HTTP/1.1
+      # Router HTTPS - ✅ SINTAXIS CORREGIDA
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls=true"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
 
-      # 🔥 USAR MIDDLEWARE DINÁMICO para forzar HTTP/1.1
-      - "traefik.http.routers.acestream-secure.middlewares=acestream-headers@file"
-
-      # Service con optimizaciones para streaming
+      # Service
       - "traefik.http.routers.acestream-secure.service=acestream-service"
       - "traefik.http.services.acestream-service.loadbalancer.server.port=80"
-      - "traefik.http.services.acestream-service.loadbalancer.server.scheme=http"
       - "traefik.http.services.acestream-service.loadbalancer.passhostheader=true"
       - "traefik.http.services.acestream-service.loadbalancer.responseforwarding.flushinterval=1ms"
 
-      # Router HTTP (redirect a HTTPS)
+      # Router HTTP - ✅ SINTAXIS CORREGIDA
       - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-web.entrypoints=web"
       - "traefik.http.routers.acestream-web.middlewares=redirect-to-https"
 
-      # Middleware: Redirect HTTP -> HTTPS
+      # Middleware
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
 
     networks:
       dokploy-network:
-        ipv4_address: 10.0.1.157  # ✅ IP FIJA para que Traefik lo encuentre
+        ipv4_address: 10.0.1.157
 
   # Watchdog para limpiar sesiones zombies
   acestream-watchdog:
@@ -107,25 +103,22 @@ services:
       apk add --no-cache docker-cli curl &&
       while true; do
         echo '[Watchdog] Verificando estado de Acestream...';
-
-        # Verificar si hay sesiones activas
+        
         ACTIVE_SESSIONS=$$(docker exec acestream-arm ps aux | grep -c 'acestream' || echo '0');
         echo '[Watchdog] Sesiones activas: '$$ACTIVE_SESSIONS;
-
-        # Si hay muchas sesiones o problemas, reiniciar
+        
         if [ $$ACTIVE_SESSIONS -gt 50 ]; then
           echo '[Watchdog] ⚠️ Demasiadas sesiones, reiniciando...';
           docker restart acestream-arm;
           sleep 60;
         fi;
-
-        # Cada 10 minutos, limpiar cache si está lleno
+        
         CACHE_USAGE=$$(docker exec acestream-arm df /dev/shm | tail -1 | awk '{print $$5}' | sed 's/%//' || echo '0');
         if [ $$CACHE_USAGE -gt 90 ]; then
           echo '[Watchdog] 🧹 Cache lleno ($$CACHE_USAGE%), limpiando...';
           docker exec acestream-arm sh -c 'rm -rf /dev/shm/.ACEStream/cache/*' || true;
         fi;
-
+        
         sleep 300;
       done
       "
