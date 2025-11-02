@@ -65,7 +65,7 @@ services:
   acestream-proxy:
     build:
       context: .
-      dockerfile: Dockerfile.proxy
+      dockerfile: Dockerfile-proxy
     container_name: acestream-proxy
     restart: unless-stopped
     depends_on:
