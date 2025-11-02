@@ -65,11 +65,9 @@ services:
   acestream-proxy:
     build:
       context: .
-      dockerfile: Dockerfile-proxy
+      dockerfile: Dockerfile.proxy
     container_name: acestream-proxy
     restart: unless-stopped
-    volumes:
-      - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
     depends_on:
       - acestream-arm
     labels:
@@ -82,14 +80,14 @@ services:
       - "traefik.http.routers.acestream-secure.tls=true"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
 
-      # IMPORTANTE: NO aplicar CORS en Traefik, lo hace Nginx
-      # - "traefik.http.routers.acestream-secure.middlewares=acestream-headers@docker"
+      # 🔥 NUEVO: Forzar HTTP/1.1 (deshabilitar HTTP/2)
+      - "traefik.http.services.acestream-secure.loadbalancer.server.scheme=http"
+      - "traefik.http.services.acestream-secure.loadbalancer.passhostheader=true"
 
       # Service
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=80"
 
       # Router HTTP (redirect a HTTPS)
-      -  "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-web.entrypoints=web"
       - "traefik.http.routers.acestream-web.middlewares=redirect-to-https@docker"
@@ -97,10 +95,6 @@ services:
       # Middleware: Redirect HTTP -> HTTPS
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
-
-      # Middleware: Headers básicos (sin CORS, Nginx lo maneja)
-      - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
-      - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Real-IP="
 
       # CRÍTICO: Deshabilitar buffering en Traefik para streaming
       - "traefik.http.services.acestream-secure.loadbalancer.responseforwarding.flushinterval=100ms"
