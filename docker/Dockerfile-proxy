@@ -1,0 +1,14 @@
+# Partimos de la imagen oficial de OpenResty
+FROM openresty/openresty:alpine
+
+# Copiamos TU nginx.conf desde tu carpeta local hacia dentro de la imagen
+# Origen: nginx.conf (en tu carpeta)
+# Destino: /usr/local/openresty/nginx/conf/nginx.conf (dentro del contenedor)
+COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
+
+# Exponemos el puerto 80 (por si acaso, aunque no es estrictamente necesario)
+EXPOSE 80
+
+# El comando por defecto ya está en la imagen base de OpenResty
+# Inicia Nginx en modo foreground
+CMD ["/usr/local/openresty/bin/openresty", "-g", "daemon off;"]
