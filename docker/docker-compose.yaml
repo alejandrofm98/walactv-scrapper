@@ -43,7 +43,7 @@ services:
 #      - acestream-config:/acestream.engine
 
   acestream-arm:
-    image: jopsis/acestream:latest  # Sin :x64
+    image: jopsis/acestream:arm64-v3.2.14  # Sin :x64
     container_name: acestream-arm
     # ❌ SIN platform: linux/amd64
     restart: unless-stopped
