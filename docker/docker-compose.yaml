@@ -73,16 +73,39 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
+
+      # Router HTTPS
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls=true"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
+
+      # CRÍTICO: Aplicar middleware CORS
+      - "traefik.http.routers.acestream-secure.middlewares=acestream-cors@docker"
+
+      # Service
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=80"
+
+      # Router HTTP (redirect a HTTPS)
       - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-web.entrypoints=web"
-      - "traefik.http.routers.acestream-web.middlewares=redirect-to-https"
+      - "traefik.http.routers.acestream-web.middlewares=redirect-to-https@docker"
+
+      # Middleware: Redirect HTTP -> HTTPS
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+
+      # Middleware: CORS Headers (CRÍTICO PARA CHROMECAST)
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolalloworiginlist=*"
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolallowmethods=GET,POST,OPTIONS,HEAD"
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolexposeheaders=Content-Length,Content-Range,Accept-Ranges"
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolmaxage=86400"
+      - "traefik.http.middlewares.acestream-cors.headers.addvaryheader=false"
+
+      # IMPORTANTE: Pasar headers correctos al backend
+      - "traefik.http.middlewares.acestream-cors.headers.customrequestheaders.X-Forwarded-Proto=https"
+
     networks:
       - dokploy-network
 
