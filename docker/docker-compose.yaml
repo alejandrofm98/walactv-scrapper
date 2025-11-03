@@ -46,8 +46,8 @@ services:
     volumes:
       - acestream-config:/acestream.engine
     networks:
-      dokploy-network:
-        ipv4_address: 10.0.1.156
+      - dokploy-network
+    # SIN IP fija - usar hostname
 
   acestream-proxy:
     image: openresty/openresty:alpine
