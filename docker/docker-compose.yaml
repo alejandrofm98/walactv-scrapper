@@ -46,8 +46,7 @@ services:
     volumes:
       - acestream-config:/acestream.engine
     networks:
-      dokploy-network:
-        ipv4_address: 10.0.1.156
+      - dokploy-network
 
   acestream-proxy:
     image: openresty/openresty:alpine
@@ -58,6 +57,34 @@ services:
     depends_on:
       - acestream-arm
     labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
+
+      # Router HTTPS
+      - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acestream-secure.entrypoints=websecure"
+      - "traefik.http.routers.acestream-secure.tls=true"
+      - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
+
+      # Service
+      - "traefik.http.routers.acestream-secure.service=acestream-service"
+      - "traefik.http.services.acestream-service.loadbalancer.server.port=80"
+      - "traefik.http.services.acestream-service.loadbalancer.passhostheader=true"
+      - "traefik.http.services.acestream-service.loadbalancer.responseforwarding.flushinterval=1ms"
+      - "traefik.http.services.acestream-service.loadbalancer.healthcheck.path=/"
+      - "traefik.http.services.acestream-service.loadbalancer.healthcheck.interval=30s"
+
+      # Router HTTP
+      - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acestream-web.entrypoints=web"
+      - "traefik.http.routers.acestream-web.middlewares=redirect-to-https"
+
+      # Middleware
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+
+    networks:
+      - dokploy-network
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
 
