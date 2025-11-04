@@ -32,7 +32,7 @@ services:
       - dokploy-network
 
   acestream-arm:
-    image: jopsis/acestream:arm64-v3.2.14
+    image: jopsis/acestream:arm64-v3.2.13
     container_name: acestream-arm
     restart: unless-stopped
     hostname: acestream-arm
@@ -129,6 +129,24 @@ services:
 #
 #          sleep 60
 #        done
+
+
+#  acestream-local:
+#    image: jopsis/acestream:x64
+#    container_name: acestream-local
+#    privileged: true
+#    restart: unless-stopped
+#    hostname: acestream-arm
+#    tmpfs:
+#      - /dev/shm:size=2g,mode=1777
+#    ports:
+#      - "6878:6878"
+#    environment:
+#      TZ: Europe/Madrid
+#      ALLOW_REMOTE_ACCESS: "yes"
+#    volumes:
+#      - acestream-config:/acestream.engine
+
 
 volumes:
   acestream-config:
