@@ -50,7 +50,9 @@ services:
         ipv4_address: 10.0.1.156
 
   acestream-proxy:
-    image: openresty/openresty:alpine
+    build:
+      context: .
+      dockerfile: Dockerfile-proxy
     container_name: acestream-proxy
     restart: unless-stopped
     volumes:
