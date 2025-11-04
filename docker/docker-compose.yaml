@@ -50,9 +50,7 @@ services:
         ipv4_address: 10.0.1.156
 
   acestream-proxy:
-    build:
-      context: .
-      dockerfile: Dockerfile-proxy
+    image: openresty/openresty:alpine
     container_name: acestream-proxy
     restart: unless-stopped
     volumes:
@@ -69,25 +67,31 @@ services:
       - "traefik.http.routers.acestream-secure.tls=true"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
 
-      # Service con optimizaciones
-      - "traefik.http.routers.acestream-secure.service=acestream-service"
-      - "traefik.http.services.acestream-service.loadbalancer.server.port=80"
-      - "traefik.http.services.acestream-service.loadbalancer.passhostheader=true"
-      - "traefik.http.services.acestream-service.loadbalancer.responseforwarding.flushinterval=1ms"
-      - "traefik.http.services.acestream-service.loadbalancer.healthcheck.path=/"
-      - "traefik.http.services.acestream-service.loadbalancer.healthcheck.interval=30s"
+      # IMPORTANTE: NO aplicar CORS en Traefik, lo hace Nginx
+      # - "traefik.http.routers.acestream-secure.middlewares=acestream-headers@docker"
 
-      # Router HTTP (redirect)
+      # Service
+      - "traefik.http.services.acestream-secure.loadbalancer.server.port=80"
+
+      # Router HTTP (redirect a HTTPS)
       - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-web.entrypoints=web"
-      - "traefik.http.routers.acestream-web.middlewares=redirect-to-https"
+      - "traefik.http.routers.acestream-web.middlewares=redirect-to-https@docker"
 
-      # Middleware
+      # Middleware: Redirect HTTP -> HTTPS
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+
+      # Middleware: Headers básicos (sin CORS, Nginx lo maneja)
+      - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Real-IP="
+
+      # CRÍTICO: Deshabilitar buffering en Traefik para streaming
+      - "traefik.http.services.acestream-secure.loadbalancer.responseforwarding.flushinterval=100ms"
+
     networks:
-      dokploy-network:
-        ipv4_address: 10.0.1.157
+      - dokploy-network
+
 
   # Watchdog (sin Docker CLI)
 #  acestream-watchdog:
