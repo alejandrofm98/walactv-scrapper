@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Copiar requirements si tienes, o instalar directamente
-RUN pip install --no-cache-dir fastapi uvicorn httpx
+RUN pip install --no-cache-dir fastapi uvicorn requests
 
 # Copiar el script del proxy
 COPY scripts/acestream_proxy.py /app/scripts/

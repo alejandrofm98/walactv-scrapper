@@ -1,249 +1,255 @@
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import StreamingResponse, RedirectResponse
-import httpx
+from flask import Flask, request, Response, redirect, stream_with_context
+import requests
 import re
 import logging
+from urllib.parse import urljoin
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+app = Flask(__name__)
 
 ACESTREAM_BASE = "http://acestream-arm:6878"
 PUBLIC_DOMAIN = "https://acestream.walerike.com"
-TIMEOUT = httpx.Timeout(300.0, connect=10.0)
 
 
-async def proxy_request(request: Request, target_url: str,
-    rewrite_manifest: bool = False, follow_redirects: bool = False):
-  """Proxy genérico para todas las peticiones"""
+def rewrite_url(url):
+  """Reescribe URLs internas a públicas"""
+  if not url:
+    return url
 
-  # Preparar headers
-  headers = dict(request.headers)
-  headers.pop('host', None)
+  if url.startswith('http://acestream-arm:6878'):
+    return url.replace('http://acestream-arm:6878', PUBLIC_DOMAIN)
+  elif url.startswith('/'):
+    return f"{PUBLIC_DOMAIN}{url}"
+  return url
 
-  async with httpx.AsyncClient(timeout=TIMEOUT,
-                               follow_redirects=follow_redirects) as client:
-    try:
-      response = await client.request(
-          method=request.method,
-          url=target_url,
-          headers=headers,
-          content=await request.body(),
-          params=request.query_params
-      )
 
-      # Si es una redirección (301, 302, 307, 308), reescribir la Location
-      if response.status_code in [301, 302, 303, 307, 308]:
-        location = response.headers.get('location', '')
-        if location:
-          # Reescribir la URL de redirección
-          new_location = location.replace(
-              'http://acestream-arm:6878',
-              PUBLIC_DOMAIN
-          )
-          logger.info(f"🔄 Redirect: {location} -> {new_location}")
+def proxy_request(path, rewrite_manifest=False, allow_redirects=False):
+  """Proxy genérico con mejor manejo de errores"""
 
-          return RedirectResponse(
-              url=new_location,
-              status_code=response.status_code
-          )
+  # Construir URL target
+  if path.startswith('http'):
+    target_url = path
+  else:
+    target_url = f"{ACESTREAM_BASE}/{path.lstrip('/')}"
 
-      # Preparar headers de respuesta
-      response_headers = dict(response.headers)
-      response_headers.pop('content-encoding', None)
-      response_headers.pop('transfer-encoding', None)
-      response_headers.pop('content-length', None)
+  # Añadir query string
+  if request.query_string:
+    target_url += f"?{request.query_string.decode('utf-8')}"
 
-      content_type = response.headers.get('content-type', '')
+  # Preparar headers (eliminar problemáticos)
+  headers = {
+    key: value for key, value in request.headers
+    if key.lower() not in ['host', 'connection', 'content-length',
+                           'transfer-encoding', 'content-encoding']
+  }
 
-      # Reescribir manifest.m3u8
-      if rewrite_manifest or 'mpegurl' in content_type or target_url.endswith(
-          '.m3u8'):
-        content = response.text
+  logger.info(f"→ {request.method} {target_url}")
 
-        # Reemplazar todas las URLs internas con el dominio público
+  try:
+    # Hacer request con configuración robusta
+    resp = requests.request(
+        method=request.method,
+        url=target_url,
+        headers=headers,
+        data=request.get_data() if request.method in ['POST', 'PUT',
+                                                      'PATCH'] else None,
+        allow_redirects=allow_redirects,
+        stream=True,
+        timeout=(10, 300),  # connect timeout, read timeout
+        verify=False  # Desactivar verificación SSL para conexiones internas
+    )
+
+    logger.info(f"✓ {resp.status_code} from acestream")
+
+    # Manejar redirects manualmente
+    if resp.status_code in [301, 302, 303, 307, 308] and not allow_redirects:
+      location = resp.headers.get('Location', '')
+      if location:
+        new_location = rewrite_url(location)
+        logger.info(f"🔄 Redirect: {location} → {new_location}")
+        return redirect(new_location, code=resp.status_code)
+
+    # Headers de respuesta
+    excluded_headers = [
+      'content-encoding', 'content-length', 'transfer-encoding',
+      'connection', 'keep-alive', 'proxy-authenticate',
+      'proxy-authorization', 'te', 'trailers', 'upgrade'
+    ]
+    response_headers = [
+      (name, value) for name, value in resp.headers.items()
+      if name.lower() not in excluded_headers
+    ]
+
+    content_type = resp.headers.get('Content-Type', '')
+
+    # Reescribir manifest.m3u8
+    if rewrite_manifest or 'mpegurl' in content_type or target_url.endswith(
+        '.m3u8'):
+      try:
+        content = resp.text
+
+        # Reemplazar URLs en el manifest
         content = re.sub(
             r'http://acestream-arm:6878',
             PUBLIC_DOMAIN,
             content
         )
 
-        logger.info(f"✅ Manifest reescrito")
+        logger.info(f"✅ Manifest reescrito ({len(content)} bytes)")
 
         return Response(
-            content=content.encode('utf-8'),
-            status_code=response.status_code,
-            headers={
-              **response_headers,
-              'content-type': 'application/vnd.apple.mpegurl',
-              'content-length': str(len(content.encode('utf-8')))
-            }
+            content,
+            status=resp.status_code,
+            headers=response_headers + [
+              ('Content-Type', 'application/vnd.apple.mpegurl')]
         )
+      except Exception as e:
+        logger.error(f"❌ Error reescribiendo manifest: {e}")
+        # Si falla, devolver como está
 
-      # Si es streaming de video (chunks .ts)
-      if 'video/' in content_type or 'mpegts' in content_type or target_url.endswith(
-          '.ts'):
-        async def stream_generator():
-          async for chunk in response.aiter_bytes(chunk_size=8192):
+    # Streaming response para video
+    def generate():
+      try:
+        for chunk in resp.iter_content(chunk_size=8192):
+          if chunk:
             yield chunk
+      except Exception as e:
+        logger.error(f"❌ Error streaming: {e}")
 
-        return StreamingResponse(
-            stream_generator(),
-            status_code=response.status_code,
-            headers=response_headers,
-            media_type=content_type
-        )
+    return Response(
+        stream_with_context(generate()),
+        status=resp.status_code,
+        headers=response_headers,
+        direct_passthrough=True
+    )
 
-      # Respuesta normal
-      return Response(
-          content=response.content,
-          status_code=response.status_code,
-          headers=response_headers
-      )
+  except requests.exceptions.ConnectionError as e:
+    logger.error(f"🔌 Connection error: {e}")
+    return Response(
+        f"Bad Gateway: Cannot connect to Acestream engine at {ACESTREAM_BASE}",
+        status=502
+    )
 
-    except httpx.ReadTimeout:
-      logger.error(f"⏱️ Timeout: {target_url}")
-      return Response(content="Gateway Timeout", status_code=504)
-    except httpx.ConnectError as e:
-      logger.error(f"🔌 Connection error to acestream: {e}")
-      return Response(content="Bad Gateway - Cannot connect to Acestream",
-                      status_code=502)
-    except Exception as e:
-      logger.error(f"❌ Error proxying {target_url}: {e}")
-      return Response(content=f"Bad Gateway: {str(e)}", status_code=502)
+  except requests.exceptions.Timeout as e:
+    logger.error(f"⏱️ Timeout: {e}")
+    return Response("Gateway Timeout", status=504)
+
+  except requests.exceptions.RequestException as e:
+    logger.error(f"❌ Request error: {e}")
+    return Response(f"Bad Gateway: {str(e)}", status=502)
+
+  except Exception as e:
+    logger.error(f"💥 Unexpected error: {e}", exc_info=True)
+    return Response(f"Internal Server Error: {str(e)}", status=500)
 
 
-@app.get("/health")
-async def health():
+@app.route('/health')
+def health():
   """Health check"""
   try:
-    async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
-      resp = await client.get(
-        f"{ACESTREAM_BASE}/webui/api/service?method=get_version")
-      acestream_status = "ok" if resp.status_code == 200 else "error"
-  except:
+    resp = requests.get(
+        f"{ACESTREAM_BASE}/webui/api/service?method=get_version",
+        timeout=5
+    )
+    acestream_status = "ok" if resp.status_code == 200 else "error"
+    version = resp.json() if resp.status_code == 200 else None
+  except Exception as e:
     acestream_status = "unreachable"
+    version = None
 
   return {
     "status": "ok",
     "acestream_base": ACESTREAM_BASE,
     "acestream_status": acestream_status,
+    "acestream_version": version,
     "public_domain": PUBLIC_DOMAIN
   }
 
 
-@app.api_route("/ace/getstream", methods=["GET", "HEAD"])
-async def getstream_proxy_query(request: Request):
-  """Proxy para getstream con parámetro ?id= - maneja redirects"""
-  id_content = request.query_params.get('id', '')
+@app.route('/ace/getstream', methods=['GET', 'HEAD'])
+def getstream_query():
+  """Proxy para getstream con ?id="""
+  id_content = request.args.get('id', '')
   if not id_content:
-    return Response(content="Missing id parameter", status_code=400)
-
-  query_string = str(request.url.query)
-  target = f"{ACESTREAM_BASE}/ace/getstream?{query_string}"
+    return Response("Missing id parameter", status=400)
 
   logger.info(f"📡 Getstream: id={id_content[:16]}...")
-  return await proxy_request(request, target, follow_redirects=False)
+  return proxy_request(f"ace/getstream?{request.query_string.decode('utf-8')}",
+                       allow_redirects=False)
 
 
-@app.api_route("/ace/getstream/{id_content:path}", methods=["GET", "HEAD"])
-async def getstream_proxy_path(request: Request, id_content: str):
-  """Proxy para getstream con path /ace/getstream/ID"""
-  query_string = str(request.url.query)
-  target = f"{ACESTREAM_BASE}/ace/getstream/{id_content}"
-  if query_string:
-    target += f"?{query_string}"
-
+@app.route('/ace/getstream/<path:id_content>', methods=['GET', 'HEAD'])
+def getstream_path(id_content):
+  """Proxy para getstream con path"""
   logger.info(f"📡 Getstream (path): {id_content[:16]}...")
-  return await proxy_request(request, target, follow_redirects=False)
+  return proxy_request(f"ace/getstream/{id_content}", allow_redirects=False)
 
 
-@app.api_route("/ace/r/{path:path}", methods=["GET", "HEAD"])
-async def ace_r_proxy(request: Request, path: str):
-  """Proxy para rutas /ace/r/ (redirect final de getstream)"""
-  query_string = str(request.url.query)
-  target = f"{ACESTREAM_BASE}/ace/r/{path}"
-  if query_string:
-    target += f"?{query_string}"
-
-  logger.info(f"🎯 Ace/r: {path[:50]}...")
-  # Esta ruta puede devolver el stream directamente o más redirects
-  return await proxy_request(request, target, follow_redirects=False)
+@app.route('/ace/r/<path:subpath>', methods=['GET', 'HEAD'])
+def ace_r(subpath):
+  """Proxy para /ace/r/ (redirect final)"""
+  logger.info(f"🎯 Ace/r: {subpath[:50]}...")
+  return proxy_request(f"ace/r/{subpath}", allow_redirects=False)
 
 
-@app.api_route("/ace/manifest.m3u8", methods=["GET", "HEAD"])
-async def manifest_proxy_query(request: Request):
-  """Proxy para manifest.m3u8 con parámetro ?id="""
-  id_content = request.query_params.get('id', '')
+@app.route('/ace/manifest.m3u8', methods=['GET', 'HEAD'])
+def manifest_query():
+  """Proxy para manifest.m3u8 con ?id="""
+  id_content = request.args.get('id', '')
   if not id_content:
-    return Response(content="Missing id parameter", status_code=400)
-
-  query_string = str(request.url.query)
-  target = f"{ACESTREAM_BASE}/ace/manifest.m3u8?{query_string}"
+    return Response("Missing id parameter", status=400)
 
   logger.info(f"📝 Manifest: id={id_content[:16]}...")
-  return await proxy_request(request, target, rewrite_manifest=True,
-                             follow_redirects=True)
+  return proxy_request(
+    f"ace/manifest.m3u8?{request.query_string.decode('utf-8')}",
+    rewrite_manifest=True, allow_redirects=True)
 
 
-@app.api_route("/ace/manifest/{format}/{id_content:path}",
-               methods=["GET", "HEAD"])
-async def manifest_proxy_path(request: Request, format: str, id_content: str):
-  """Proxy para manifest con path /ace/manifest/FORMAT/ID"""
-  query_string = str(request.url.query)
-  target = f"{ACESTREAM_BASE}/ace/manifest/{format}/{id_content}"
-  if query_string:
-    target += f"?{query_string}"
-
+@app.route('/ace/manifest/<format>/<path:id_content>', methods=['GET', 'HEAD'])
+def manifest_path(format, id_content):
+  """Proxy para manifest con path"""
   logger.info(f"📝 Manifest (path): {format}/{id_content[:16]}...")
-  return await proxy_request(request, target, rewrite_manifest=True,
-                             follow_redirects=True)
+  return proxy_request(f"ace/manifest/{format}/{id_content}",
+                       rewrite_manifest=True, allow_redirects=True)
 
 
-@app.api_route("/ace/c/{session_id}/{segment:path}", methods=["GET", "HEAD"])
-async def chunks_proxy(request: Request, session_id: str, segment: str):
-  """Proxy para chunks de video .ts"""
-  target = f"{ACESTREAM_BASE}/ace/c/{session_id}/{segment}"
+@app.route('/ace/c/<session_id>/<path:segment>', methods=['GET', 'HEAD'])
+def chunks(session_id, segment):
+  """Proxy para chunks .ts"""
   logger.info(f"🎬 Chunk: {session_id}/{segment}")
-  return await proxy_request(request, target, follow_redirects=True)
+  return proxy_request(f"ace/c/{session_id}/{segment}", allow_redirects=True)
 
 
-@app.api_route("/ace/l/{path:path}", methods=["GET", "HEAD"])
-async def ace_l_proxy(request: Request, path: str):
-  """Proxy para rutas /ace/l/"""
-  query_string = str(request.url.query)
-  target = f"{ACESTREAM_BASE}/ace/l/{path}"
-  if query_string:
-    target += f"?{query_string}"
-
-  logger.info(f"🔗 Ace/l: {path[:50]}...")
-  return await proxy_request(request, target, follow_redirects=False)
+@app.route('/ace/l/<path:subpath>', methods=['GET', 'HEAD'])
+def ace_l(subpath):
+  """Proxy para /ace/l/"""
+  logger.info(f"🔗 Ace/l: {subpath[:50]}...")
+  return proxy_request(f"ace/l/{subpath}", allow_redirects=False)
 
 
-@app.api_route("/webui/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def webui_proxy(request: Request, path: str):
+@app.route('/webui/<path:subpath>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+def webui(subpath):
   """Proxy para WebUI"""
-  query_string = str(request.url.query)
-  target = f"{ACESTREAM_BASE}/webui/{path}"
-  if query_string:
-    target += f"?{query_string}"
-  return await proxy_request(request, target, follow_redirects=True)
+  return proxy_request(f"webui/{subpath}", allow_redirects=True)
 
 
-@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "HEAD"])
-async def catch_all_proxy(request: Request, path: str):
-  """Catch-all proxy para cualquier otra ruta"""
-  query_string = str(request.url.query)
-  target = f"{ACESTREAM_BASE}/{path}"
-  if query_string:
-    target += f"?{query_string}"
-
-  logger.info(f"🔀 Generic: {path[:50]}...")
-  return await proxy_request(request, target, follow_redirects=True)
+@app.route('/<path:subpath>', methods=['GET', 'POST', 'PUT', 'DELETE', 'HEAD'])
+def catch_all(subpath):
+  """Catch-all"""
+  logger.info(f"🔀 Generic: {subpath[:50]}...")
+  return proxy_request(subpath, allow_redirects=True)
 
 
-if __name__ == "__main__":
-  import uvicorn
+@app.route('/')
+def root():
+  """Root"""
+  return proxy_request('', allow_redirects=True)
 
-  uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+
+if __name__ == '__main__':
+  app.run(host='0.0.0.0', port=8000, threaded=True)
