@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import StreamingResponse, PlainTextResponse
+from fastapi.responses import StreamingResponse, RedirectResponse
 import httpx
 import re
 import logging
@@ -15,7 +15,7 @@ TIMEOUT = httpx.Timeout(300.0, connect=10.0)
 
 
 async def proxy_request(request: Request, target_url: str,
-    rewrite_manifest: bool = False):
+    rewrite_manifest: bool = False, follow_redirects: bool = False):
   """Proxy genérico para todas las peticiones"""
 
   # Preparar headers
@@ -23,7 +23,7 @@ async def proxy_request(request: Request, target_url: str,
   headers.pop('host', None)
 
   async with httpx.AsyncClient(timeout=TIMEOUT,
-                               follow_redirects=True) as client:
+                               follow_redirects=follow_redirects) as client:
     try:
       response = await client.request(
           method=request.method,
@@ -33,12 +33,27 @@ async def proxy_request(request: Request, target_url: str,
           params=request.query_params
       )
 
+      # Si es una redirección (301, 302, 307, 308), reescribir la Location
+      if response.status_code in [301, 302, 303, 307, 308]:
+        location = response.headers.get('location', '')
+        if location:
+          # Reescribir la URL de redirección
+          new_location = location.replace(
+              'http://acestream-arm:6878',
+              PUBLIC_DOMAIN
+          )
+          logger.info(f"🔄 Redirect reescrito: {location} -> {new_location}")
+
+          return RedirectResponse(
+              url=new_location,
+              status_code=response.status_code
+          )
+
       # Preparar headers de respuesta
       response_headers = dict(response.headers)
       response_headers.pop('content-encoding', None)
       response_headers.pop('transfer-encoding', None)
-      response_headers.pop('content-length',
-                           None)  # IMPORTANTE: Eliminar content-length
+      response_headers.pop('content-length', None)
 
       content_type = response.headers.get('content-type', '')
 
@@ -55,10 +70,8 @@ async def proxy_request(request: Request, target_url: str,
         )
 
         logger.info(f"✅ Manifest reescrito para: {target_url}")
-        logger.debug(f"Original: {response.text[:300]}")
         logger.debug(f"Reescrito: {content[:300]}")
 
-        # Devolver como texto plano con nuevo content-length correcto
         return Response(
             content=content.encode('utf-8'),
             status_code=response.status_code,
@@ -103,7 +116,7 @@ async def health():
 
 @app.api_route("/ace/getstream", methods=["GET", "HEAD"])
 async def getstream_proxy_query(request: Request):
-  """Proxy para getstream con parámetro ?id="""
+  """Proxy para getstream con parámetro ?id= - maneja redirects"""
   id_content = request.query_params.get('id', '')
   if not id_content:
     return Response(content="Missing id parameter", status_code=400)
@@ -113,7 +126,8 @@ async def getstream_proxy_query(request: Request):
   target = f"{ACESTREAM_BASE}/ace/getstream?{query_string}"
 
   logger.info(f"📡 Getstream (query): id={id_content}")
-  return await proxy_request(request, target)
+  # NO seguir redirects automáticamente, para poder reescribirlos
+  return await proxy_request(request, target, follow_redirects=False)
 
 
 @app.api_route("/ace/getstream/{id_content:path}", methods=["GET", "HEAD"])
@@ -125,7 +139,7 @@ async def getstream_proxy_path(request: Request, id_content: str):
     target += f"?{query_string}"
 
   logger.info(f"📡 Getstream (path): {id_content}")
-  return await proxy_request(request, target)
+  return await proxy_request(request, target, follow_redirects=False)
 
 
 @app.api_route("/ace/manifest.m3u8", methods=["GET", "HEAD"])
@@ -139,7 +153,8 @@ async def manifest_proxy_query(request: Request):
   target = f"{ACESTREAM_BASE}/ace/manifest.m3u8?{query_string}"
 
   logger.info(f"📝 Manifest (query): id={id_content}")
-  return await proxy_request(request, target, rewrite_manifest=True)
+  return await proxy_request(request, target, rewrite_manifest=True,
+                             follow_redirects=True)
 
 
 @app.api_route("/ace/manifest/{format}/{id_content:path}",
@@ -152,7 +167,8 @@ async def manifest_proxy_path(request: Request, format: str, id_content: str):
     target += f"?{query_string}"
 
   logger.info(f"📝 Manifest (path): {format}/{id_content}")
-  return await proxy_request(request, target, rewrite_manifest=True)
+  return await proxy_request(request, target, rewrite_manifest=True,
+                             follow_redirects=True)
 
 
 @app.api_route("/ace/c/{session_id}/{segment:path}", methods=["GET", "HEAD"])
@@ -160,7 +176,19 @@ async def chunks_proxy(request: Request, session_id: str, segment: str):
   """Proxy para chunks de video .ts"""
   target = f"{ACESTREAM_BASE}/ace/c/{session_id}/{segment}"
   logger.info(f"🎬 Chunk: {session_id}/{segment[:50]}")
-  return await proxy_request(request, target)
+  return await proxy_request(request, target, follow_redirects=True)
+
+
+@app.api_route("/ace/l/{path:path}", methods=["GET", "HEAD"])
+async def ace_l_proxy(request: Request, path: str):
+  """Proxy para rutas /ace/l/ (pueden ser parte del flujo)"""
+  query_string = str(request.url.query)
+  target = f"{ACESTREAM_BASE}/ace/l/{path}"
+  if query_string:
+    target += f"?{query_string}"
+
+  logger.info(f"🔗 Ace/l: {path}")
+  return await proxy_request(request, target, follow_redirects=False)
 
 
 @app.api_route("/webui/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
@@ -170,7 +198,7 @@ async def webui_proxy(request: Request, path: str):
   target = f"{ACESTREAM_BASE}/webui/{path}"
   if query_string:
     target += f"?{query_string}"
-  return await proxy_request(request, target)
+  return await proxy_request(request, target, follow_redirects=True)
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "HEAD"])
@@ -182,7 +210,7 @@ async def catch_all_proxy(request: Request, path: str):
     target += f"?{query_string}"
 
   logger.info(f"🔀 Generic proxy: {path}")
-  return await proxy_request(request, target)
+  return await proxy_request(request, target, follow_redirects=True)
 
 
 if __name__ == "__main__":
