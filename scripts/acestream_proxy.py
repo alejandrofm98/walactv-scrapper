@@ -307,4 +307,8 @@ def root():
 
 
 if __name__ == '__main__':
+  # Para desarrollo local
   app.run(host='0.0.0.0', port=8000, threaded=True)
+
+# Para producción, usar:
+# gunicorn -w 4 -k gevent --worker-connections 1000 -b 0.0.0.0:8000 acestream_proxy:app

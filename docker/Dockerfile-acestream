@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Instalar dependencias para el proxy
-RUN pip install --no-cache-dir flask requests
+RUN pip install flask requests gunicorn gevent
 
 # Copiar el script del proxy
 COPY scripts/acestream_proxy.py /app/scripts/
