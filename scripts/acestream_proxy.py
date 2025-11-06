@@ -15,6 +15,51 @@ app = Flask(__name__)
 ACESTREAM_BASE = "http://acestream-arm:6878"
 PUBLIC_DOMAIN = "https://acestream.walerike.com"
 
+# CORS configuration
+ALLOWED_ORIGINS = [
+  "https://walactvweb.walerike.com",
+  "https://acestream.walerike.com"
+]
+
+
+@app.after_request
+def add_cors_headers(response):
+  """Agregar headers CORS a todas las respuestas"""
+  origin = request.headers.get('Origin')
+
+  # Si el origen está en la lista permitida, usarlo; sino usar el primero
+  if origin in ALLOWED_ORIGINS:
+    response.headers['Access-Control-Allow-Origin'] = origin
+  else:
+    response.headers['Access-Control-Allow-Origin'] = ALLOWED_ORIGINS[0]
+
+  response.headers[
+    'Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, HEAD'
+  response.headers[
+    'Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Range, Accept, Origin'
+  response.headers[
+    'Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Content-Type'
+  response.headers['Access-Control-Allow-Credentials'] = 'true'
+  response.headers['Access-Control-Max-Age'] = '3600'
+
+  # Remover headers CORS duplicados si existen
+  if 'Access-Control-Allow-Origin' in response.headers:
+    values = response.headers.get_all('Access-Control-Allow-Origin')
+    if len(values) > 1:
+      response.headers.remove('Access-Control-Allow-Origin')
+      response.headers['Access-Control-Allow-Origin'] = values[0]
+
+  return response
+
+
+@app.route('/<path:path>', methods=['OPTIONS'])
+@app.route('/ace/<path:path>', methods=['OPTIONS'])
+@app.route('/webui/<path:path>', methods=['OPTIONS'])
+@app.route('/', methods=['OPTIONS'])
+def handle_preflight(path=None):
+  """Manejar preflight requests de CORS"""
+  return Response('', status=204)
+
 
 def rewrite_url(url):
   """Reescribe URLs internas a públicas"""
@@ -114,7 +159,8 @@ def proxy_request(path, rewrite_manifest=False,
     ]
     response_headers = [
       (name, value) for name, value in resp.headers.items()
-      if name.lower() not in excluded_headers
+      if name.lower() not in excluded_headers and
+         not name.lower().startswith('access-control-')
     ]
 
     content_type = resp.headers.get('Content-Type', '')
@@ -137,10 +183,7 @@ def proxy_request(path, rewrite_manifest=False,
         return Response(
             content,
             status=resp.status_code,
-            headers=response_headers + [
-              ('Content-Type', 'application/vnd.apple.mpegurl'),
-              ('Access-Control-Allow-Origin', '*')
-            ]
+            headers=response_headers
         )
       except Exception as e:
         logger.error(f"❌ Error reescribiendo manifest: {e}")

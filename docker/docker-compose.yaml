@@ -66,6 +66,9 @@ services:
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=8000"
+      # Deshabilitar CORS de Traefik para evitar conflictos
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolalloworiginlist="
+      - "traefik.http.routers.acestream-secure.middlewares="
     networks:
       - dokploy-network
 
