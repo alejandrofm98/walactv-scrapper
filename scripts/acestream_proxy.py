@@ -31,15 +31,11 @@ def rewrite_url(url):
 def proxy_request(path, rewrite_manifest=False, allow_redirects=False):
   """Proxy genérico con mejor manejo de errores"""
 
-  # Construir URL target
+  # Construir URL target - NO añadir query string aquí
   if path.startswith('http'):
     target_url = path
   else:
     target_url = f"{ACESTREAM_BASE}/{path.lstrip('/')}"
-
-  # Añadir query string
-  if request.query_string:
-    target_url += f"?{request.query_string.decode('utf-8')}"
 
   # Preparar headers (eliminar problemáticos)
   headers = {
@@ -60,11 +56,19 @@ def proxy_request(path, rewrite_manifest=False, allow_redirects=False):
                                                       'PATCH'] else None,
         allow_redirects=allow_redirects,
         stream=True,
-        timeout=(10, 300),  # connect timeout, read timeout
-        verify=False  # Desactivar verificación SSL para conexiones internas
+        timeout=(10, 300),
+        verify=False
     )
 
     logger.info(f"✓ {resp.status_code} from acestream")
+
+    # Si acestream devuelve error, loguear el contenido
+    if resp.status_code >= 400:
+      try:
+        error_content = resp.text[:500]
+        logger.error(f"❌ Acestream error {resp.status_code}: {error_content}")
+      except:
+        pass
 
     # Manejar redirects manualmente
     if resp.status_code in [301, 302, 303, 307, 308] and not allow_redirects:
@@ -110,7 +114,6 @@ def proxy_request(path, rewrite_manifest=False, allow_redirects=False):
         )
       except Exception as e:
         logger.error(f"❌ Error reescribiendo manifest: {e}")
-        # Si falla, devolver como está
 
     # Streaming response para video
     def generate():
@@ -160,7 +163,7 @@ def health():
     version = resp.json() if resp.status_code == 200 else None
   except Exception as e:
     acestream_status = "unreachable"
-    version = None
+    version = str(e)
 
   return {
     "status": "ok",
@@ -179,22 +182,29 @@ def getstream_query():
     return Response("Missing id parameter", status=400)
 
   logger.info(f"📡 Getstream: id={id_content[:16]}...")
-  return proxy_request(f"ace/getstream?{request.query_string.decode('utf-8')}",
-                       allow_redirects=False)
+  # Construir path con query params
+  path = f"ace/getstream?{request.query_string.decode('utf-8')}"
+  return proxy_request(path, allow_redirects=False)
 
 
 @app.route('/ace/getstream/<path:id_content>', methods=['GET', 'HEAD'])
 def getstream_path(id_content):
   """Proxy para getstream con path"""
   logger.info(f"📡 Getstream (path): {id_content[:16]}...")
-  return proxy_request(f"ace/getstream/{id_content}", allow_redirects=False)
+  path = f"ace/getstream/{id_content}"
+  if request.query_string:
+    path += f"?{request.query_string.decode('utf-8')}"
+  return proxy_request(path, allow_redirects=False)
 
 
 @app.route('/ace/r/<path:subpath>', methods=['GET', 'HEAD'])
 def ace_r(subpath):
   """Proxy para /ace/r/ (redirect final)"""
   logger.info(f"🎯 Ace/r: {subpath[:50]}...")
-  return proxy_request(f"ace/r/{subpath}", allow_redirects=False)
+  path = f"ace/r/{subpath}"
+  if request.query_string:
+    path += f"?{request.query_string.decode('utf-8')}"
+  return proxy_request(path, allow_redirects=False)
 
 
 @app.route('/ace/manifest.m3u8', methods=['GET', 'HEAD'])
@@ -205,44 +215,57 @@ def manifest_query():
     return Response("Missing id parameter", status=400)
 
   logger.info(f"📝 Manifest: id={id_content[:16]}...")
-  return proxy_request(
-    f"ace/manifest.m3u8?{request.query_string.decode('utf-8')}",
-    rewrite_manifest=True, allow_redirects=True)
+  path = f"ace/manifest.m3u8?{request.query_string.decode('utf-8')}"
+  return proxy_request(path, rewrite_manifest=True, allow_redirects=True)
 
 
 @app.route('/ace/manifest/<format>/<path:id_content>', methods=['GET', 'HEAD'])
 def manifest_path(format, id_content):
   """Proxy para manifest con path"""
   logger.info(f"📝 Manifest (path): {format}/{id_content[:16]}...")
-  return proxy_request(f"ace/manifest/{format}/{id_content}",
-                       rewrite_manifest=True, allow_redirects=True)
+  path = f"ace/manifest/{format}/{id_content}"
+  if request.query_string:
+    path += f"?{request.query_string.decode('utf-8')}"
+  return proxy_request(path, rewrite_manifest=True, allow_redirects=True)
 
 
 @app.route('/ace/c/<session_id>/<path:segment>', methods=['GET', 'HEAD'])
 def chunks(session_id, segment):
   """Proxy para chunks .ts"""
   logger.info(f"🎬 Chunk: {session_id}/{segment}")
-  return proxy_request(f"ace/c/{session_id}/{segment}", allow_redirects=True)
+  path = f"ace/c/{session_id}/{segment}"
+  if request.query_string:
+    path += f"?{request.query_string.decode('utf-8')}"
+  return proxy_request(path, allow_redirects=True)
 
 
 @app.route('/ace/l/<path:subpath>', methods=['GET', 'HEAD'])
 def ace_l(subpath):
   """Proxy para /ace/l/"""
   logger.info(f"🔗 Ace/l: {subpath[:50]}...")
-  return proxy_request(f"ace/l/{subpath}", allow_redirects=False)
+  path = f"ace/l/{subpath}"
+  if request.query_string:
+    path += f"?{request.query_string.decode('utf-8')}"
+  return proxy_request(path, allow_redirects=False)
 
 
 @app.route('/webui/<path:subpath>', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def webui(subpath):
   """Proxy para WebUI"""
-  return proxy_request(f"webui/{subpath}", allow_redirects=True)
+  path = f"webui/{subpath}"
+  if request.query_string:
+    path += f"?{request.query_string.decode('utf-8')}"
+  return proxy_request(path, allow_redirects=True)
 
 
 @app.route('/<path:subpath>', methods=['GET', 'POST', 'PUT', 'DELETE', 'HEAD'])
 def catch_all(subpath):
   """Catch-all"""
   logger.info(f"🔀 Generic: {subpath[:50]}...")
-  return proxy_request(subpath, allow_redirects=True)
+  path = subpath
+  if request.query_string:
+    path += f"?{request.query_string.decode('utf-8')}"
+  return proxy_request(path, allow_redirects=True)
 
 
 @app.route('/')
