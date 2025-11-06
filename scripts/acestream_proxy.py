@@ -33,9 +33,12 @@ async def proxy_request(request: Request, target_url: str,
           params=request.query_params
       )
 
+      # Preparar headers de respuesta
       response_headers = dict(response.headers)
       response_headers.pop('content-encoding', None)
       response_headers.pop('transfer-encoding', None)
+      response_headers.pop('content-length',
+                           None)  # IMPORTANTE: Eliminar content-length
 
       content_type = response.headers.get('content-type', '')
 
@@ -45,28 +48,25 @@ async def proxy_request(request: Request, target_url: str,
         content = response.text
 
         # Reemplazar todas las URLs internas con el dominio público
-        # Patrón: http://acestream-arm:6878/ace/... -> https://acestream.walerike.com/ace/...
         content = re.sub(
-            r'http://acestream-arm:6878/',
-            f'{PUBLIC_DOMAIN}/',
+            r'http://acestream-arm:6878',
+            PUBLIC_DOMAIN,
             content
         )
 
-        # También reemplazar URLs relativas si las hay
-        content = re.sub(
-            r'(/ace/[^\s\n]+)',
-            f'{PUBLIC_DOMAIN}\\1',
-            content
-        )
+        logger.info(f"✅ Manifest reescrito para: {target_url}")
+        logger.debug(f"Original: {response.text[:300]}")
+        logger.debug(f"Reescrito: {content[:300]}")
 
-        logger.info(
-          f"Manifest reescrito. Original tenia: {response.text[:200]}")
-        logger.info(f"Reescrito a: {content[:200]}")
-
-        return PlainTextResponse(
-            content=content,
+        # Devolver como texto plano con nuevo content-length correcto
+        return Response(
+            content=content.encode('utf-8'),
             status_code=response.status_code,
-            headers=response_headers
+            headers={
+              **response_headers,
+              'content-type': 'application/vnd.apple.mpegurl',
+              'content-length': str(len(content.encode('utf-8')))
+            }
         )
 
       # Si es streaming de video (chunks .ts)
@@ -90,14 +90,15 @@ async def proxy_request(request: Request, target_url: str,
       )
 
     except Exception as e:
-      logger.error(f"Error proxying request to {target_url}: {e}")
+      logger.error(f"❌ Error proxying request to {target_url}: {e}")
       return Response(content=str(e), status_code=502)
 
 
 @app.get("/health")
 async def health():
   """Health check"""
-  return {"status": "ok"}
+  return {"status": "ok", "acestream_base": ACESTREAM_BASE,
+          "public_domain": PUBLIC_DOMAIN}
 
 
 @app.api_route("/ace/getstream", methods=["GET", "HEAD"])
@@ -107,23 +108,23 @@ async def getstream_proxy_query(request: Request):
   if not id_content:
     return Response(content="Missing id parameter", status_code=400)
 
-  target = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
-  logger.info(f"Getstream request (query): {id_content}")
+  # Construir URL con todos los parámetros
+  query_string = str(request.url.query)
+  target = f"{ACESTREAM_BASE}/ace/getstream?{query_string}"
 
-  # Agregar resto de parámetros si existen
-  extra_params = "&".join(
-      [f"{k}={v}" for k, v in request.query_params.items() if k != 'id'])
-  if extra_params:
-    target += f"&{extra_params}"
-
+  logger.info(f"📡 Getstream (query): id={id_content}")
   return await proxy_request(request, target)
 
 
 @app.api_route("/ace/getstream/{id_content:path}", methods=["GET", "HEAD"])
 async def getstream_proxy_path(request: Request, id_content: str):
   """Proxy para getstream con path /ace/getstream/ID"""
+  query_string = str(request.url.query)
   target = f"{ACESTREAM_BASE}/ace/getstream/{id_content}"
-  logger.info(f"Getstream request (path): {id_content}")
+  if query_string:
+    target += f"?{query_string}"
+
+  logger.info(f"📡 Getstream (path): {id_content}")
   return await proxy_request(request, target)
 
 
@@ -134,15 +135,10 @@ async def manifest_proxy_query(request: Request):
   if not id_content:
     return Response(content="Missing id parameter", status_code=400)
 
-  target = f"{ACESTREAM_BASE}/ace/manifest.m3u8?id={id_content}"
-  logger.info(f"Manifest request (query): {id_content}")
+  query_string = str(request.url.query)
+  target = f"{ACESTREAM_BASE}/ace/manifest.m3u8?{query_string}"
 
-  # Agregar resto de parámetros si existen
-  extra_params = "&".join(
-      [f"{k}={v}" for k, v in request.query_params.items() if k != 'id'])
-  if extra_params:
-    target += f"&{extra_params}"
-
+  logger.info(f"📝 Manifest (query): id={id_content}")
   return await proxy_request(request, target, rewrite_manifest=True)
 
 
@@ -150,8 +146,12 @@ async def manifest_proxy_query(request: Request):
                methods=["GET", "HEAD"])
 async def manifest_proxy_path(request: Request, format: str, id_content: str):
   """Proxy para manifest con path /ace/manifest/FORMAT/ID"""
+  query_string = str(request.url.query)
   target = f"{ACESTREAM_BASE}/ace/manifest/{format}/{id_content}"
-  logger.info(f"Manifest request (path): {format}/{id_content}")
+  if query_string:
+    target += f"?{query_string}"
+
+  logger.info(f"📝 Manifest (path): {format}/{id_content}")
   return await proxy_request(request, target, rewrite_manifest=True)
 
 
@@ -159,22 +159,29 @@ async def manifest_proxy_path(request: Request, format: str, id_content: str):
 async def chunks_proxy(request: Request, session_id: str, segment: str):
   """Proxy para chunks de video .ts"""
   target = f"{ACESTREAM_BASE}/ace/c/{session_id}/{segment}"
-  logger.info(f"Chunk request: {session_id}/{segment}")
+  logger.info(f"🎬 Chunk: {session_id}/{segment[:50]}")
   return await proxy_request(request, target)
 
 
 @app.api_route("/webui/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def webui_proxy(request: Request, path: str):
   """Proxy para WebUI"""
+  query_string = str(request.url.query)
   target = f"{ACESTREAM_BASE}/webui/{path}"
+  if query_string:
+    target += f"?{query_string}"
   return await proxy_request(request, target)
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "HEAD"])
 async def catch_all_proxy(request: Request, path: str):
   """Catch-all proxy para cualquier otra ruta"""
+  query_string = str(request.url.query)
   target = f"{ACESTREAM_BASE}/{path}"
-  logger.info(f"Generic proxy: {path}")
+  if query_string:
+    target += f"?{query_string}"
+
+  logger.info(f"🔀 Generic proxy: {path}")
   return await proxy_request(request, target)
 
 
