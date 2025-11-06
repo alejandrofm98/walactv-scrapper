@@ -2,7 +2,7 @@ from flask import Flask, request, Response, redirect, stream_with_context
 import requests
 import re
 import logging
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,16 +28,17 @@ def rewrite_url(url):
   return url
 
 
-def proxy_request(path, rewrite_manifest=False, allow_redirects=False):
+def proxy_request(path, rewrite_manifest=False,
+    follow_redirects_manually=False):
   """Proxy genérico con mejor manejo de errores"""
 
-  # Construir URL target - NO añadir query string aquí
+  # Construir URL target
   if path.startswith('http'):
     target_url = path
   else:
     target_url = f"{ACESTREAM_BASE}/{path.lstrip('/')}"
 
-  # Preparar headers (eliminar problemáticos)
+  # Preparar headers
   headers = {
     key: value for key, value in request.headers
     if key.lower() not in ['host', 'connection', 'content-length',
@@ -47,20 +48,55 @@ def proxy_request(path, rewrite_manifest=False, allow_redirects=False):
   logger.info(f"→ {request.method} {target_url}")
 
   try:
-    # Hacer request con configuración robusta
+    # Hacer request inicial sin seguir redirects automáticamente
     resp = requests.request(
         method=request.method,
         url=target_url,
         headers=headers,
         data=request.get_data() if request.method in ['POST', 'PUT',
                                                       'PATCH'] else None,
-        allow_redirects=allow_redirects,
+        allow_redirects=False,
         stream=True,
         timeout=(10, 300),
         verify=False
     )
 
     logger.info(f"✓ {resp.status_code} from acestream")
+
+    # Manejar redirects manualmente si es necesario
+    if resp.status_code in [301, 302, 303, 307, 308]:
+      location = resp.headers.get('Location', '')
+      if location:
+        logger.info(f"🔄 Redirect detectado: {location}")
+
+        # Si follow_redirects_manually está activado, seguir internamente
+        if follow_redirects_manually:
+          # Construir URL completa si es relativa
+          if location.startswith('/'):
+            next_url = f"{ACESTREAM_BASE}{location}"
+          elif location.startswith('http://acestream-arm:6878'):
+            next_url = location
+          else:
+            next_url = urljoin(target_url, location)
+
+          logger.info(f"🔄 Siguiendo redirect internamente: {next_url}")
+
+          # Hacer la petición al destino del redirect
+          resp = requests.request(
+              method='GET',
+              url=next_url,
+              headers=headers,
+              allow_redirects=False,
+              stream=True,
+              timeout=(10, 300),
+              verify=False
+          )
+          logger.info(f"✓ {resp.status_code} después de redirect")
+        else:
+          # Reescribir y devolver redirect al cliente
+          new_location = rewrite_url(location)
+          logger.info(f"🔄 Redirect al cliente: {new_location}")
+          return redirect(new_location, code=resp.status_code)
 
     # Si acestream devuelve error, loguear el contenido
     if resp.status_code >= 400:
@@ -69,14 +105,6 @@ def proxy_request(path, rewrite_manifest=False, allow_redirects=False):
         logger.error(f"❌ Acestream error {resp.status_code}: {error_content}")
       except:
         pass
-
-    # Manejar redirects manualmente
-    if resp.status_code in [301, 302, 303, 307, 308] and not allow_redirects:
-      location = resp.headers.get('Location', '')
-      if location:
-        new_location = rewrite_url(location)
-        logger.info(f"🔄 Redirect: {location} → {new_location}")
-        return redirect(new_location, code=resp.status_code)
 
     # Headers de respuesta
     excluded_headers = [
@@ -92,8 +120,7 @@ def proxy_request(path, rewrite_manifest=False, allow_redirects=False):
     content_type = resp.headers.get('Content-Type', '')
 
     # Reescribir manifest.m3u8
-    if rewrite_manifest or 'mpegurl' in content_type or target_url.endswith(
-        '.m3u8'):
+    if rewrite_manifest or 'mpegurl' in content_type or 'manifest.m3u8' in target_url:
       try:
         content = resp.text
 
@@ -105,12 +132,15 @@ def proxy_request(path, rewrite_manifest=False, allow_redirects=False):
         )
 
         logger.info(f"✅ Manifest reescrito ({len(content)} bytes)")
+        logger.debug(f"Manifest content preview:\n{content[:500]}")
 
         return Response(
             content,
             status=resp.status_code,
             headers=response_headers + [
-              ('Content-Type', 'application/vnd.apple.mpegurl')]
+              ('Content-Type', 'application/vnd.apple.mpegurl'),
+              ('Access-Control-Allow-Origin', '*')
+            ]
         )
       except Exception as e:
         logger.error(f"❌ Error reescribiendo manifest: {e}")
@@ -182,9 +212,8 @@ def getstream_query():
     return Response("Missing id parameter", status=400)
 
   logger.info(f"📡 Getstream: id={id_content[:16]}...")
-  # Construir path con query params
   path = f"ace/getstream?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, allow_redirects=False)
+  return proxy_request(path, follow_redirects_manually=False)
 
 
 @app.route('/ace/getstream/<path:id_content>', methods=['GET', 'HEAD'])
@@ -194,7 +223,7 @@ def getstream_path(id_content):
   path = f"ace/getstream/{id_content}"
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, allow_redirects=False)
+  return proxy_request(path, follow_redirects_manually=False)
 
 
 @app.route('/ace/r/<path:subpath>', methods=['GET', 'HEAD'])
@@ -204,7 +233,7 @@ def ace_r(subpath):
   path = f"ace/r/{subpath}"
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, allow_redirects=False)
+  return proxy_request(path, follow_redirects_manually=False)
 
 
 @app.route('/ace/manifest.m3u8', methods=['GET', 'HEAD'])
@@ -216,7 +245,9 @@ def manifest_query():
 
   logger.info(f"📝 Manifest: id={id_content[:16]}...")
   path = f"ace/manifest.m3u8?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, rewrite_manifest=True, allow_redirects=True)
+  # Seguir redirects manualmente para obtener el manifest real
+  return proxy_request(path, rewrite_manifest=True,
+                       follow_redirects_manually=True)
 
 
 @app.route('/ace/manifest/<format>/<path:id_content>', methods=['GET', 'HEAD'])
@@ -226,7 +257,8 @@ def manifest_path(format, id_content):
   path = f"ace/manifest/{format}/{id_content}"
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, rewrite_manifest=True, allow_redirects=True)
+  return proxy_request(path, rewrite_manifest=True,
+                       follow_redirects_manually=True)
 
 
 @app.route('/ace/c/<session_id>/<path:segment>', methods=['GET', 'HEAD'])
@@ -236,7 +268,7 @@ def chunks(session_id, segment):
   path = f"ace/c/{session_id}/{segment}"
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, allow_redirects=True)
+  return proxy_request(path, follow_redirects_manually=False)
 
 
 @app.route('/ace/l/<path:subpath>', methods=['GET', 'HEAD'])
@@ -246,7 +278,7 @@ def ace_l(subpath):
   path = f"ace/l/{subpath}"
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, allow_redirects=False)
+  return proxy_request(path, follow_redirects_manually=False)
 
 
 @app.route('/webui/<path:subpath>', methods=['GET', 'POST', 'PUT', 'DELETE'])
@@ -255,7 +287,7 @@ def webui(subpath):
   path = f"webui/{subpath}"
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, allow_redirects=True)
+  return proxy_request(path, follow_redirects_manually=False)
 
 
 @app.route('/<path:subpath>', methods=['GET', 'POST', 'PUT', 'DELETE', 'HEAD'])
@@ -265,13 +297,13 @@ def catch_all(subpath):
   path = subpath
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, allow_redirects=True)
+  return proxy_request(path, follow_redirects_manually=False)
 
 
 @app.route('/')
 def root():
   """Root"""
-  return proxy_request('', allow_redirects=True)
+  return proxy_request('', follow_redirects_manually=False)
 
 
 if __name__ == '__main__':
