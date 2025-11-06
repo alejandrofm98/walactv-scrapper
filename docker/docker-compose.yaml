@@ -50,47 +50,25 @@ services:
         ipv4_address: 10.0.1.156
 
   acestream-proxy:
-    image: openresty/openresty:alpine
+    image: caddy:2-alpine
     container_name: acestream-proxy
     restart: unless-stopped
     volumes:
-      - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       - acestream-arm
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
-
-      # Router HTTPS
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls=true"
-      - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
-
-      # IMPORTANTE: NO aplicar CORS en Traefik, lo hace Nginx
-      # - "traefik.http.routers.acestream-secure.middlewares=acestream-headers@docker"
-
-      # Service
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=80"
-
-      # Router HTTP (redirect a HTTPS)
-      - "traefik.http.routers.acestream-web.rule=Host(`acestream.walerike.com`)"
-      - "traefik.http.routers.acestream-web.entrypoints=web"
-      - "traefik.http.routers.acestream-web.middlewares=redirect-to-https@docker"
-
-      # Middleware: Redirect HTTP -> HTTPS
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
-
-      # Middleware: Headers básicos (sin CORS, Nginx lo maneja)
-      - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
-      - "traefik.http.middlewares.acestream-headers.headers.customrequestheaders.X-Real-IP="
-
-      # CRÍTICO: Deshabilitar buffering en Traefik para streaming
-      - "traefik.http.services.acestream-secure.loadbalancer.responseforwarding.flushinterval=100ms"
-
     networks:
       - dokploy-network
+
 
 
   # Watchdog (sin Docker CLI)
@@ -135,25 +113,27 @@ services:
 #        done
 
 
-#  acestream-local:
-#    image: jopsis/acestream:x64
-#    container_name: acestream-local
-#    privileged: true
-#    restart: unless-stopped
-#    hostname: acestream-arm
-#    tmpfs:
-#      - /dev/shm:size=2g,mode=1777
-#    ports:
-#      - "6878:6878"
-#    environment:
-#      TZ: Europe/Madrid
-#      ALLOW_REMOTE_ACCESS: "yes"
-#    volumes:
-#      - acestream-config:/acestream.engine
+  acestream-local:
+    image: jopsis/acestream:x64
+    container_name: acestream-local
+    privileged: true
+    restart: unless-stopped
+    hostname: acestream-arm
+    tmpfs:
+      - /dev/shm:size=2g,mode=1777
+    ports:
+      - "6878:6878"
+    environment:
+      TZ: Europe/Madrid
+      ALLOW_REMOTE_ACCESS: "yes"
+    volumes:
+      - acestream-config:/acestream.engine
 
 
 volumes:
   acestream-config:
+  caddy_data:
+  caddy_config:
 
 networks:
   dokploy-network:
