@@ -221,24 +221,34 @@ def proxy_request(path, rewrite_manifest=False,
         content = resp.text
         original_content = content  # Para debugging
 
-        # Reemplazar URLs en el manifest (HLS y DASH)
+        # PASO 1: Reemplazar URLs absolutas internas
         content = re.sub(
             r'http://acestream-arm:6878',
             PUBLIC_DOMAIN,
             content
         )
 
-        # También reemplazar URLs relativas que puedan existir
-        content = re.sub(
-            r'((?:^|\n)(?!#)[^\n]*?)(/ace/[^\s\n]+)',
-            lambda m: m.group(1) + PUBLIC_DOMAIN + m.group(2),
-            content
-        )
+        # PASO 2: Reemplazar URLs relativas (solo si NO tienen ya el dominio público)
+        # Esta regex solo captura líneas que empiezan con / y NO tienen http://
+        lines = content.split('\n')
+        rewritten_lines = []
+
+        for line in lines:
+          # Si la línea no es un comentario y empieza con /ace/
+          if not line.startswith('#') and line.strip().startswith('/ace/'):
+            # Solo agregar dominio si no lo tiene ya
+            if PUBLIC_DOMAIN not in line:
+              line = PUBLIC_DOMAIN + line.strip()
+          rewritten_lines.append(line)
+
+        content = '\n'.join(rewritten_lines)
 
         # Contar cuántas URLs se reescribieron
         urls_replaced = original_content.count('http://acestream-arm:6878')
+        relative_urls = original_content.count('\n/ace/')
+
         logger.info(
-          f"✅ Manifest reescrito: {urls_replaced} URLs reemplazadas ({len(content)} bytes)")
+          f"✅ Manifest reescrito: {urls_replaced} URLs absolutas + {relative_urls} URLs relativas ({len(content)} bytes)")
         logger.info(f"Manifest reescrito preview:\n{content[:500]}")
 
         return Response(
@@ -524,10 +534,41 @@ def manifest_query():
     except Exception as e:
       logger.warning(f"⚠️ Prebuffer falló (continuando): {e}")
 
-  # Obtener el manifest
+  # Obtener el manifest con TIMEOUT EXTENDIDO
   path = f"ace/manifest.m3u8?{request.query_string.decode('utf-8')}"
   return proxy_request(path, rewrite_manifest=True,
                        follow_redirects_manually=True)
+
+
+@app.route('/ace/status/<id_content>')
+def channel_status(id_content):
+  """Check channel status sin esperar el buffering completo"""
+  try:
+    # Timeout corto para ver si el canal responde rápido
+    url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
+    resp = requests.get(url, allow_redirects=False, timeout=5)
+
+    if resp.status_code == 302:
+      return {
+        "status": "ready",
+        "message": "Channel is responding quickly",
+        "redirect": resp.headers.get('Location', '')
+      }
+    else:
+      return {
+        "status": "unknown",
+        "code": resp.status_code
+      }
+  except requests.exceptions.Timeout:
+    return {
+      "status": "buffering",
+      "message": "Channel is buffering, this may take 1-3 minutes"
+    }
+  except Exception as e:
+    return {
+      "status": "error",
+      "error": str(e)
+    }
 
 
 @app.route('/ace/manifest/<format>/<path:id_content>', methods=['GET', 'HEAD'])
