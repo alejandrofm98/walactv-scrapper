@@ -15,39 +15,52 @@ app = Flask(__name__)
 ACESTREAM_BASE = "http://acestream-arm:6878"
 PUBLIC_DOMAIN = "https://acestream.walerike.com"
 
-# CORS configuration
+# CORS configuration - Más permisivo para Chromecast
 ALLOWED_ORIGINS = [
   "https://walactvweb.walerike.com",
   "https://acestream.walerike.com"
 ]
 
+# Para desarrollo, puedes activar esto:
+ALLOW_ALL_ORIGINS = False  # Cambia a True temporalmente para probar
+
 
 @app.after_request
 def add_cors_headers(response):
-  """Agregar headers CORS a todas las respuestas"""
+  """Agregar headers CORS a todas las respuestas - Compatible con Chromecast"""
   origin = request.headers.get('Origin')
 
-  # Si el origen está en la lista permitida, usarlo; sino usar el primero
-  if origin in ALLOWED_ORIGINS:
+  # Si no hay Origin (como en peticiones directas de Chromecast), permitir todos
+  if not origin:
+    response.headers['Access-Control-Allow-Origin'] = '*'
+  elif ALLOW_ALL_ORIGINS:
+    response.headers['Access-Control-Allow-Origin'] = '*'
+  elif origin in ALLOWED_ORIGINS:
     response.headers['Access-Control-Allow-Origin'] = origin
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
   else:
-    response.headers['Access-Control-Allow-Origin'] = ALLOWED_ORIGINS[0]
+    # Para orígenes no listados (como Chromecast), permitir sin credenciales
+    response.headers['Access-Control-Allow-Origin'] = '*'
 
   response.headers[
     'Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, HEAD'
   response.headers[
-    'Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Range, Accept, Origin'
+    'Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Range, Accept, Origin, X-Requested-With'
   response.headers[
-    'Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Content-Type'
-  response.headers['Access-Control-Allow-Credentials'] = 'true'
+    'Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Content-Type, Accept-Ranges'
   response.headers['Access-Control-Max-Age'] = '3600'
 
+  # Importante para streaming de video
+  if 'Accept-Ranges' not in response.headers:
+    response.headers['Accept-Ranges'] = 'bytes'
+
   # Remover headers CORS duplicados si existen
-  if 'Access-Control-Allow-Origin' in response.headers:
-    values = response.headers.get_all('Access-Control-Allow-Origin')
-    if len(values) > 1:
-      response.headers.remove('Access-Control-Allow-Origin')
-      response.headers['Access-Control-Allow-Origin'] = values[0]
+  for header in ['Access-Control-Allow-Origin', 'Access-Control-Allow-Methods']:
+    if header in response.headers:
+      values = response.headers.get_all(header)
+      if len(values) > 1:
+        response.headers.remove(header)
+        response.headers[header] = values[0]
 
   return response
 
@@ -58,7 +71,8 @@ def add_cors_headers(response):
 @app.route('/', methods=['OPTIONS'])
 def handle_preflight(path=None):
   """Manejar preflight requests de CORS"""
-  return Response('', status=204)
+  response = Response('', status=204)
+  return response
 
 
 def rewrite_url(url):
@@ -75,7 +89,7 @@ def rewrite_url(url):
 
 def proxy_request(path, rewrite_manifest=False,
     follow_redirects_manually=False):
-  """Proxy genérico con mejor manejo de errores"""
+  """Proxy genérico con mejor manejo de errores y soporte para Range requests"""
 
   # Construir URL target
   if path.startswith('http'):
@@ -83,12 +97,16 @@ def proxy_request(path, rewrite_manifest=False,
   else:
     target_url = f"{ACESTREAM_BASE}/{path.lstrip('/')}"
 
-  # Preparar headers
+  # Preparar headers - IMPORTANTE: preservar Range para Chromecast
   headers = {
     key: value for key, value in request.headers
     if key.lower() not in ['host', 'connection', 'content-length',
                            'transfer-encoding', 'content-encoding']
   }
+
+  # Log de Range requests (Chromecast los usa mucho)
+  if 'Range' in headers:
+    logger.info(f"🎯 Range Request: {headers['Range']}")
 
   logger.info(f"→ {request.method} {target_url}")
 
@@ -126,7 +144,7 @@ def proxy_request(path, rewrite_manifest=False,
 
           logger.info(f"🔄 Siguiendo redirect internamente: {next_url}")
 
-          # Hacer la petición al destino del redirect
+          # Hacer la petición al destino del redirect - preservar Range
           resp = requests.request(
               method='GET',
               url=next_url,
@@ -162,6 +180,10 @@ def proxy_request(path, rewrite_manifest=False,
       if name.lower() not in excluded_headers and
          not name.lower().startswith('access-control-')
     ]
+
+    # Asegurar que Accept-Ranges está presente para video streaming
+    if not any(name.lower() == 'accept-ranges' for name, _ in response_headers):
+      response_headers.append(('Accept-Ranges', 'bytes'))
 
     content_type = resp.headers.get('Content-Type', '')
 
@@ -243,7 +265,8 @@ def health():
     "acestream_base": ACESTREAM_BASE,
     "acestream_status": acestream_status,
     "acestream_version": version,
-    "public_domain": PUBLIC_DOMAIN
+    "public_domain": PUBLIC_DOMAIN,
+    "cors_mode": "all_origins" if ALLOW_ALL_ORIGINS else "whitelist"
   }
 
 
