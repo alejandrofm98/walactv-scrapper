@@ -219,6 +219,7 @@ def proxy_request(path, rewrite_manifest=False,
     if rewrite_manifest or is_manifest_content(content_type, target_url):
       try:
         content = resp.text
+        original_content = content  # Para debugging
 
         # Reemplazar URLs en el manifest (HLS y DASH)
         content = re.sub(
@@ -234,8 +235,11 @@ def proxy_request(path, rewrite_manifest=False,
             content
         )
 
-        logger.info(f"✅ Manifest reescrito ({len(content)} bytes)")
-        logger.debug(f"Manifest preview:\n{content[:500]}")
+        # Contar cuántas URLs se reescribieron
+        urls_replaced = original_content.count('http://acestream-arm:6878')
+        logger.info(
+          f"✅ Manifest reescrito: {urls_replaced} URLs reemplazadas ({len(content)} bytes)")
+        logger.info(f"Manifest reescrito preview:\n{content[:500]}")
 
         return Response(
             content,
@@ -368,15 +372,24 @@ def debug_manifest(id_content):
         resp3 = requests.get(url3, allow_redirects=False, timeout=120)
         elapsed3 = time.time() - start
 
+        content = resp3.text if resp3.status_code == 200 else None
+
         results["steps"].append({
           "step": "follow_redirect",
           "url": url3,
           "status": resp3.status_code,
           "elapsed_seconds": round(elapsed3, 2),
           "headers": dict(resp3.headers),
-          "content_preview": resp3.text[
-                             :500] if resp3.status_code == 200 else None
+          "content_preview": content[:500] if content else None
         })
+
+        # NUEVO: Mostrar cómo quedaría reescrito
+        if content:
+          rewritten = content.replace('http://acestream-arm:6878',
+                                      PUBLIC_DOMAIN)
+          results["rewritten_preview"] = rewritten[:500]
+          results["urls_in_manifest"] = content.count(
+            'http://acestream-arm:6878')
 
     # Paso 4: Info del engine
     try:
@@ -392,6 +405,62 @@ def debug_manifest(id_content):
     logger.error(f"❌ Debug error: {e}", exc_info=True)
 
   return results
+
+
+@app.route('/test/manifest/<id_content>')
+def test_manifest(id_content):
+  """Endpoint de prueba que simula lo que hace el proxy"""
+  logger.info(f"🧪 TEST: Simulando proxy para {id_content[:16]}...")
+
+  # Simular exactamente lo que hace manifest_query
+  path = f"ace/manifest.m3u8?id={id_content}"
+
+  # Construir URL
+  target_url = f"{ACESTREAM_BASE}/{path}"
+
+  try:
+    # Request inicial
+    resp = requests.get(target_url, allow_redirects=False, timeout=60)
+    logger.info(f"✓ Status: {resp.status_code}")
+
+    # Seguir redirect
+    if resp.status_code in [302, 301]:
+      location = resp.headers.get('Location', '')
+      if location.startswith('/'):
+        next_url = f"{ACESTREAM_BASE}{location}"
+      else:
+        next_url = location
+
+      logger.info(f"🔄 Siguiendo a: {next_url}")
+      resp = requests.get(next_url, timeout=60)
+      logger.info(f"✓ Final status: {resp.status_code}")
+
+    if resp.status_code == 200:
+      content = resp.text
+      original = content
+
+      # Reescribir
+      content = content.replace('http://acestream-arm:6878', PUBLIC_DOMAIN)
+
+      return {
+        "status": "success",
+        "original_preview": original[:300],
+        "rewritten_preview": content[:300],
+        "urls_replaced": original.count('http://acestream-arm:6878'),
+        "full_rewritten": content
+      }
+    else:
+      return {
+        "status": "error",
+        "code": resp.status_code,
+        "response": resp.text[:500]
+      }
+
+  except Exception as e:
+    return {
+      "status": "error",
+      "error": str(e)
+    }
 
 
 @app.route('/ace/getstream', methods=['GET', 'HEAD'])
@@ -428,30 +497,31 @@ def ace_r(subpath):
 
 @app.route('/ace/manifest.m3u8', methods=['GET', 'HEAD'])
 def manifest_query():
-  """Proxy para manifest.m3u8 con ?id= - Con prebuffering"""
+  """Proxy para manifest.m3u8 con ?id= - Con prebuffering opcional"""
   id_content = request.args.get('id', '')
   if not id_content:
     return Response("Missing id parameter", status=400)
 
-  logger.info(f"📝 Manifest: id={id_content[:16]}...")
+  logger.info(f"📝 Manifest request: id={id_content[:16]}...")
 
-  # NUEVO: Prebuffering - dar tiempo al engine para iniciar el stream
-  try:
-    # Primero llamar a getstream para iniciar el buffering
-    prebuffer_url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
-    logger.info(f"🔄 Iniciando prebuffering...")
-    prebuffer_resp = requests.get(prebuffer_url, allow_redirects=False,
-                                  timeout=45)
-    logger.info(f"✓ Prebuffer: {prebuffer_resp.status_code}")
+  # OPCIONAL: Prebuffering solo si se solicita explícitamente
+  prebuffer = request.args.get('prebuffer', '0') == '1'
 
-    # Pequeña pausa para dar tiempo al engine (solo si es necesario)
-    if prebuffer_resp.status_code == 301:
-      import time
-      time.sleep(2)  # 2 segundos de buffer
-  except Exception as e:
-    logger.warning(f"⚠️ Prebuffer falló (continuando): {e}")
+  if prebuffer:
+    try:
+      prebuffer_url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
+      logger.info(f"🔄 Prebuffering solicitado...")
+      prebuffer_resp = requests.get(prebuffer_url, allow_redirects=False,
+                                    timeout=30)
+      logger.info(f"✓ Prebuffer: {prebuffer_resp.status_code}")
 
-  # Ahora sí, obtener el manifest
+      if prebuffer_resp.status_code == 302:
+        import time
+        time.sleep(1)
+    except Exception as e:
+      logger.warning(f"⚠️ Prebuffer falló (continuando): {e}")
+
+  # Obtener el manifest
   path = f"ace/manifest.m3u8?{request.query_string.decode('utf-8')}"
   return proxy_request(path, rewrite_manifest=True,
                        follow_redirects_manually=True)
