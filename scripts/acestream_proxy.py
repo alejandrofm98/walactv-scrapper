@@ -125,8 +125,8 @@ def proxy_request(path, rewrite_manifest=False,
 
   # TIMEOUT DINÁMICO: más tiempo para manifests que necesitan buffering
   is_manifest_request = 'manifest' in path.lower() or rewrite_manifest
-  timeout_config = (60, 120) if is_manifest_request else (30,
-                                                          600)  # Manifest: 60s conexión, 2min lectura
+  timeout_config = (120, 180) if is_manifest_request else (30,
+                                                           600)  # Manifest: 2min conexión, 3min lectura
 
   logger.info(
     f"⏱️ Timeout config: {timeout_config} (manifest={is_manifest_request})")
@@ -171,14 +171,14 @@ def proxy_request(path, rewrite_manifest=False,
 
         logger.info(f"🔄 Siguiendo redirect internamente: {next_url[:100]}")
 
-        # Nueva petición siguiendo redirect
+        # Nueva petición siguiendo redirect - USAR MISMO TIMEOUT EXTENDIDO
         resp = requests.request(
             method='GET',
             url=next_url,
             headers=headers,
             allow_redirects=False,
             stream=True,
-            timeout=(30, 600),
+            timeout=timeout_config,  # IMPORTANTE: usar mismo timeout largo
             verify=False
         )
         logger.info(f"✓ {resp.status_code} después de redirect")
@@ -279,8 +279,10 @@ def proxy_request(path, rewrite_manifest=False,
 
   except requests.exceptions.Timeout as e:
     logger.error(f"⏱️ Timeout: {e}")
-    return Response("Gateway Timeout - Stream may need more time to buffer",
-                    status=504)
+    timeout_msg = "Gateway Timeout: Stream needs more time to buffer. "
+    if 'manifest' in path.lower():
+      timeout_msg += "This channel may have low peer availability or require longer buffering time (>3min)."
+    return Response(timeout_msg, status=504)
 
   except requests.exceptions.RequestException as e:
     logger.error(f"❌ Request error: {e}")
@@ -419,8 +421,9 @@ def test_manifest(id_content):
   target_url = f"{ACESTREAM_BASE}/{path}"
 
   try:
-    # Request inicial
-    resp = requests.get(target_url, allow_redirects=False, timeout=60)
+    # Request inicial con TIMEOUT EXTENDIDO
+    resp = requests.get(target_url, allow_redirects=False,
+                        timeout=180)  # 3 minutos
     logger.info(f"✓ Status: {resp.status_code}")
 
     # Seguir redirect
@@ -432,7 +435,7 @@ def test_manifest(id_content):
         next_url = location
 
       logger.info(f"🔄 Siguiendo a: {next_url}")
-      resp = requests.get(next_url, timeout=60)
+      resp = requests.get(next_url, timeout=180)  # 3 minutos también aquí
       logger.info(f"✓ Final status: {resp.status_code}")
 
     if resp.status_code == 200:
