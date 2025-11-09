@@ -4,6 +4,7 @@ import re
 import logging
 from urllib.parse import urljoin, urlparse
 from collections import Counter
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1322,6 +1323,220 @@ def ace_r(subpath):
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
   return proxy_request(path, follow_redirects_manually=True)
+
+
+# Agregar esta función ANTES de @app.route('/ace/manifest.m3u8')
+def wait_for_manifest_chunks(manifest_url, min_chunks=3, max_wait=15):
+  """
+  Espera a que el manifest tenga suficientes chunks para Chromecast
+
+  Args:
+    manifest_url: URL del manifest
+    min_chunks: Mínimo de chunks necesarios (default: 3)
+    max_wait: Máximo tiempo de espera en segundos (default: 15)
+
+  Returns:
+    manifest_content: Contenido del manifest con suficientes chunks
+    elapsed: Tiempo transcurrido
+  """
+  start_time = time.time()
+  attempt = 0
+
+  while time.time() - start_time < max_wait:
+    attempt += 1
+
+    try:
+      resp = requests.get(manifest_url, timeout=10)
+      if resp.status_code == 200:
+        content = resp.text
+
+        # Contar chunks .ts en el manifest
+        chunks = re.findall(r'\.ts', content)
+        chunk_count = len(chunks)
+
+        logger.info(f"  🔄 Attempt {attempt}: {chunk_count} chunks found")
+
+        if chunk_count >= min_chunks:
+          elapsed = time.time() - start_time
+          logger.info(
+              f"  ✅ Manifest ready with {chunk_count} chunks ({elapsed:.2f}s)")
+          return content, elapsed
+
+        # Esperar antes del siguiente intento
+        time.sleep(2)
+
+    except Exception as e:
+      logger.warning(f"  ⚠️ Error checking manifest: {e}")
+      time.sleep(2)
+
+  # Timeout alcanzado - devolver lo que tengamos
+  try:
+    resp = requests.get(manifest_url, timeout=10)
+    if resp.status_code == 200:
+      content = resp.text
+      chunks = len(re.findall(r'\.ts', content))
+      elapsed = time.time() - start_time
+      logger.warning(
+          f"  ⏱️ Timeout reached with {chunks} chunks ({elapsed:.2f}s)")
+      return content, elapsed
+  except:
+    pass
+
+  return None, time.time() - start_time
+
+
+# MODIFICAR el endpoint de manifest.m3u8
+@app.route('/ace/manifest.m3u8', methods=['GET', 'HEAD'])
+def manifest_query():
+  """Proxy para manifest.m3u8 con ?id= - CON PREBUFFERING INTELIGENTE"""
+  id_content = request.args.get('id', '')
+  if not id_content:
+    return Response("Missing id parameter", status=400)
+
+  logger.info(f"📝 Manifest request: id={id_content[:16]}...")
+
+  # Detectar si viene de Chromecast (headers típicos)
+  user_agent = request.headers.get('User-Agent', '').lower()
+  is_chromecast = any(keyword in user_agent for keyword in [
+    'chromecast', 'cast', 'googlecast', 'cenc'
+  ])
+
+  # O detectar por parámetro explícito
+  force_prebuffer = request.args.get('chromecast', '0') == '1'
+  prebuffer_requested = request.args.get('prebuffer', '0') == '1'
+
+  should_prebuffer = is_chromecast or force_prebuffer or prebuffer_requested
+
+  if should_prebuffer:
+    logger.info(f"  🎯 Chromecast detected - enabling smart prebuffering")
+
+  # PASO 1: Trigger inicial del stream
+  try:
+    prebuffer_url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
+    logger.info(f"  🔄 Triggering stream...")
+    prebuffer_resp = requests.get(prebuffer_url, allow_redirects=False,
+                                  timeout=30)
+    logger.info(f"  ✓ Stream trigger: {prebuffer_resp.status_code}")
+
+    if prebuffer_resp.status_code != 302:
+      logger.warning(
+          f"  ⚠️ Unexpected status from getstream: {prebuffer_resp.status_code}")
+  except Exception as e:
+    logger.warning(f"  ⚠️ Stream trigger failed: {e}")
+
+  # PASO 2: Obtener manifest URL
+  manifest_path = f"ace/manifest.m3u8?id={id_content}"
+  target_url = f"{ACESTREAM_BASE}/{manifest_path}"
+
+  try:
+    # Primera petición al manifest
+    resp = requests.get(target_url, allow_redirects=False, timeout=30)
+
+    if resp.status_code in [302, 301]:
+      # Seguir redirect
+      location = resp.headers.get('Location', '')
+      if location.startswith('/'):
+        target_url = f"{ACESTREAM_BASE}{location}"
+      elif location.startswith('http://acestream-arm:6878'):
+        target_url = location
+      else:
+        target_url = urljoin(ACESTREAM_BASE, location)
+
+      logger.info(f"  🔄 Following redirect to manifest")
+
+    # PASO 3: Si es Chromecast, esperar a que haya suficientes chunks
+    if should_prebuffer:
+      content, elapsed = wait_for_manifest_chunks(
+          target_url,
+          min_chunks=3,  # Chromecast necesita al menos 3 chunks
+          max_wait=15  # No esperar más de 15 segundos
+      )
+
+      if content:
+        # Reescribir URLs
+        content = re.sub(
+            r'http://acestream-arm:6878',
+            PUBLIC_DOMAIN,
+            content
+        )
+
+        # Contar chunks finales
+        chunk_count = len(re.findall(r'\.ts', content))
+        logger.info(
+            f"  ✅ Serving manifest with {chunk_count} chunks to Chromecast")
+
+        return Response(
+            content,
+            status=200,
+            headers=[
+              ('Content-Type', 'application/vnd.apple.mpegurl'),
+              ('Accept-Ranges', 'bytes'),
+              ('Cache-Control', 'no-cache')
+            ]
+        )
+      else:
+        logger.error(f"  ❌ Failed to get manifest after waiting")
+        return Response("Manifest not ready", status=504)
+
+    # PASO 4: Si NO es Chromecast, servir normalmente (sin esperar)
+    else:
+      resp_final = requests.get(target_url, timeout=30)
+
+      if resp_final.status_code == 200:
+        content = resp_final.text
+
+        # Reescribir URLs
+        content = re.sub(
+            r'http://acestream-arm:6878',
+            PUBLIC_DOMAIN,
+            content
+        )
+
+        chunk_count = len(re.findall(r'\.ts', content))
+        logger.info(
+            f"  ✅ Serving manifest with {chunk_count} chunks (no prebuffer)")
+
+        return Response(
+            content,
+            status=200,
+            headers=[
+              ('Content-Type', 'application/vnd.apple.mpegurl'),
+              ('Accept-Ranges', 'bytes')
+            ]
+        )
+      else:
+        return Response(
+            f"Manifest error: {resp_final.status_code}",
+            status=resp_final.status_code
+        )
+
+  except requests.exceptions.Timeout:
+    logger.error(f"  ⏱️ Manifest timeout")
+    return Response("Manifest timeout", status=504)
+
+  except Exception as e:
+    logger.error(f"  ❌ Manifest error: {e}", exc_info=True)
+    return Response(f"Manifest error: {str(e)}", status=500)
+
+
+# AGREGAR ENDPOINT PARA FORZAR PREBUFFER DESDE ANGULAR
+@app.route('/ace/manifest-chromecast.m3u8', methods=['GET'])
+def manifest_chromecast():
+  """
+  Endpoint especial para Chromecast que SIEMPRE hace prebuffering
+  Usar desde Angular cuando detectes que se va a castear
+  """
+  id_content = request.args.get('id', '')
+  if not id_content:
+    return Response("Missing id parameter", status=400)
+
+  logger.info(f"📺 Chromecast manifest request: id={id_content[:16]}...")
+
+  # Redirigir al endpoint normal pero con flag de chromecast
+  return redirect(
+      f"{PUBLIC_DOMAIN}/ace/manifest.m3u8?id={id_content}&chromecast=1",
+      code=307  # Preserve method
+  )
 
 
 @app.route('/ace/manifest.m3u8', methods=['GET', 'HEAD'])
