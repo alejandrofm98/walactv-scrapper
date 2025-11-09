@@ -3,6 +3,7 @@ import requests
 import re
 import logging
 from urllib.parse import urljoin, urlparse
+import io
 
 logging.basicConfig(
     level=logging.INFO,
@@ -508,37 +509,37 @@ def ace_r(subpath):
   return proxy_request(path, follow_redirects_manually=True)  # CAMBIADO A TRUE
 
 
-# Agregá esto al final de manifest_query(), antes del return normal
 @app.route('/ace/manifest.m3u8', methods=['GET', 'HEAD'])
 def manifest_query():
-    id_content = request.args.get('id', '')
-    if not id_content:
-        return Response("Missing id parameter", status=400)
+  """Proxy para manifest.m3u8 con ?id= - Con prebuffering opcional"""
+  id_content = request.args.get('id', '')
+  if not id_content:
+    return Response("Missing id parameter", status=400)
 
-    logger.info(f"📝 Manifest request: id={id_content[:16]}...")
+  logger.info(f"📝 Manifest request: id={id_content[:16]}...")
 
-    # === PATCH: esperar más segmentos para IDs problemáticos ===
-    PROBLEM_IDS = {'102bcb79ca391e37ac1fc9ee77dc53440d0a59ce'}
-    if id_content in PROBLEM_IDS:
+  # OPCIONAL: Prebuffering solo si se solicita explícitamente
+  prebuffer = request.args.get('prebuffer', '0') == '1'
+
+  if prebuffer:
+    try:
+      prebuffer_url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
+      logger.info(f"🔄 Prebuffering solicitado...")
+      prebuffer_resp = requests.get(prebuffer_url, allow_redirects=False,
+                                    timeout=30)
+      logger.info(f"✓ Prebuffer: {prebuffer_resp.status_code}")
+
+      if prebuffer_resp.status_code == 302:
         import time
-        for attempt in range(15):  # max 30s
-            try:
-                r = requests.get(f"{ACESTREAM_BASE}/ace/manifest.m3u8?id={id_content}", timeout=5)
-                if r.status_code == 200 and r.text.count('.ts') >= 3:
-                    logger.info(f"✅ ID problemático listo con {r.text.count('.ts')} segmentos")
-                    rewritten = r.text.replace('http://acestream-arm:6878', PUBLIC_DOMAIN)
-                    return Response(rewritten, mimetype='application/vnd.apple.mpegurl', headers={
-                        'Access-Control-Allow-Origin': '*',
-                        'Cache-Control': 'no-cache'
-                    })
-            except:
-                pass
-            time.sleep(2)
-        logger.warning("⏱ Timeout esperando segmentos para ID problemático")
+        time.sleep(1)
+    except Exception as e:
+      logger.warning(f"⚠️ Prebuffer falló (continuando): {e}")
 
-    # === comportamiento normal ===
-    path = f"ace/manifest.m3u8?{request.query_string.decode('utf-8')}"
-    return proxy_request(path, rewrite_manifest=True, follow_redirects_manually=True)
+  # Obtener el manifest con TIMEOUT EXTENDIDO
+  path = f"ace/manifest.m3u8?{request.query_string.decode('utf-8')}"
+  return proxy_request(path, rewrite_manifest=True,
+                       follow_redirects_manually=True)
+
 
 @app.route('/ace/status/<id_content>')
 def channel_status(id_content):
@@ -581,17 +582,60 @@ def manifest_path(format, id_content):
   return proxy_request(path, rewrite_manifest=True,
                        follow_redirects_manually=True)
 
+  def has_sps_pps(ts_chunk: bytes) -> bool:
+    """True si el chunk MPEG-TS contiene SPS/PPS (AVCDecoderConfigurationRecord)"""
+    return bool(
+        (
+              b'\x00\x00\x00\x01\x67' in ts_chunk or b'\x00\x00\x01\x67' in ts_chunk) or
+        (b'\x00\x00\x00\x01\x68' in ts_chunk or b'\x00\x00\x01\x68' in ts_chunk)
+    )
+
 
 @app.route('/ace/c/<session_id>/<path:segment>', methods=['GET', 'HEAD'])
 def chunks(session_id, segment):
-  """Proxy para chunks .ts"""
+  """Proxy para chunks .ts con salto de segmento 0 si no tiene SPS/PPS"""
   logger.info(f"🎬 Chunk: {session_id}/{segment}")
   path = f"ace/c/{session_id}/{segment}"
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, follow_redirects_manually=True)  # CAMBIADO A TRUE
 
+  # Pedimos el segmento al engine
+  try:
+    resp = requests.get(f"{ACESTREAM_BASE}/{path}", stream=True, timeout=10)
+  except Exception as e:
+    logger.error(f"❌ Error obteniendo chunk: {e}")
+    return Response("Chunk unavailable", status=502)
 
+  if resp.status_code != 200:
+    return Response(status=resp.status_code)
+
+  # Leemos los primeros 64 kB para analizar
+  head = resp.raw.read(65536)
+  if not head:
+    return Response("Empty segment", status=404)
+
+  # Si es segmento 0 y no tiene SPS/PPS, devolvemos 404
+  if segment == '0.ts' and not has_sps_pps(head):
+    logger.warning(f"❌ 0.ts sin SPS/PPS: {session_id}")
+    return Response("Segment without codec params", status=404)
+
+  # Re-ensamblamos el stream
+  resp.raw._fp = io.BytesIO(head + resp.raw.read())
+
+  def generate():
+    for chunk in resp.iter_content(chunk_size=32768):
+      yield chunk
+
+  status = 206 if request.headers.get('Range') else 200
+  return Response(
+      stream_with_context(generate()),
+      status=status,
+      headers={
+        'Content-Type': 'video/mp2t',
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*'
+      }
+  )
 @app.route('/ace/l/<path:subpath>', methods=['GET', 'HEAD'])
 def ace_l(subpath):
   """Proxy para /ace/l/"""
