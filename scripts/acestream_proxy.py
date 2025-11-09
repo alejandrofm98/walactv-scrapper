@@ -3,6 +3,7 @@ import requests
 import re
 import logging
 from urllib.parse import urljoin, urlparse
+from collections import Counter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -340,14 +341,14 @@ def channel_status(id_content):
             # Analizar los primeros 3-5 chunks (más confiable)
             chunks_to_analyze = chunk_urls[:min(5, len(chunk_urls))]
             logger.info(
-              f"🔍 Analizando {len(chunks_to_analyze)} chunks para detección robusta")
+                f"🔍 Analizando {len(chunks_to_analyze)} chunks para detección robusta")
 
             all_codecs = []
 
             for idx, chunk_url in enumerate(chunks_to_analyze):
               try:
                 logger.info(
-                  f"  └─ Chunk {idx + 1}/{len(chunks_to_analyze)}: {chunk_url[-40:]}")
+                    f"  └─ Chunk {idx + 1}/{len(chunks_to_analyze)}: {chunk_url[-40:]}")
                 chunk_resp = requests.get(chunk_url, timeout=15, stream=True)
 
                 # Analizar más datos (50KB en lugar de 10KB)
@@ -361,14 +362,14 @@ def channel_status(id_content):
                 codec_info = analyze_ts_chunk_deep(chunk_data)
                 all_codecs.append(codec_info)
                 logger.info(
-                  f"     ✓ Video: {codec_info.get('video_codec')}, Audio: {codec_info.get('audio_codecs')}")
+                    f"     ✓ Video: {codec_info.get('video_codec')}, Audio: {codec_info.get('audio_codecs')}")
 
               except Exception as e:
                 logger.warning(f"⚠️ Error analizando chunk {idx + 1}: {e}")
                 continue
 
             logger.info(
-              f"✅ Total chunks analizados exitosamente: {len(all_codecs)}")
+                f"✅ Total chunks analizados exitosamente: {len(all_codecs)}")
 
             # Consolidar resultados de múltiples chunks
             consolidated = consolidate_codec_analysis(all_codecs)
@@ -377,7 +378,7 @@ def channel_status(id_content):
 
             if consolidated.get("video_codec"):
               result["chromecast_compatible"] = is_chromecast_compatible_v2(
-                consolidated)
+                  consolidated)
 
             logger.info(f"✅ Códec consolidado: {consolidated}")
 
@@ -417,7 +418,8 @@ def analyze_ts_chunk_deep(chunk_data):
     "container": "MPEG-TS",
     "analysis_method": "deep_ts_inspection",
     "audio_codec_confidence": {},
-    "video_detection_details": {}
+    "video_detection_details": {},
+    "hevc_profile_info": None  # Nueva info de HEVC
   }
 
   try:
@@ -471,14 +473,61 @@ def analyze_ts_chunk_deep(chunk_data):
     if h265_total > 2 and h265_total > h264_total:
       codec_info["video_codec"] = "H.265/HEVC"
 
-      # Intentar extraer profile de H.265 SPS
+      # === EXTRACCIÓN DETALLADA DE HEVC PROFILE ===
       sps_pos = chunk_data.find(h265_sps)
-      if sps_pos != -1 and sps_pos + 10 < len(chunk_data):
-        # Byte 7 después del start code contiene profile_idc
-        profile_byte = chunk_data[sps_pos + 7] if sps_pos + 7 < len(
-          chunk_data) else None
-        if profile_byte:
-          codec_info["video_profile"] = f"HEVC Profile {profile_byte}"
+      if sps_pos != -1 and sps_pos + 15 < len(chunk_data):
+        try:
+          # HEVC SPS estructura (después del start code 0x00000001 0x42):
+          # Byte 0: NAL unit header (0x42 = SPS)
+          # Byte 1: Segundo byte del NAL header
+          # Byte 2-3: VPS/SPS id, max_sub_layers, etc
+          # Byte 4: profile_space(2bits) + tier_flag(1bit) + profile_idc(5bits)
+          # Byte 5-8: profile_compatibility_flags
+          # Byte 9-14: constraint flags
+          # Byte 15: level_idc
+
+          base_offset = sps_pos + 5  # Saltar start code (4) + NAL header (1)
+
+          if base_offset + 15 < len(chunk_data):
+            # Parsear el profile tier level
+            ptl_byte = chunk_data[base_offset + 2]  # Ajustar offset
+            profile_space = (ptl_byte >> 6) & 0x03
+            tier_flag = (ptl_byte >> 5) & 0x01
+            profile_idc = ptl_byte & 0x1F
+
+            # Leer level_idc (más adelante en la estructura)
+            level_idc = chunk_data[base_offset + 13] if base_offset + 13 < len(
+              chunk_data) else 0
+
+            # Mapear profile_idc a nombres
+            hevc_profiles = {
+              1: "Main",
+              2: "Main 10",
+              3: "Main Still Picture",
+              4: "Format Range Extensions"
+            }
+
+            profile_name = hevc_profiles.get(profile_idc,
+                                             f"Unknown({profile_idc})")
+            tier_name = "High" if tier_flag else "Main"
+            level = level_idc / 30.0  # HEVC level: 30=1.0, 93=3.1, 120=4.0, 153=5.1
+
+            codec_info["video_profile"] = profile_name
+            codec_info["video_level"] = f"{level:.1f}"
+            codec_info["hevc_profile_info"] = {
+              "profile_idc": profile_idc,
+              "profile_name": profile_name,
+              "tier": tier_name,
+              "level_idc": level_idc,
+              "level": f"{level:.1f}",
+              "profile_space": profile_space
+            }
+
+            logger.info(
+              f"     🎯 HEVC Profile: {profile_name}, Tier: {tier_name}, Level: {level:.1f}")
+
+        except Exception as e:
+          logger.warning(f"⚠️ Error parseando HEVC SPS: {e}")
 
     elif h264_total > 0:
       codec_info["video_codec"] = "H.264/AVC"
@@ -566,7 +615,7 @@ def analyze_ts_chunk_deep(chunk_data):
 
     # DTS
     dts_count = chunk_data.count(b'\x7f\xfe\x80\x01') + chunk_data.count(
-      b'\xfe\x7f\x01\x80')
+        b'\xfe\x7f\x01\x80')
     if dts_count > 0:
       audio_found["DTS"] = dts_count
 
@@ -594,7 +643,8 @@ def consolidate_codec_analysis(codec_list):
       "audio_codecs": [],
       "audio_codec": None,
       "container": "MPEG-TS",
-      "confidence": "none"
+      "confidence": "none",
+      "hevc_profile_info": None
     }
 
   # Votar por el video codec más común
@@ -603,6 +653,7 @@ def consolidate_codec_analysis(codec_list):
   video_levels = {}
   h264_total_detections = 0
   h265_total_detections = 0
+  hevc_profile_votes = []
 
   for c in codec_list:
     vc = c.get("video_codec")
@@ -618,6 +669,11 @@ def consolidate_codec_analysis(codec_list):
       if vl:
         video_levels[vl] = video_levels.get(vl, 0) + 1
 
+      # Recopilar info detallada de HEVC
+      hevc_info = c.get("hevc_profile_info")
+      if hevc_info:
+        hevc_profile_votes.append(hevc_info)
+
       # Sumar detecciones totales
       details = c.get("video_detection_details", {})
       h264_total_detections += details.get("h264_total", 0)
@@ -628,6 +684,19 @@ def consolidate_codec_analysis(codec_list):
                       key=video_profiles.get) if video_profiles else None
   video_level = max(video_levels,
                     key=video_levels.get) if video_levels else None
+
+  # Consolidar HEVC profile info (tomar el más común)
+  consolidated_hevc = None
+  if hevc_profile_votes:
+    # Tomar el profile más común
+    profile_names = [h["profile_name"] for h in hevc_profile_votes]
+    if profile_names:
+      most_common_profile = Counter(profile_names).most_common(1)[0][0]
+      # Buscar el primer match completo
+      for h in hevc_profile_votes:
+        if h["profile_name"] == most_common_profile:
+          consolidated_hevc = h
+          break
 
   # Consolidar códecs de audio
   audio_codec_totals = {}
@@ -642,7 +711,7 @@ def consolidate_codec_analysis(codec_list):
   for codec, count in audio_codec_totals.items():
     if total_max > 0 and count < (total_max * 0.1):
       logger.info(
-        f"  ⚠️ Descartando audio {codec} (solo {count} vs {total_max})")
+          f"  ⚠️ Descartando audio {codec} (solo {count} vs {total_max})")
     else:
       filtered_codecs[codec] = count
 
@@ -657,6 +726,7 @@ def consolidate_codec_analysis(codec_list):
       "h265_detections": h265_total_detections,
       "ratio": h265_total_detections / h264_total_detections if h264_total_detections > 0 else 0
     },
+    "hevc_profile_info": consolidated_hevc,  # Info detallada de HEVC
     "audio_codecs": audio_codecs_list,
     "audio_codec": ", ".join(audio_codecs_list) if audio_codecs_list else None,
     "audio_codec_counts": filtered_codecs,
@@ -668,7 +738,7 @@ def consolidate_codec_analysis(codec_list):
 
 
 def is_chromecast_compatible_v2(codec_info):
-  """Verifica compatibilidad con Chromecast - ENFOQUE EN VIDEO"""
+  """Verifica compatibilidad con Chromecast - ANÁLISIS MEJORADO HEVC"""
   if not codec_info:
     return None
 
@@ -680,32 +750,84 @@ def is_chromecast_compatible_v2(codec_info):
   video_profile = codec_info.get("video_profile", "")
   video_level = codec_info.get("video_level", "")
   video_detection = codec_info.get("video_detection_confidence", {})
+  hevc_profile_info = codec_info.get("hevc_profile_info")
 
   logger.info(f"🔍 Evaluando compatibilidad VIDEO")
   logger.info(f"   Códec: {video}")
   logger.info(f"   Profile: {video_profile}, Level: {video_level}")
   logger.info(
-    f"   Detecciones: H264={video_detection.get('h264_detections', 0)}, H265={video_detection.get('h265_detections', 0)}")
+      f"   Detecciones: H264={video_detection.get('h264_detections', 0)}, H265={video_detection.get('h265_detections', 0)}")
 
-  # === VERIFICACIÓN CRÍTICA: HEVC OCULTO ===
+  # === VERIFICACIÓN CRÍTICA: HEVC PROFILE ===
   h265_detections = video_detection.get("h265_detections", 0)
   h264_detections = video_detection.get("h264_detections", 0)
 
-  # Si hay detecciones significativas de H265, aunque diga H264 en el nombre
-  if h265_detections > 5:
-    logger.info(
-      f"  ❌ HEVC detectado ({h265_detections} patrones) - INCOMPATIBLE")
-    return False
+  if "h.265" in video_lower or "hevc" in video_lower or h265_detections > 0:
+    logger.info(f"  ⚠️ HEVC detectado - Analizando compatibilidad detallada...")
+
+    # Chromecast Ultra y Gen 3+ soportan HEVC pero con limitaciones:
+    # ✅ HEVC Main Profile, Level <= 5.1
+    # ❌ HEVC Main 10 (10-bit color)
+    # ❌ Niveles muy altos (> 5.1)
+
+    if hevc_profile_info:
+      profile_name = hevc_profile_info.get("profile_name", "")
+      tier = hevc_profile_info.get("tier", "")
+      level = hevc_profile_info.get("level", "")
+
+      logger.info(
+        f"     📊 HEVC Details: {profile_name} / {tier} Tier / Level {level}")
+
+      # Main 10 = incompatible (10-bit color depth)
+      if "Main 10" in profile_name or "10" in profile_name:
+        logger.info(f"  ❌ HEVC Main 10 (10-bit) - INCOMPATIBLE con Chromecast")
+        return False
+
+      # Verificar level
+      try:
+        level_float = float(level)
+        if level_float > 5.1:
+          logger.info(f"  ❌ HEVC Level muy alto ({level}) - INCOMPATIBLE")
+          return False
+      except:
+        pass
+
+      # High Tier puede causar problemas
+      if tier == "High":
+        logger.info(
+          f"  ⚠️ HEVC High Tier - Puede causar problemas en algunos Chromecasts")
+        # No bloqueamos, pero advertimos
+
+      # HEVC Main Profile con nivel aceptable
+      if "Main" in profile_name and "10" not in profile_name:
+        logger.info(
+          f"  ✅ HEVC Main Profile, Level {level} - Compatible con Chromecast Ultra/Gen3+")
+
+        # Verificar audio también
+        audio_codecs = codec_info.get("audio_codecs", [])
+        has_aac = any("AAC" in c.upper() for c in audio_codecs)
+
+        if not has_aac:
+          logger.info(f"  ⚠️ Sin AAC, puede tener problemas de audio")
+
+        return True
+
+    # Si no tenemos info detallada de HEVC, ser conservadores
+    if h265_detections > 5:
+      logger.info(
+        f"  ❌ HEVC sin info de profile - Asumiendo incompatible por seguridad")
+      return False
+
+    # Pocas detecciones HEVC = stream inestable o mixto
+    if h265_detections <= 3:
+      logger.info(
+        f"  ⚠️ Pocas detecciones HEVC ({h265_detections}) - Stream posiblemente inestable")
+      return None  # Indeterminado
 
   # Si el ratio H265/H264 es > 0.5, probablemente es HEVC
   if h264_detections > 0 and (h265_detections / h264_detections) > 0.5:
     logger.info(
-      f"  ❌ Alto ratio H265/H264 ({h265_detections}/{h264_detections}) - Probablemente HEVC")
-    return False
-
-  # Verificar si es explícitamente HEVC
-  if "h.265" in video_lower or "hevc" in video_lower:
-    logger.info(f"  ❌ Video incompatible: HEVC explícito")
+        f"  ❌ Alto ratio H265/H264 ({h265_detections}/{h264_detections}) - Probablemente HEVC")
     return False
 
   # === VERIFICACIÓN DE PROFILE/LEVEL H.264 ===
@@ -725,13 +847,13 @@ def is_chromecast_compatible_v2(codec_info):
         level_float = float(video_level)
         if level_float > 5.2:
           logger.info(
-            f"  ⚠️ Level H.264 muy alto: {video_level} (puede causar problemas)")
+              f"  ⚠️ Level H.264 muy alto: {video_level} (puede causar problemas)")
           # No retornamos False porque algunos Chromecasts nuevos lo soportan
       except:
         pass
 
     logger.info(
-      f"  ✅ H.264 compatible ({video_profile or 'unknown profile'}, level {video_level or 'unknown'})")
+        f"  ✅ H.264 compatible ({video_profile or 'unknown profile'}, level {video_level or 'unknown'})")
 
     # Verificar audio también
     audio_codecs = codec_info.get("audio_codecs", [])
