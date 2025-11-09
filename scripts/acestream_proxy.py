@@ -2,7 +2,7 @@ from flask import Flask, request, Response, redirect, stream_with_context
 import requests
 import re
 import logging
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 from collections import Counter
 import time
 
@@ -44,7 +44,6 @@ def add_cors_headers(response):
     if 'Accept-Ranges' not in response.headers:
         response.headers['Accept-Ranges'] = 'bytes'
 
-    # Remover headers CORS duplicados
     for header in ['Access-Control-Allow-Origin', 'Access-Control-Allow-Methods']:
         if header in response.headers:
             values = response.headers.get_all(header)
@@ -245,7 +244,7 @@ def health():
     }
 
 
-# === FUNCIONES DE ANÁLISIS DE CÓDEC (mantenidas intactas desde aquí) ===
+# === FUNCIONES DE ANÁLISIS DE CÓDEC (INCLUIDAS SIN CAMBIOS) ===
 
 def analyze_ts_chunk_deep(chunk_data):
     codec_info = {
@@ -264,13 +263,12 @@ def analyze_ts_chunk_deep(chunk_data):
             codec_info["error"] = "Not a valid MPEG-TS file"
             return codec_info
 
-        # Patrones H.264
         h264_sps = b'\x00\x00\x00\x01\x67'
         h264_sps_short = b'\x00\x00\x01\x67'
         h264_pps = b'\x00\x00\x00\x01\x68'
         h264_slice = b'\x00\x00\x00\x01\x41'
         h264_idr = b'\x00\x00\x00\x01\x65'
-        # Patrones H.265/HEVC
+
         h265_vps = b'\x00\x00\x00\x01\x40'
         h265_sps = b'\x00\x00\x00\x01\x42'
         h265_pps = b'\x00\x00\x00\x01\x44'
@@ -310,19 +308,24 @@ def analyze_ts_chunk_deep(chunk_data):
                             base_offset = sps_pos + 5 + offset_adjust
                             if base_offset + 15 < len(chunk_data):
                                 ptl_byte = chunk_data[base_offset]
+                                profile_space = (ptl_byte >> 6) & 0x03
+                                tier_flag = (ptl_byte >> 5) & 0x01
                                 profile_idc = ptl_byte & 0x1F
                                 level_idc = chunk_data[base_offset + 11]
                                 if 1 <= profile_idc <= 4 and 0 <= level_idc <= 186:
                                     hevc_profiles = {1: "Main", 2: "Main 10", 3: "Main Still Picture", 4: "Format Range Extensions"}
                                     profile_name = hevc_profiles.get(profile_idc, f"Unknown({profile_idc})")
+                                    tier_name = "High" if tier_flag else "Main"
                                     level = level_idc / 30.0
                                     codec_info["video_profile"] = profile_name
                                     codec_info["video_level"] = f"{level:.1f}"
                                     codec_info["hevc_profile_info"] = {
                                         "profile_idc": profile_idc,
                                         "profile_name": profile_name,
+                                        "tier": tier_name,
                                         "level_idc": level_idc,
                                         "level": f"{level:.1f}",
+                                        "profile_space": profile_space,
                                         "offset_used": offset_adjust
                                     }
                                     break
@@ -333,10 +336,7 @@ def analyze_ts_chunk_deep(chunk_data):
             if not codec_info.get("hevc_profile_info"):
                 vps_pos = chunk_data.find(h265_vps)
                 if vps_pos != -1:
-                    codec_info["hevc_profile_info"] = {
-                        "profile_name": "HEVC (profile unknown)",
-                        "detected_from": "VPS"
-                    }
+                    codec_info["hevc_profile_info"] = {"profile_name": "HEVC (profile unknown)", "detected_from": "VPS"}
         elif h264_total > 0:
             codec_info["video_codec"] = "H.264/AVC"
             sps_pos = chunk_data.find(h264_sps)
@@ -347,20 +347,14 @@ def analyze_ts_chunk_deep(chunk_data):
                 sps_offset = 5
             if sps_pos != -1 and sps_pos + sps_offset + 3 < len(chunk_data):
                 profile_idc = chunk_data[sps_pos + sps_offset]
+                constraint_flags = chunk_data[sps_pos + sps_offset + 1]
                 level_idc = chunk_data[sps_pos + sps_offset + 2]
-                profile_names = {
-                    66: "Baseline",
-                    77: "Main",
-                    88: "Extended",
-                    100: "High",
-                    110: "High 10",
-                    122: "High 4:2:2",
-                    244: "High 4:4:4"
-                }
+                profile_names = {66: "Baseline", 77: "Main", 88: "Extended", 100: "High", 110: "High 10", 122: "High 4:2:2", 244: "High 4:4:4"}
                 profile_name = profile_names.get(profile_idc, f"Unknown({profile_idc})")
                 level = level_idc / 10.0
                 codec_info["video_profile"] = profile_name
                 codec_info["video_level"] = f"{level:.1f}"
+                codec_info["video_profile_raw"] = {"profile_idc": profile_idc, "constraint_flags": constraint_flags, "level_idc": level_idc}
 
         if not codec_info["video_codec"]:
             pmt_data = chunk_data[:4000]
@@ -372,6 +366,7 @@ def analyze_ts_chunk_deep(chunk_data):
         if codec_info["video_codec"] == "H.264/AVC (from PMT)" and h265_total > 0:
             logger.warning(f"⚠️ PMT dice H.264 pero hay {h265_total} patrones HEVC - Corrigiendo")
             codec_info["video_codec"] = "H.265/HEVC (PMT incorrect)"
+            codec_info["pmt_mismatch"] = True
             if not codec_info.get("hevc_profile_info"):
                 vps_pos = chunk_data.find(h265_vps)
                 if vps_pos != -1:
@@ -529,7 +524,11 @@ def consolidate_codec_analysis(codec_list):
         for codec, count in confidence.items():
             audio_codec_totals[codec] = audio_codec_totals.get(codec, 0) + count
     total_max = max(audio_codec_totals.values()) if audio_codec_totals else 0
-    filtered_codecs = {codec: count for codec, count in audio_codec_totals.items() if total_max == 0 or count >= total_max * 0.1}
+    filtered_codecs = {}
+    for codec, count in audio_codec_totals.items():
+        if total_max > 0 and count >= total_max * 0.1:
+            filtered_codecs[codec] = count
+
     audio_codecs_list = sorted(list(filtered_codecs.keys()))
 
     return {
@@ -684,8 +683,6 @@ def generate_compatibility_reason(codec_info, is_compatible):
             reasons.append("   No se detectó códec de video")
     return "\n".join(reasons)
 
-
-# === ENDPOINTS DE ANÁLISIS ===
 
 @app.route('/ace/analyze/<id_content>')
 def analyze_stream_deep(id_content):
@@ -895,7 +892,10 @@ def debug_manifest(id_content):
         if resp2.status_code in [301, 302, 303, 307, 308]:
             location = resp2.headers.get('Location', '')
             if location:
-                url3 = f"{ACESTREAM_BASE}{location}" if location.startswith('/') else location
+                if location.startswith('/'):
+                    url3 = f"{ACESTREAM_BASE}{location}"
+                else:
+                    url3 = location
                 start = time.time()
                 resp3 = requests.get(url3, allow_redirects=False, timeout=120)
                 elapsed3 = time.time() - start
@@ -930,7 +930,10 @@ def test_manifest(id_content):
         logger.info(f"✓ Status: {resp.status_code}")
         if resp.status_code in [302, 301]:
             location = resp.headers.get('Location', '')
-            next_url = f"{ACESTREAM_BASE}{location}" if location.startswith('/') else location
+            if location.startswith('/'):
+                next_url = f"{ACESTREAM_BASE}{location}"
+            else:
+                next_url = location
             logger.info(f"🔄 Siguiendo a: {next_url}")
             resp = requests.get(next_url, timeout=180)
             logger.info(f"✓ Final status: {resp.status_code}")
@@ -951,8 +954,7 @@ def test_manifest(id_content):
         return {"status": "error", "error": str(e)}
 
 
-# === FUNCIONES DE MANIFEST CON PREBUFFERING ===
-
+# === FUNCIÓN DE PREBUFFERING ===
 def wait_for_manifest_chunks(manifest_url, min_chunks=3, max_wait=15):
     start_time = time.time()
     attempt = 0
@@ -973,7 +975,6 @@ def wait_for_manifest_chunks(manifest_url, min_chunks=3, max_wait=15):
         except Exception as e:
             logger.warning(f"  ⚠️ Error checking manifest: {e}")
             time.sleep(2)
-    # Timeout: devolver lo que tengamos
     try:
         resp = requests.get(manifest_url, timeout=10)
         if resp.status_code == 200:
@@ -987,16 +988,14 @@ def wait_for_manifest_chunks(manifest_url, min_chunks=3, max_wait=15):
     return None, time.time() - start_time
 
 
+# === ENDPOINT ÚNICO PARA MANIFEST ===
 @app.route('/ace/manifest.m3u8', methods=['GET', 'HEAD'])
 def manifest_query():
-    """Proxy para manifest.m3u8 con ?id= - CON PREBUFFERING INTELIGENTE"""
     id_content = request.args.get('id', '')
     if not id_content:
         return Response("Missing id parameter", status=400)
-
     logger.info(f"📝 Manifest request: id={id_content[:16]}...")
 
-    # Detectar Chromecast
     user_agent = request.headers.get('User-Agent', '').lower()
     is_chromecast = any(kw in user_agent for kw in ['chromecast', 'cast', 'googlecast', 'cenc'])
     force_prebuffer = request.args.get('chromecast', '0') == '1' or request.args.get('prebuffer', '0') == '1'
@@ -1005,7 +1004,6 @@ def manifest_query():
     if should_prebuffer:
         logger.info(f"  🎯 Chromecast detected - enabling smart prebuffering")
 
-    # Trigger del stream
     try:
         prebuffer_url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
         logger.info(f"  🔄 Triggering stream...")
@@ -1014,9 +1012,9 @@ def manifest_query():
     except Exception as e:
         logger.warning(f"  ⚠️ Stream trigger failed: {e}")
 
-    # Obtener manifest URL
     manifest_path = f"ace/manifest.m3u8?id={id_content}"
     target_url = f"{ACESTREAM_BASE}/{manifest_path}"
+
     try:
         resp = requests.get(target_url, allow_redirects=False, timeout=30)
 
@@ -1075,9 +1073,9 @@ def manifest_query():
         return Response(f"Manifest error: {str(e)}", status=500)
 
 
+# === ENDPOINT ESPECIAL PARA CHROMECAST ===
 @app.route('/ace/manifest-chromecast.m3u8', methods=['GET'])
 def manifest_chromecast():
-    """Endpoint especial para Chromecast que SIEMPRE hace prebuffering"""
     id_content = request.args.get('id', '')
     if not id_content:
         return Response("Missing id parameter", status=400)
@@ -1086,7 +1084,6 @@ def manifest_chromecast():
 
 
 # === OTROS ENDPOINTS DE PROXY ===
-
 @app.route('/ace/getstream', methods=['GET', 'HEAD'])
 def getstream_query():
     id_content = request.args.get('id', '')
