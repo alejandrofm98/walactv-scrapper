@@ -304,110 +304,6 @@ def health():
   }
 
 
-@app.route('/ace/status/<id_content>')
-def channel_status(id_content):
-  """Check channel status y compatibilidad de códecs analizando chunks MEJORADO"""
-  try:
-    url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
-    resp = requests.get(url, allow_redirects=False, timeout=5)
-
-    result = {
-      "id": id_content,
-      "status": "unknown",
-      "chromecast_compatible": None,
-      "codec_info": None
-    }
-
-    if resp.status_code == 302:
-      result["status"] = "ready"
-      result["message"] = "Channel is responding quickly"
-      result["redirect"] = resp.headers.get('Location', '')
-
-      try:
-        manifest_url = f"{ACESTREAM_BASE}/ace/manifest.m3u8?id={id_content}"
-        manifest_resp = requests.get(manifest_url, allow_redirects=True,
-                                     timeout=30)
-
-        if manifest_resp.status_code == 200:
-          manifest_content = manifest_resp.text
-
-          # Extraer MÚLTIPLES chunks para análisis más profundo
-          chunk_urls = re.findall(
-              r'(http://acestream-arm:6878/ace/c/[^\s]+\.ts)',
-              manifest_content
-          )
-
-          if chunk_urls:
-            # Analizar los primeros 3-5 chunks (más confiable)
-            chunks_to_analyze = chunk_urls[:min(5, len(chunk_urls))]
-            logger.info(
-                f"🔍 Analizando {len(chunks_to_analyze)} chunks para detección robusta")
-
-            all_codecs = []
-
-            for idx, chunk_url in enumerate(chunks_to_analyze):
-              try:
-                logger.info(
-                    f"  └─ Chunk {idx + 1}/{len(chunks_to_analyze)}: {chunk_url[-40:]}")
-                chunk_resp = requests.get(chunk_url, timeout=15, stream=True)
-
-                # Analizar más datos (50KB en lugar de 10KB)
-                chunk_data = b''
-                for chunk in chunk_resp.iter_content(chunk_size=8192):
-                  chunk_data += chunk
-                  if len(chunk_data) >= 51200:  # 50KB
-                    break
-
-                logger.info(f"     ✓ Descargado {len(chunk_data)} bytes")
-                codec_info = analyze_ts_chunk_deep(chunk_data)
-                all_codecs.append(codec_info)
-                logger.info(
-                    f"     ✓ Video: {codec_info.get('video_codec')}, Audio: {codec_info.get('audio_codecs')}")
-
-              except Exception as e:
-                logger.warning(f"⚠️ Error analizando chunk {idx + 1}: {e}")
-                continue
-
-            logger.info(
-                f"✅ Total chunks analizados exitosamente: {len(all_codecs)}")
-
-            # Consolidar resultados de múltiples chunks
-            consolidated = consolidate_codec_analysis(all_codecs)
-            result["codec_info"] = consolidated
-            result["chunks_analyzed"] = len(all_codecs)
-
-            if consolidated.get("video_codec"):
-              result["chromecast_compatible"] = is_chromecast_compatible_v2(
-                  consolidated)
-
-            logger.info(f"✅ Códec consolidado: {consolidated}")
-
-      except Exception as e:
-        logger.warning(f"⚠️ No se pudo detectar códec: {e}")
-        result["codec_detection_error"] = str(e)
-
-      return result
-    else:
-      result["status"] = "unknown"
-      result["code"] = resp.status_code
-      return result
-
-  except requests.exceptions.Timeout:
-    return {
-      "id": id_content,
-      "status": "buffering",
-      "message": "Channel is buffering, this may take 1-3 minutes",
-      "chromecast_compatible": None
-    }
-  except Exception as e:
-    return {
-      "id": id_content,
-      "status": "error",
-      "error": str(e),
-      "chromecast_compatible": None
-    }
-
-
 def analyze_ts_chunk_deep(chunk_data):
   """Analiza un chunk MPEG-TS PROFUNDAMENTE para detectar códecs ocultos"""
   codec_info = {
@@ -419,7 +315,7 @@ def analyze_ts_chunk_deep(chunk_data):
     "analysis_method": "deep_ts_inspection",
     "audio_codec_confidence": {},
     "video_detection_details": {},
-    "hevc_profile_info": None  # Nueva info de HEVC
+    "hevc_profile_info": None
   }
 
   try:
@@ -430,18 +326,18 @@ def analyze_ts_chunk_deep(chunk_data):
     # === DETECCIÓN DE VIDEO MEJORADA ===
 
     # Patrones H.264
-    h264_sps = b'\x00\x00\x00\x01\x67'  # SPS (Sequence Parameter Set)
+    h264_sps = b'\x00\x00\x00\x01\x67'
     h264_sps_short = b'\x00\x00\x01\x67'
-    h264_pps = b'\x00\x00\x00\x01\x68'  # PPS
-    h264_slice = b'\x00\x00\x00\x01\x41'  # Coded slice (non-IDR)
-    h264_idr = b'\x00\x00\x00\x01\x65'  # IDR slice
+    h264_pps = b'\x00\x00\x00\x01\x68'
+    h264_slice = b'\x00\x00\x00\x01\x41'
+    h264_idr = b'\x00\x00\x00\x01\x65'
 
     # Patrones H.265/HEVC
-    h265_vps = b'\x00\x00\x00\x01\x40'  # VPS (Video Parameter Set)
-    h265_sps = b'\x00\x00\x00\x01\x42'  # SPS
-    h265_pps = b'\x00\x00\x00\x01\x44'  # PPS
-    h265_idr = b'\x00\x00\x00\x01\x26'  # IDR slice
-    h265_trail = b'\x00\x00\x00\x01\x01'  # TRAIL slice
+    h265_vps = b'\x00\x00\x00\x01\x40'
+    h265_sps = b'\x00\x00\x00\x01\x42'
+    h265_pps = b'\x00\x00\x00\x01\x44'
+    h265_idr = b'\x00\x00\x00\x01\x26'
+    h265_trail = b'\x00\x00\x00\x01\x01'
 
     # Contar todas las detecciones
     h264_detections = {
@@ -477,29 +373,20 @@ def analyze_ts_chunk_deep(chunk_data):
       sps_pos = chunk_data.find(h265_sps)
       if sps_pos != -1 and sps_pos + 20 < len(chunk_data):
         try:
-          # HEVC SPS tiene estructura compleja, buscar el PTL (Profile Tier Level)
-          # Después del start code 0x00000001 y NAL header 0x42
-          # El PTL comienza alrededor del byte 7-8 después del NAL header
-
-          # Intentar múltiples offsets porque la estructura varía
           for offset_adjust in [7, 8, 9, 10]:
             try:
               base_offset = sps_pos + 5 + offset_adjust
 
               if base_offset + 15 < len(chunk_data):
-                # Byte con profile_space, tier_flag, profile_idc
                 ptl_byte = chunk_data[base_offset]
                 profile_space = (ptl_byte >> 6) & 0x03
                 tier_flag = (ptl_byte >> 5) & 0x01
                 profile_idc = ptl_byte & 0x1F
 
-                # Leer level_idc (varios bytes después)
                 level_idc = chunk_data[
                   base_offset + 11] if base_offset + 11 < len(chunk_data) else 0
 
-                # Validar que los valores tienen sentido
                 if 1 <= profile_idc <= 4 and 0 <= level_idc <= 186:
-                  # Mapear profile_idc a nombres
                   hevc_profiles = {
                     1: "Main",
                     2: "Main 10",
@@ -510,7 +397,7 @@ def analyze_ts_chunk_deep(chunk_data):
                   profile_name = hevc_profiles.get(profile_idc,
                                                    f"Unknown({profile_idc})")
                   tier_name = "High" if tier_flag else "Main"
-                  level = level_idc / 30.0  # HEVC level: 30=1.0, 93=3.1, 120=4.0, 153=5.1
+                  level = level_idc / 30.0
 
                   codec_info["video_profile"] = profile_name
                   codec_info["video_level"] = f"{level:.1f}"
@@ -525,21 +412,19 @@ def analyze_ts_chunk_deep(chunk_data):
                   }
 
                   logger.info(
-                    f"     🎯 HEVC Profile: {profile_name}, Tier: {tier_name}, Level: {level:.1f}")
-                  break  # Encontrado, salir del loop
+                      f"     🎯 HEVC Profile: {profile_name}, Tier: {tier_name}, Level: {level:.1f}")
+                  break
             except:
               continue
 
         except Exception as e:
           logger.warning(f"⚠️ Error parseando HEVC SPS: {e}")
 
-      # Si no encontramos SPS, buscar en VPS también
       if not codec_info.get("hevc_profile_info"):
         vps_pos = chunk_data.find(h265_vps)
         if vps_pos != -1:
           logger.info(
-            f"     ℹ️ VPS encontrado pero SPS no parseado - HEVC confirmado sin detalles")
-          # Al menos sabemos que es HEVC
+              f"     ℹ️ VPS encontrado pero SPS no parseado - HEVC confirmado sin detalles")
           codec_info["hevc_profile_info"] = {
             "profile_name": "HEVC (profile unknown)",
             "detected_from": "VPS"
@@ -548,7 +433,6 @@ def analyze_ts_chunk_deep(chunk_data):
     elif h264_total > 0:
       codec_info["video_codec"] = "H.264/AVC"
 
-      # Extraer profile y level de H.264 SPS
       sps_pos = chunk_data.find(h264_sps)
       if sps_pos == -1:
         sps_pos = chunk_data.find(h264_sps_short)
@@ -557,12 +441,10 @@ def analyze_ts_chunk_deep(chunk_data):
         sps_offset = 5
 
       if sps_pos != -1 and sps_pos + sps_offset + 3 < len(chunk_data):
-        # Los 3 bytes después del NAL header: profile_idc, constraint flags, level_idc
         profile_idc = chunk_data[sps_pos + sps_offset]
         constraint_flags = chunk_data[sps_pos + sps_offset + 1]
         level_idc = chunk_data[sps_pos + sps_offset + 2]
 
-        # Mapear profile_idc a nombres conocidos
         profile_names = {
           66: "Baseline",
           77: "Main",
@@ -574,7 +456,7 @@ def analyze_ts_chunk_deep(chunk_data):
         }
 
         profile_name = profile_names.get(profile_idc, f"Unknown({profile_idc})")
-        level = level_idc / 10.0  # Level es en formato 30 = 3.0, 51 = 5.1
+        level = level_idc / 10.0
 
         codec_info["video_profile"] = profile_name
         codec_info["video_level"] = f"{level:.1f}"
@@ -584,28 +466,22 @@ def analyze_ts_chunk_deep(chunk_data):
           "level_idc": level_idc
         }
 
-    # Fallback: analizar PMT (Program Map Table)
+    # Fallback: analizar PMT
     if not codec_info["video_codec"]:
-      # Buscar PMT en los primeros 4KB
       pmt_data = chunk_data[:4000]
 
-      # Stream type 0x1b = H.264
       if b'\x1b' in pmt_data:
         codec_info["video_codec"] = "H.264/AVC (from PMT)"
-      # Stream type 0x24 = H.265
       elif b'\x24' in pmt_data:
         codec_info["video_codec"] = "H.265/HEVC (from PMT)"
-        # Intentar encontrar HEVC NAL units aún si PMT dice H.265
         logger.info(f"     🔍 PMT indica HEVC, buscando NAL units...")
 
-    # Si PMT dice H.264 pero detectamos patrones HEVC, corregir
     if codec_info["video_codec"] == "H.264/AVC (from PMT)" and h265_total > 0:
       logger.warning(
-        f"     ⚠️ PMT dice H.264 pero hay {h265_total} patrones HEVC - Corrigiendo")
+          f"     ⚠️ PMT dice H.264 pero hay {h265_total} patrones HEVC - Corrigiendo")
       codec_info["video_codec"] = "H.265/HEVC (PMT incorrect)"
       codec_info["pmt_mismatch"] = True
 
-      # Intentar extraer profile de los patrones HEVC encontrados
       if not codec_info.get("hevc_profile_info"):
         vps_pos = chunk_data.find(h265_vps)
         if vps_pos != -1:
@@ -615,11 +491,11 @@ def analyze_ts_chunk_deep(chunk_data):
             "note": "PMT reported H.264 but HEVC patterns detected"
           }
 
-    # === DETECCIÓN DE AUDIO (con contadores) ===
+    # === DETECCIÓN DE AUDIO ===
 
     audio_found = {}
 
-    # AAC (ADTS frames)
+    # AAC
     aac_count = 0
     aac_patterns = [b'\xff\xf1', b'\xff\xf9']
     for pattern in aac_patterns:
@@ -628,7 +504,7 @@ def analyze_ts_chunk_deep(chunk_data):
     if aac_count > 0:
       audio_found["AAC"] = aac_count
 
-    # AC3/Dolby Digital
+    # AC3
     ac3_count = chunk_data.count(b'\x0b\x77')
     if ac3_count > 0:
       audio_found["AC3"] = ac3_count
@@ -668,6 +544,100 @@ def analyze_ts_chunk_deep(chunk_data):
   return codec_info
 
 
+def analyze_pmt_table(chunk_data):
+  """Analiza la PMT (Program Map Table) para detectar stream types"""
+  pmt_info = {
+    "found": False,
+    "video_stream_type": None,
+    "audio_stream_types": [],
+    "raw_stream_types": []
+  }
+
+  try:
+    for i in range(0, len(chunk_data) - 10, 188):
+      if chunk_data[i] == 0x47:
+        pid = ((chunk_data[i + 1] & 0x1F) << 8) | chunk_data[i + 2]
+
+        if pid in [0x1000, 0x0100, 0x1FFF]:
+          payload_start = i + 4
+          if chunk_data[i + 1] & 0x40:
+            pointer = chunk_data[payload_start]
+            table_start = payload_start + pointer + 1
+
+            if table_start < len(chunk_data) and chunk_data[
+              table_start] == 0x02:
+              pmt_info["found"] = True
+
+              for j in range(table_start + 10,
+                             min(table_start + 100, len(chunk_data))):
+                stream_type = chunk_data[j]
+                pmt_info["raw_stream_types"].append(stream_type)
+
+                if stream_type == 0x1B:
+                  pmt_info["video_stream_type"] = "H.264/AVC"
+                elif stream_type == 0x24:
+                  pmt_info["video_stream_type"] = "H.265/HEVC"
+                elif stream_type == 0x02:
+                  pmt_info["video_stream_type"] = "MPEG-2"
+
+                if stream_type == 0x0F:
+                  pmt_info["audio_stream_types"].append("AAC")
+                elif stream_type == 0x81:
+                  pmt_info["audio_stream_types"].append("AC-3")
+                elif stream_type == 0x06:
+                  pmt_info["audio_stream_types"].append("AC-3/AAC")
+
+              break
+
+  except Exception as e:
+    pmt_info["error"] = str(e)
+
+  return pmt_info
+
+
+def detect_raw_patterns(chunk_data):
+  """Detección de patrones crudos sin interpretar estructura"""
+  patterns = {
+    "h264_markers": 0,
+    "h265_markers": 0,
+    "aac_markers": 0,
+    "ac3_markers": 0,
+    "mpeg_ps_markers": 0,
+    "suspicious_patterns": []
+  }
+
+  patterns["h264_markers"] = (
+      chunk_data.count(b'\x00\x00\x00\x01\x67') +
+      chunk_data.count(b'\x00\x00\x01\x67') +
+      chunk_data.count(b'\x00\x00\x00\x01\x68') +
+      chunk_data.count(b'\x00\x00\x00\x01\x65')
+  )
+
+  patterns["h265_markers"] = (
+      chunk_data.count(b'\x00\x00\x00\x01\x40') +
+      chunk_data.count(b'\x00\x00\x00\x01\x42') +
+      chunk_data.count(b'\x00\x00\x00\x01\x44') +
+      chunk_data.count(b'\x00\x00\x00\x01\x26')
+  )
+
+  patterns["aac_markers"] = (
+      chunk_data.count(b'\xff\xf1') +
+      chunk_data.count(b'\xff\xf9')
+  )
+
+  patterns["ac3_markers"] = chunk_data.count(b'\x0b\x77')
+
+  patterns["mpeg_ps_markers"] = chunk_data.count(b'\x00\x00\x01\xba')
+
+  if patterns["h265_markers"] > 0 and patterns["h264_markers"] > 0:
+    patterns["suspicious_patterns"].append("mixed_h264_h265")
+
+  if patterns["mpeg_ps_markers"] > 3:
+    patterns["suspicious_patterns"].append("mpeg_program_stream_detected")
+
+  return patterns
+
+
 def consolidate_codec_analysis(codec_list):
   """Consolida análisis de múltiples chunks para resultado más confiable"""
   if not codec_list:
@@ -682,7 +652,6 @@ def consolidate_codec_analysis(codec_list):
       "hevc_profile_info": None
     }
 
-  # Votar por el video codec más común
   video_votes = {}
   video_profiles = {}
   video_levels = {}
@@ -695,7 +664,6 @@ def consolidate_codec_analysis(codec_list):
     if vc:
       video_votes[vc] = video_votes.get(vc, 0) + 1
 
-      # Recopilar profiles y levels
       vp = c.get("video_profile")
       if vp:
         video_profiles[vp] = video_profiles.get(vp, 0) + 1
@@ -704,12 +672,10 @@ def consolidate_codec_analysis(codec_list):
       if vl:
         video_levels[vl] = video_levels.get(vl, 0) + 1
 
-      # Recopilar info detallada de HEVC
       hevc_info = c.get("hevc_profile_info")
       if hevc_info:
         hevc_profile_votes.append(hevc_info)
 
-      # Sumar detecciones totales
       details = c.get("video_detection_details", {})
       h264_total_detections += details.get("h264_total", 0)
       h265_total_detections += details.get("h265_total", 0)
@@ -720,27 +686,22 @@ def consolidate_codec_analysis(codec_list):
   video_level = max(video_levels,
                     key=video_levels.get) if video_levels else None
 
-  # Consolidar HEVC profile info (tomar el más común)
   consolidated_hevc = None
   if hevc_profile_votes:
-    # Tomar el profile más común
     profile_names = [h["profile_name"] for h in hevc_profile_votes]
     if profile_names:
       most_common_profile = Counter(profile_names).most_common(1)[0][0]
-      # Buscar el primer match completo
       for h in hevc_profile_votes:
         if h["profile_name"] == most_common_profile:
           consolidated_hevc = h
           break
 
-  # Consolidar códecs de audio
   audio_codec_totals = {}
   for c in codec_list:
     confidence = c.get("audio_codec_confidence", {})
     for codec, count in confidence.items():
       audio_codec_totals[codec] = audio_codec_totals.get(codec, 0) + count
 
-  # Filtrar falsos positivos de audio
   total_max = max(audio_codec_totals.values()) if audio_codec_totals else 0
   filtered_codecs = {}
   for codec, count in audio_codec_totals.items():
@@ -761,7 +722,7 @@ def consolidate_codec_analysis(codec_list):
       "h265_detections": h265_total_detections,
       "ratio": h265_total_detections / h264_total_detections if h264_total_detections > 0 else 0
     },
-    "hevc_profile_info": consolidated_hevc,  # Info detallada de HEVC
+    "hevc_profile_info": consolidated_hevc,
     "audio_codecs": audio_codecs_list,
     "audio_codec": ", ".join(audio_codecs_list) if audio_codecs_list else None,
     "audio_codec_counts": filtered_codecs,
@@ -793,17 +754,11 @@ def is_chromecast_compatible_v2(codec_info):
   logger.info(
       f"   Detecciones: H264={video_detection.get('h264_detections', 0)}, H265={video_detection.get('h265_detections', 0)}")
 
-  # === VERIFICACIÓN CRÍTICA: HEVC PROFILE ===
   h265_detections = video_detection.get("h265_detections", 0)
   h264_detections = video_detection.get("h264_detections", 0)
 
   if "h.265" in video_lower or "hevc" in video_lower or h265_detections > 0:
     logger.info(f"  ⚠️ HEVC detectado - Analizando compatibilidad detallada...")
-
-    # Chromecast Ultra y Gen 3+ soportan HEVC pero con limitaciones:
-    # ✅ HEVC Main Profile, Level <= 5.1
-    # ❌ HEVC Main 10 (10-bit color)
-    # ❌ Niveles muy altos (> 5.1)
 
     if hevc_profile_info:
       profile_name = hevc_profile_info.get("profile_name", "")
@@ -811,14 +766,12 @@ def is_chromecast_compatible_v2(codec_info):
       level = hevc_profile_info.get("level", "")
 
       logger.info(
-        f"     📊 HEVC Details: {profile_name} / {tier} Tier / Level {level}")
+          f"     📊 HEVC Details: {profile_name} / {tier} Tier / Level {level}")
 
-      # Main 10 = incompatible (10-bit color depth)
       if "Main 10" in profile_name or "10" in profile_name:
         logger.info(f"  ❌ HEVC Main 10 (10-bit) - INCOMPATIBLE con Chromecast")
         return False
 
-      # Verificar level
       try:
         level_float = float(level) if level else 0
         if level_float > 5.1:
@@ -827,18 +780,14 @@ def is_chromecast_compatible_v2(codec_info):
       except:
         pass
 
-      # High Tier puede causar problemas
       if tier == "High":
         logger.info(
-          f"  ⚠️ HEVC High Tier - Puede causar problemas en algunos Chromecasts")
-        # No bloqueamos, pero advertimos
+            f"  ⚠️ HEVC High Tier - Puede causar problemas en algunos Chromecasts")
 
-      # HEVC Main Profile con nivel aceptable
       if "Main" in profile_name and "10" not in profile_name:
         logger.info(
-          f"  ✅ HEVC Main Profile, Level {level} - Compatible con Chromecast Ultra/Gen3+")
+            f"  ✅ HEVC Main Profile, Level {level} - Compatible con Chromecast Ultra/Gen3+")
 
-        # Verificar audio también
         audio_codecs = codec_info.get("audio_codecs", [])
         has_aac = any("AAC" in c.upper() for c in audio_codecs)
 
@@ -847,40 +796,30 @@ def is_chromecast_compatible_v2(codec_info):
 
         return True
 
-      # Profile desconocido pero detectado
       if "unknown" in profile_name.lower():
         logger.info(
-          f"  ⚠️ HEVC con profile desconocido - Asumiendo compatible conservadoramente")
-        return True  # Permitir si no sabemos el profile exacto
+            f"  ⚠️ HEVC con profile desconocido - Asumiendo compatible conservadoramente")
+        return True
 
-    # Si no tenemos info detallada de HEVC pero hay muchas detecciones
     if h265_detections > 5:
       logger.info(
-        f"  ⚠️ HEVC detectado ({h265_detections} patrones) sin info de profile")
+          f"  ⚠️ HEVC detectado ({h265_detections} patrones) sin info de profile")
       logger.info(
-        f"     Puede ser compatible con Chromecast Ultra/Gen3+ (HEVC Main)")
+          f"     Puede ser compatible con Chromecast Ultra/Gen3+ (HEVC Main)")
       logger.info(f"     Pero incompatible con Chromecast Gen 1/2 (sin HEVC)")
-      # Retornar True porque si el usuario tiene Ultra/Gen3, funcionará
       return True
 
-    # Pocas detecciones HEVC = stream inestable o mixto
     if h265_detections <= 3:
       logger.info(
-        f"  ⚠️ Pocas detecciones HEVC ({h265_detections}) - Stream posiblemente inestable")
-      return None  # Indeterminado
+          f"  ⚠️ Pocas detecciones HEVC ({h265_detections}) - Stream posiblemente inestable")
+      return None
 
-  # Si el ratio H265/H264 es > 0.5, probablemente es HEVC
   if h264_detections > 0 and (h265_detections / h264_detections) > 0.5:
     logger.info(
         f"  ❌ Alto ratio H265/H264 ({h265_detections}/{h264_detections}) - Probablemente HEVC")
     return False
 
-  # === VERIFICACIÓN DE PROFILE/LEVEL H.264 ===
   if "h.264" in video_lower or "avc" in video_lower:
-    # Chromecast soporta:
-    # - Baseline, Main, High profiles
-    # - Levels hasta 5.1
-
     if video_profile:
       unsupported_profiles = ["High 10", "High 4:2:2", "High 4:4:4"]
       if any(up in video_profile for up in unsupported_profiles):
@@ -893,14 +832,12 @@ def is_chromecast_compatible_v2(codec_info):
         if level_float > 5.2:
           logger.info(
               f"  ⚠️ Level H.264 muy alto: {video_level} (puede causar problemas)")
-          # No retornamos False porque algunos Chromecasts nuevos lo soportan
       except:
         pass
 
     logger.info(
         f"  ✅ H.264 compatible ({video_profile or 'unknown profile'}, level {video_level or 'unknown'})")
 
-    # Verificar audio también
     audio_codecs = codec_info.get("audio_codecs", [])
     has_aac = any("AAC" in c.upper() for c in audio_codecs)
     has_only_incompatible = all(
@@ -914,17 +851,308 @@ def is_chromecast_compatible_v2(codec_info):
 
     if not has_aac:
       logger.info(f"  ⚠️ Sin AAC, puede tener problemas de audio")
-      # No bloqueamos, pero advertimos
 
     return True
 
-  # Otros códecs (VP8, VP9)
   if "vp8" in video_lower or "vp9" in video_lower:
     logger.info(f"  ✅ VP8/VP9 compatible")
     return True
 
   logger.info(f"  ❓ Códec de video desconocido: {video}")
   return None
+
+
+def generate_compatibility_reason(codec_info, is_compatible):
+  """Genera explicación detallada de compatibilidad"""
+  reasons = []
+
+  video = codec_info.get("video_codec", "")
+  video_profile = codec_info.get("video_profile", "")
+  audio_codecs = codec_info.get("audio_codecs", [])
+  hevc_info = codec_info.get("hevc_profile_info")
+
+  if is_compatible is True:
+    reasons.append(f"✅ Video compatible: {video}")
+    if video_profile:
+      reasons.append(f"   Profile/Level: {video_profile}")
+    if audio_codecs:
+      reasons.append(f"✅ Audio compatible: {', '.join(audio_codecs)}")
+
+  elif is_compatible is False:
+    if "h.265" in video.lower() or "hevc" in video.lower():
+      if hevc_info:
+        profile_name = hevc_info.get("profile_name", "")
+        if "Main 10" in profile_name:
+          reasons.append("❌ HEVC Main 10 (10-bit) no soportado en Chromecast")
+          reasons.append("   Chromecast solo soporta HEVC Main Profile (8-bit)")
+        else:
+          reasons.append(f"❌ HEVC detectado: {profile_name}")
+          reasons.append("   Chromecast Gen 1/2 no soporta HEVC")
+          reasons.append("   Solo Chromecast Ultra y Gen 3+ lo soportan")
+      else:
+        reasons.append("❌ HEVC detectado (profile desconocido)")
+        reasons.append("   Chromecast Gen 1/2 no soporta HEVC")
+
+    if not any("AAC" in c.upper() for c in audio_codecs):
+      reasons.append("⚠️ Sin AAC - puede tener problemas de audio")
+      if audio_codecs:
+        reasons.append(f"   Audio detectado: {', '.join(audio_codecs)}")
+
+  else:
+    reasons.append("⚠️ No se pudo determinar compatibilidad")
+    if not video:
+      reasons.append("   No se detectó códec de video")
+
+  return "\n".join(reasons)
+
+
+@app.route('/ace/analyze/<id_content>')
+def analyze_stream_deep(id_content):
+  """Análisis PROFUNDO de codec con múltiples estrategias"""
+  import time
+
+  result = {
+    "id": id_content,
+    "status": "analyzing",
+    "manifest_info": {},
+    "codec_analysis": {},
+    "chromecast_verdict": None,
+    "debug_info": {}
+  }
+
+  try:
+    logger.info(f"🔍 ANÁLISIS PROFUNDO: {id_content[:16]}")
+
+    manifest_url = f"{ACESTREAM_BASE}/ace/manifest.m3u8?id={id_content}"
+    start = time.time()
+    manifest_resp = requests.get(manifest_url, allow_redirects=True, timeout=60)
+    manifest_time = time.time() - start
+
+    result["debug_info"]["manifest_fetch_time"] = round(manifest_time, 2)
+    result["debug_info"]["manifest_status"] = manifest_resp.status_code
+
+    if manifest_resp.status_code != 200:
+      result["status"] = "error"
+      result["error"] = f"Manifest failed: {manifest_resp.status_code}"
+      return result
+
+    manifest_content = manifest_resp.text
+    result["manifest_info"]["preview"] = manifest_content[:300]
+
+    chunk_urls = re.findall(
+        r'(http://acestream-arm:6878/ace/c/[^\s]+\.ts)',
+        manifest_content
+    )
+
+    if not chunk_urls:
+      result["status"] = "error"
+      result["error"] = "No chunks found in manifest"
+      return result
+
+    result["manifest_info"]["total_chunks_in_manifest"] = len(chunk_urls)
+    result["manifest_info"]["chunks_preview"] = [url.split('/')[-1] for url in
+                                                 chunk_urls[:5]]
+
+    chunks_to_test = min(7, len(chunk_urls))
+    logger.info(f"📊 Analizando {chunks_to_test} chunks...")
+
+    all_analyses = []
+    chunk_details = []
+
+    for idx, chunk_url in enumerate(chunk_urls[:chunks_to_test]):
+      try:
+        chunk_name = chunk_url.split('/')[-1]
+        logger.info(f"  └─ [{idx + 1}/{chunks_to_test}] {chunk_name}")
+
+        start = time.time()
+        chunk_resp = requests.get(chunk_url, timeout=20, stream=True)
+
+        chunk_data = b''
+        for chunk in chunk_resp.iter_content(chunk_size=8192):
+          chunk_data += chunk
+          if len(chunk_data) >= 102400:
+            break
+
+        fetch_time = time.time() - start
+
+        analysis = {
+          "chunk_name": chunk_name,
+          "chunk_size": len(chunk_data),
+          "fetch_time": round(fetch_time, 2),
+          "deep_analysis": analyze_ts_chunk_deep(chunk_data),
+          "pmt_analysis": analyze_pmt_table(chunk_data),
+          "raw_patterns": detect_raw_patterns(chunk_data)
+        }
+
+        all_analyses.append(analysis["deep_analysis"])
+        chunk_details.append(analysis)
+
+        logger.info(f"     ✓ {len(chunk_data)} bytes, "
+                    f"Video: {analysis['deep_analysis'].get('video_codec')}, "
+                    f"Audio: {analysis['deep_analysis'].get('audio_codecs')}")
+
+      except Exception as e:
+        logger.warning(f"  ✗ Error chunk {idx}: {e}")
+        chunk_details.append({
+          "chunk_name": chunk_url.split('/')[-1],
+          "error": str(e)
+        })
+
+    result["debug_info"]["chunks_analyzed"] = len(all_analyses)
+    result["debug_info"]["chunk_details"] = chunk_details
+
+    if all_analyses:
+      consolidated = consolidate_codec_analysis(all_analyses)
+      result["codec_analysis"] = consolidated
+
+      if consolidated.get("video_codec"):
+        is_compatible = is_chromecast_compatible_v2(consolidated)
+        result["chromecast_verdict"] = {
+          "compatible": is_compatible,
+          "reason": generate_compatibility_reason(consolidated, is_compatible)
+        }
+
+      result["status"] = "success"
+    else:
+      result["status"] = "error"
+      result["error"] = "No chunks could be analyzed"
+
+  except Exception as e:
+    logger.error(f"❌ Análisis falló: {e}", exc_info=True)
+    result["status"] = "error"
+    result["error"] = str(e)
+
+  return result
+
+
+@app.route('/ace/compare/<id1>/<id2>')
+def compare_streams(id1, id2):
+  """Compara dos streams lado a lado"""
+  logger.info(f"🔬 Comparando streams...")
+
+  analysis1 = analyze_stream_deep(id1)
+  analysis2 = analyze_stream_deep(id2)
+
+  return {
+    "stream_1": {
+      "id": id1,
+      "analysis": analysis1
+    },
+    "stream_2": {
+      "id": id2,
+      "analysis": analysis2
+    },
+    "differences": {
+      "video_codec": {
+        "stream_1": analysis1.get("codec_analysis", {}).get("video_codec"),
+        "stream_2": analysis2.get("codec_analysis", {}).get("video_codec")
+      },
+      "chromecast": {
+        "stream_1": analysis1.get("chromecast_verdict", {}).get("compatible"),
+        "stream_2": analysis2.get("chromecast_verdict", {}).get("compatible")
+      }
+    }
+  }
+
+
+@app.route('/ace/status/<id_content>')
+def channel_status(id_content):
+  """Check channel status y compatibilidad de códecs analizando chunks MEJORADO"""
+  try:
+    url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
+    resp = requests.get(url, allow_redirects=False, timeout=5)
+
+    result = {
+      "id": id_content,
+      "status": "unknown",
+      "chromecast_compatible": None,
+      "codec_info": None
+    }
+
+    if resp.status_code == 302:
+      result["status"] = "ready"
+      result["message"] = "Channel is responding quickly"
+      result["redirect"] = resp.headers.get('Location', '')
+
+      try:
+        manifest_url = f"{ACESTREAM_BASE}/ace/manifest.m3u8?id={id_content}"
+        manifest_resp = requests.get(manifest_url, allow_redirects=True,
+                                     timeout=30)
+
+        if manifest_resp.status_code == 200:
+          manifest_content = manifest_resp.text
+
+          chunk_urls = re.findall(
+              r'(http://acestream-arm:6878/ace/c/[^\s]+\.ts)',
+              manifest_content
+          )
+
+          if chunk_urls:
+            chunks_to_analyze = chunk_urls[:min(5, len(chunk_urls))]
+            logger.info(
+                f"🔍 Analizando {len(chunks_to_analyze)} chunks para detección robusta")
+
+            all_codecs = []
+
+            for idx, chunk_url in enumerate(chunks_to_analyze):
+              try:
+                logger.info(
+                    f"  └─ Chunk {idx + 1}/{len(chunks_to_analyze)}: {chunk_url[-40:]}")
+                chunk_resp = requests.get(chunk_url, timeout=15, stream=True)
+
+                chunk_data = b''
+                for chunk in chunk_resp.iter_content(chunk_size=8192):
+                  chunk_data += chunk
+                  if len(chunk_data) >= 51200:
+                    break
+
+                logger.info(f"     ✓ Descargado {len(chunk_data)} bytes")
+                codec_info = analyze_ts_chunk_deep(chunk_data)
+                all_codecs.append(codec_info)
+                logger.info(
+                    f"     ✓ Video: {codec_info.get('video_codec')}, Audio: {codec_info.get('audio_codecs')}")
+
+              except Exception as e:
+                logger.warning(f"⚠️ Error analizando chunk {idx + 1}: {e}")
+                continue
+
+            logger.info(
+                f"✅ Total chunks analizados exitosamente: {len(all_codecs)}")
+
+            consolidated = consolidate_codec_analysis(all_codecs)
+            result["codec_info"] = consolidated
+            result["chunks_analyzed"] = len(all_codecs)
+
+            if consolidated.get("video_codec"):
+              result["chromecast_compatible"] = is_chromecast_compatible_v2(
+                  consolidated)
+
+            logger.info(f"✅ Códec consolidado: {consolidated}")
+
+      except Exception as e:
+        logger.warning(f"⚠️ No se pudo detectar códec: {e}")
+        result["codec_detection_error"] = str(e)
+
+      return result
+    else:
+      result["status"] = "unknown"
+      result["code"] = resp.status_code
+      return result
+
+  except requests.exceptions.Timeout:
+    return {
+      "id": id_content,
+      "status": "buffering",
+      "message": "Channel is buffering, this may take 1-3 minutes",
+      "chromecast_compatible": None
+    }
+  except Exception as e:
+    return {
+      "id": id_content,
+      "status": "error",
+      "error": str(e),
+      "chromecast_compatible": None
+    }
 
 
 @app.route('/debug/manifest/<id_content>')
@@ -1184,6 +1412,3 @@ def root():
 
 if __name__ == '__main__':
   app.run(host='0.0.0.0', port=8000, threaded=True)
-
-# Para producción, usar:
-# gunicorn -w 4 -k gevent --worker-connections 1000 -b 0.0.0.0:8000 acestream_proxy:app
