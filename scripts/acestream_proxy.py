@@ -543,8 +543,6 @@ def manifest_query():
 @app.route('/ace/status/<id_content>')
 def channel_status(id_content):
   """Check channel status y compatibilidad de códecs analizando chunks"""
-  import struct
-
   try:
     # Timeout corto para ver si el canal responde rápido
     url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
@@ -573,7 +571,6 @@ def channel_status(id_content):
           manifest_content = manifest_resp.text
 
           # Buscar la primera URL de chunk .ts
-          import re
           chunk_match = re.search(
             r'(http://acestream-arm:6878/ace/c/[^\s]+\.ts)', manifest_content)
 
@@ -630,8 +627,6 @@ def channel_status(id_content):
 
 def analyze_ts_chunk(chunk_data):
   """Analiza un chunk MPEG-TS para detectar códecs"""
-  import struct
-
   codec_info = {
     "video_codec": None,
     "audio_codec": None,
