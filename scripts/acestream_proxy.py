@@ -338,15 +338,17 @@ def channel_status(id_content):
 
           if chunk_urls:
             # Analizar los primeros 3-5 chunks (más confiable)
-            chunks_to_analyze = chunk_urls[:5]
+            chunks_to_analyze = chunk_urls[:min(5, len(chunk_urls))]
             logger.info(
               f"🔍 Analizando {len(chunks_to_analyze)} chunks para detección robusta")
 
             all_codecs = []
 
-            for chunk_url in chunks_to_analyze:
+            for idx, chunk_url in enumerate(chunks_to_analyze):
               try:
-                chunk_resp = requests.get(chunk_url, timeout=10, stream=True)
+                logger.info(
+                  f"  └─ Chunk {idx + 1}/{len(chunks_to_analyze)}: {chunk_url[-40:]}")
+                chunk_resp = requests.get(chunk_url, timeout=15, stream=True)
 
                 # Analizar más datos (50KB en lugar de 10KB)
                 chunk_data = b''
@@ -355,13 +357,18 @@ def channel_status(id_content):
                   if len(chunk_data) >= 51200:  # 50KB
                     break
 
+                logger.info(f"     ✓ Descargado {len(chunk_data)} bytes")
                 codec_info = analyze_ts_chunk_deep(chunk_data)
                 all_codecs.append(codec_info)
+                logger.info(
+                  f"     ✓ Video: {codec_info.get('video_codec')}, Audio: {codec_info.get('audio_codecs')}")
 
               except Exception as e:
-                logger.warning(
-                  f"⚠️ Error analizando chunk {chunk_url[:80]}: {e}")
+                logger.warning(f"⚠️ Error analizando chunk {idx + 1}: {e}")
                 continue
+
+            logger.info(
+              f"✅ Total chunks analizados exitosamente: {len(all_codecs)}")
 
             # Consolidar resultados de múltiples chunks
             consolidated = consolidate_codec_analysis(all_codecs)
@@ -541,34 +548,62 @@ def is_chromecast_compatible_v2(codec_info):
   if not codec_info:
     return None
 
-  video = codec_info.get("video_codec", "").lower()
+  video = codec_info.get("video_codec", "")
+  if not video:
+    return None
+
+  video_lower = video.lower()
   audio_codecs = codec_info.get("audio_codecs", [])
+
+  logger.info(
+    f"🔍 Evaluando compatibilidad - Video: {video}, Audio: {audio_codecs}")
 
   # VIDEO: solo H.264, VP8, VP9
   video_compatible = any([
-    "h.264" in video,
-    "avc" in video,
-    "vp8" in video,
-    "vp9" in video
+    "h.264" in video_lower,
+    "avc" in video_lower,
+    "vp8" in video_lower,
+    "vp9" in video_lower
   ])
 
-  if "h.265" in video or "hevc" in video:
+  if "h.265" in video_lower or "hevc" in video_lower:
+    logger.info(f"  ❌ Video incompatible: HEVC detectado")
     return False  # HEVC no soportado
+
+  if not video_compatible:
+    logger.info(f"  ❌ Video incompatible: códec no soportado")
+    return False
 
   # AUDIO: si hay AC3/DTS/E-AC3, NO ES COMPATIBLE
   incompatible_audio = ["AC3", "E-AC3", "DTS", "DOLBY"]
   for codec in audio_codecs:
-    if any(bad in codec.upper() for bad in incompatible_audio):
-      return False
+    codec_upper = codec.upper()
+    for bad in incompatible_audio:
+      if bad in codec_upper:
+        logger.info(
+          f"  ❌ Audio incompatible: {codec} detectado (Chromecast no soporta)")
+        return False
 
   # Debe tener al menos un códec de audio compatible
   compatible_audio = ["AAC", "MP3", "OPUS", "VORBIS"]
-  audio_compatible = any(
-      any(good in codec.upper() for good in compatible_audio)
-      for codec in audio_codecs
-  ) if audio_codecs else False
+  audio_compatible = False
 
-  return video_compatible and audio_compatible
+  if audio_codecs:
+    for codec in audio_codecs:
+      codec_upper = codec.upper()
+      for good in compatible_audio:
+        if good in codec_upper:
+          audio_compatible = True
+          break
+      if audio_compatible:
+        break
+
+  if not audio_compatible:
+    logger.info(f"  ❌ Audio incompatible: no hay códec compatible")
+    return False
+
+  logger.info(f"  ✅ Compatible: Video={video}, Audio compatible encontrado")
+  return True
 
 
 @app.route('/debug/manifest/<id_content>')
