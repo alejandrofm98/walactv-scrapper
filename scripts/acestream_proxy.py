@@ -100,8 +100,8 @@ def is_manifest_content(content_type, url):
   return False
 
 
-def proxy_request(path, rewrite_manifest=False,
-    follow_redirects_manually=False):
+def proxy_request(path, rewrite_manifest=False, follow_redirects_manually=False,
+    chromecast_mode=False):
   """Proxy genérico con soporte mejorado para diferentes tipos de streams"""
 
   # Construir URL target
@@ -242,6 +242,20 @@ def proxy_request(path, rewrite_manifest=False,
           rewritten_lines.append(line)
 
         content = '\n'.join(rewritten_lines)
+
+        # PASO 3: Si está en modo Chromecast, agregar headers de compatibilidad
+        if chromecast_mode:
+          logger.info(
+            "🎮 Modo Chromecast activado - Agregando headers de compatibilidad")
+          # Detectar códecs y advertir si puede haber problemas
+          codec_info = detect_codecs_from_manifest(original_content)
+          if codec_info.get("has_codec_info"):
+            compatible = is_chromecast_compatible(codec_info)
+            if compatible is False:
+              logger.warning(
+                f"⚠️ Stream puede NO ser compatible con Chromecast: {codec_info}")
+            elif compatible is True:
+              logger.info(f"✅ Stream compatible con Chromecast: {codec_info}")
 
         # Contar cuántas URLs se reescribieron
         urls_replaced = original_content.count('http://acestream-arm:6878')
@@ -542,33 +556,137 @@ def manifest_query():
 
 @app.route('/ace/status/<id_content>')
 def channel_status(id_content):
-  """Check channel status sin esperar el buffering completo"""
+  """Check channel status y compatibilidad de códecs"""
   try:
     # Timeout corto para ver si el canal responde rápido
     url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
     resp = requests.get(url, allow_redirects=False, timeout=5)
 
+    result = {
+      "id": id_content,
+      "status": "unknown",
+      "chromecast_compatible": None,
+      "codec_info": None
+    }
+
     if resp.status_code == 302:
-      return {
-        "status": "ready",
-        "message": "Channel is responding quickly",
-        "redirect": resp.headers.get('Location', '')
-      }
+      result["status"] = "ready"
+      result["message"] = "Channel is responding quickly"
+      result["redirect"] = resp.headers.get('Location', '')
+
+      # Intentar obtener info del stream
+      try:
+        # Obtener stats del engine para este infohash
+        stats_url = f"{ACESTREAM_BASE}/webui/api/service?method=get_stats"
+        stats_resp = requests.get(stats_url, timeout=3)
+
+        if stats_resp.status_code == 200:
+          stats = stats_resp.json()
+          result["engine_info"] = stats
+
+        # Intentar detectar códec desde el manifest
+        manifest_url = f"{ACESTREAM_BASE}/ace/manifest.m3u8?id={id_content}"
+        manifest_resp = requests.get(manifest_url, allow_redirects=True,
+                                     timeout=10)
+
+        if manifest_resp.status_code == 200:
+          manifest_content = manifest_resp.text
+
+          # Detectar códecs en el manifest
+          codec_info = detect_codecs_from_manifest(manifest_content)
+          result["codec_info"] = codec_info
+
+          # Verificar compatibilidad con Chromecast
+          result["chromecast_compatible"] = is_chromecast_compatible(codec_info)
+
+      except Exception as e:
+        logger.warning(f"No se pudo obtener info de códecs: {e}")
+
+      return result
     else:
-      return {
-        "status": "unknown",
-        "code": resp.status_code
-      }
+      result["status"] = "unknown"
+      result["code"] = resp.status_code
+      return result
+
   except requests.exceptions.Timeout:
     return {
+      "id": id_content,
       "status": "buffering",
-      "message": "Channel is buffering, this may take 1-3 minutes"
+      "message": "Channel is buffering, this may take 1-3 minutes",
+      "chromecast_compatible": None
     }
   except Exception as e:
     return {
+      "id": id_content,
       "status": "error",
-      "error": str(e)
+      "error": str(e),
+      "chromecast_compatible": None
     }
+
+
+def detect_codecs_from_manifest(manifest_content):
+  """Intenta detectar códecs desde el manifest HLS"""
+  codec_info = {
+    "has_codec_info": False,
+    "video_codec": None,
+    "audio_codec": None,
+    "codecs_string": None
+  }
+
+  # Buscar líneas CODECS en el manifest
+  import re
+  codecs_match = re.search(r'CODECS="([^"]+)"', manifest_content)
+
+  if codecs_match:
+    codecs_string = codecs_match.group(1)
+    codec_info["has_codec_info"] = True
+    codec_info["codecs_string"] = codecs_string
+
+    # Parsear códecs comunes
+    if 'avc1' in codecs_string.lower() or 'h264' in codecs_string.lower():
+      codec_info["video_codec"] = "H.264"
+    elif 'hev1' in codecs_string.lower() or 'hvc1' in codecs_string.lower():
+      codec_info["video_codec"] = "H.265/HEVC"
+    elif 'vp9' in codecs_string.lower():
+      codec_info["video_codec"] = "VP9"
+    elif 'vp8' in codecs_string.lower():
+      codec_info["video_codec"] = "VP8"
+
+    if 'mp4a' in codecs_string.lower():
+      codec_info["audio_codec"] = "AAC"
+    elif 'ac-3' in codecs_string.lower() or 'ac3' in codecs_string.lower():
+      codec_info["audio_codec"] = "AC3/Dolby"
+    elif 'ec-3' in codecs_string.lower() or 'eac3' in codecs_string.lower():
+      codec_info["audio_codec"] = "EAC3/Dolby+"
+    elif 'opus' in codecs_string.lower():
+      codec_info["audio_codec"] = "Opus"
+    elif 'mp3' in codecs_string.lower():
+      codec_info["audio_codec"] = "MP3"
+
+  return codec_info
+
+
+def is_chromecast_compatible(codec_info):
+  """Verifica si los códecs son compatibles con Chromecast"""
+  if not codec_info or not codec_info.get("has_codec_info"):
+    return None  # No se pudo determinar
+
+  video = codec_info.get("video_codec", "").lower()
+  audio = codec_info.get("audio_codec", "").lower()
+
+  # Chromecast soporta: H.264, VP8, VP9
+  video_compatible = any(codec in video for codec in ["h.264", "vp8", "vp9"])
+
+  # Chromecast soporta: AAC, MP3, Opus, Vorbis
+  # NO soporta bien: AC3, EAC3 sin transcoding
+  audio_compatible = any(
+      codec in audio for codec in ["aac", "mp3", "opus", "vorbis"])
+
+  # Si tiene AC3/EAC3, marcar como incompatible
+  if "ac3" in audio or "dolby" in audio:
+    audio_compatible = False
+
+  return video_compatible and audio_compatible
 
 
 @app.route('/ace/manifest/<format>/<path:id_content>', methods=['GET', 'HEAD'])
