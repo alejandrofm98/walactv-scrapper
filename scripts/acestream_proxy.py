@@ -100,8 +100,8 @@ def is_manifest_content(content_type, url):
   return False
 
 
-def proxy_request(path, rewrite_manifest=False, follow_redirects_manually=False,
-    chromecast_mode=False):
+def proxy_request(path, rewrite_manifest=False,
+    follow_redirects_manually=False):
   """Proxy genérico con soporte mejorado para diferentes tipos de streams"""
 
   # Construir URL target
@@ -242,20 +242,6 @@ def proxy_request(path, rewrite_manifest=False, follow_redirects_manually=False,
           rewritten_lines.append(line)
 
         content = '\n'.join(rewritten_lines)
-
-        # PASO 3: Si está en modo Chromecast, agregar headers de compatibilidad
-        if chromecast_mode:
-          logger.info(
-            "🎮 Modo Chromecast activado - Agregando headers de compatibilidad")
-          # Detectar códecs y advertir si puede haber problemas
-          codec_info = detect_codecs_from_manifest(original_content)
-          if codec_info.get("has_codec_info"):
-            compatible = is_chromecast_compatible(codec_info)
-            if compatible is False:
-              logger.warning(
-                f"⚠️ Stream puede NO ser compatible con Chromecast: {codec_info}")
-            elif compatible is True:
-              logger.info(f"✅ Stream compatible con Chromecast: {codec_info}")
 
         # Contar cuántas URLs se reescribieron
         urls_replaced = original_content.count('http://acestream-arm:6878')
@@ -556,7 +542,9 @@ def manifest_query():
 
 @app.route('/ace/status/<id_content>')
 def channel_status(id_content):
-  """Check channel status y compatibilidad de códecs"""
+  """Check channel status y compatibilidad de códecs analizando chunks"""
+  import struct
+
   try:
     # Timeout corto para ver si el canal responde rápido
     url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
@@ -574,33 +562,49 @@ def channel_status(id_content):
       result["message"] = "Channel is responding quickly"
       result["redirect"] = resp.headers.get('Location', '')
 
-      # Intentar obtener info del stream
+      # Intentar detectar códec desde el primer chunk
       try:
-        # Obtener stats del engine para este infohash
-        stats_url = f"{ACESTREAM_BASE}/webui/api/service?method=get_stats"
-        stats_resp = requests.get(stats_url, timeout=3)
-
-        if stats_resp.status_code == 200:
-          stats = stats_resp.json()
-          result["engine_info"] = stats
-
-        # Intentar detectar códec desde el manifest
+        # Obtener manifest para encontrar el primer chunk
         manifest_url = f"{ACESTREAM_BASE}/ace/manifest.m3u8?id={id_content}"
         manifest_resp = requests.get(manifest_url, allow_redirects=True,
-                                     timeout=10)
+                                     timeout=30)
 
         if manifest_resp.status_code == 200:
           manifest_content = manifest_resp.text
 
-          # Detectar códecs en el manifest
-          codec_info = detect_codecs_from_manifest(manifest_content)
-          result["codec_info"] = codec_info
+          # Buscar la primera URL de chunk .ts
+          import re
+          chunk_match = re.search(
+            r'(http://acestream-arm:6878/ace/c/[^\s]+\.ts)', manifest_content)
 
-          # Verificar compatibilidad con Chromecast
-          result["chromecast_compatible"] = is_chromecast_compatible(codec_info)
+          if chunk_match:
+            chunk_url = chunk_match.group(1)
+            logger.info(f"🔍 Analizando chunk: {chunk_url}")
+
+            # Descargar los primeros bytes del chunk
+            chunk_resp = requests.get(chunk_url, timeout=15, stream=True)
+
+            # Leer los primeros 10KB del chunk
+            chunk_data = b''
+            for chunk in chunk_resp.iter_content(chunk_size=1024):
+              chunk_data += chunk
+              if len(chunk_data) >= 10240:  # 10KB
+                break
+
+            # Analizar el chunk para detectar códec
+            codec_info = analyze_ts_chunk(chunk_data)
+            result["codec_info"] = codec_info
+
+            # Verificar compatibilidad con Chromecast
+            if codec_info.get("video_codec"):
+              result["chromecast_compatible"] = is_chromecast_compatible_v2(
+                codec_info)
+
+            logger.info(f"✅ Códec detectado: {codec_info}")
 
       except Exception as e:
-        logger.warning(f"No se pudo obtener info de códecs: {e}")
+        logger.warning(f"⚠️ No se pudo detectar códec: {e}")
+        result["codec_detection_error"] = str(e)
 
       return result
     else:
@@ -622,6 +626,109 @@ def channel_status(id_content):
       "error": str(e),
       "chromecast_compatible": None
     }
+
+
+def analyze_ts_chunk(chunk_data):
+  """Analiza un chunk MPEG-TS para detectar códecs"""
+  import struct
+
+  codec_info = {
+    "video_codec": None,
+    "audio_codec": None,
+    "container": "MPEG-TS",
+    "analysis_method": "ts_inspection"
+  }
+
+  try:
+    # Verificar que sea MPEG-TS (debe empezar con 0x47)
+    if len(chunk_data) < 188 or chunk_data[0] != 0x47:
+      codec_info["error"] = "Not a valid MPEG-TS file"
+      return codec_info
+
+    # Buscar NAL units para detectar H.264/H.265
+    # H.264: NAL unit start code 0x00 0x00 0x01
+    # H.265: Similar pero con diferentes NAL types
+
+    # Buscar patrones de H.264
+    h264_patterns = [
+      b'\x00\x00\x00\x01\x67',  # SPS (Sequence Parameter Set) - H.264
+      b'\x00\x00\x00\x01\x27',  # SPS alternativo
+      b'\x00\x00\x01\x67',  # SPS sin leading zero
+    ]
+
+    # Buscar patrones de H.265 (HEVC)
+    h265_patterns = [
+      b'\x00\x00\x00\x01\x40',  # VPS (Video Parameter Set) - H.265
+      b'\x00\x00\x00\x01\x42',  # SPS - H.265
+      b'\x00\x00\x01\x40',  # VPS sin leading zero
+    ]
+
+    # Detectar video codec
+    for pattern in h264_patterns:
+      if pattern in chunk_data:
+        codec_info["video_codec"] = "H.264/AVC"
+        break
+
+    if not codec_info["video_codec"]:
+      for pattern in h265_patterns:
+        if pattern in chunk_data:
+          codec_info["video_codec"] = "H.265/HEVC"
+          break
+
+    # Si no se detectó, buscar en PES headers
+    if not codec_info["video_codec"]:
+      # Buscar stream_type en PMT (Program Map Table)
+      # 0x1B = H.264, 0x24 = H.265
+      if b'\x1b' in chunk_data[:2000]:  # Buscar en los primeros paquetes
+        codec_info["video_codec"] = "H.264/AVC (from PMT)"
+      elif b'\x24' in chunk_data[:2000]:
+        codec_info["video_codec"] = "H.265/HEVC (from PMT)"
+
+    # Detectar audio codec
+    # AAC: ADTS header 0xFFF
+    # AC3: sync word 0x0B77
+    # MP3: sync word 0xFFE or 0xFFF
+
+    if b'\xff\xf1' in chunk_data or b'\xff\xf9' in chunk_data:
+      codec_info["audio_codec"] = "AAC"
+    elif b'\x0b\x77' in chunk_data:
+      codec_info["audio_codec"] = "AC3/Dolby Digital"
+    elif b'\xff\xe' in chunk_data or b'\xff\xf' in chunk_data:
+      codec_info["audio_codec"] = "MP3"
+
+    # Si no se detectó nada, es posible que sea AAC encapsulado
+    if not codec_info["audio_codec"] and codec_info["video_codec"]:
+      codec_info["audio_codec"] = "AAC (assumed)"
+
+  except Exception as e:
+    codec_info["analysis_error"] = str(e)
+
+  return codec_info
+
+
+def is_chromecast_compatible_v2(codec_info):
+  """Verifica compatibilidad con Chromecast basado en análisis de chunk"""
+  if not codec_info:
+    return None
+
+  video = codec_info.get("video_codec", "").lower()
+  audio = codec_info.get("audio_codec", "").lower()
+
+  # Video compatible
+  video_compatible = "h.264" in video or "avc" in video or "vp8" in video or "vp9" in video
+
+  # Audio compatible
+  audio_compatible = "aac" in audio or "mp3" in audio or "opus" in audio
+
+  # AC3/Dolby NO es compatible
+  if "ac3" in audio or "dolby" in audio:
+    audio_compatible = False
+
+  # H.265 NO es compatible con Chromecast estándar
+  if "h.265" in video or "hevc" in video:
+    video_compatible = False
+
+  return video_compatible and audio_compatible
 
 
 def detect_codecs_from_manifest(manifest_content):
