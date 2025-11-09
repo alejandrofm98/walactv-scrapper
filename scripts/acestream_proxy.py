@@ -582,14 +582,37 @@ def manifest_path(format, id_content):
                        follow_redirects_manually=True)
 
 
-@app.route('/ace/c/<session_id>/<path:segment>', methods=['GET', 'HEAD'])
+@app.route('/ace/c/<session_id>/<path:segment>', methods=['GET', 'HEAD', 'OPTIONS'])
 def chunks(session_id, segment):
-  """Proxy para chunks .ts"""
-  logger.info(f"🎬 Chunk: {session_id}/{segment}")
-  path = f"ace/c/{session_id}/{segment}"
-  if request.query_string:
-    path += f"?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, follow_redirects_manually=True)  # CAMBIADO A TRUE
+    """Proxy para chunks .ts (mejorado para Chromecast y Gunicorn)"""
+    try:
+        logger.info(f"🎬 Chunk request: {request.method} {session_id}/{segment}")
+        path = f"ace/c/{session_id}/{segment}"
+        if request.query_string:
+            path += f"?{request.query_string.decode('utf-8')}"
+
+        # Preflight CORS (Chromecast hace esto a veces)
+        if request.method == 'OPTIONS':
+            logger.info("⚙️ OPTIONS request (preflight) recibido")
+            resp = Response('', status=204)
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+            resp.headers["Access-Control-Allow-Headers"] = "Range, Content-Type, Origin, X-Requested-With"
+            resp.headers["Access-Control-Expose-Headers"] = "Content-Range, Accept-Ranges, Content-Length"
+            return resp
+
+        # Pasar el request al engine
+        response = proxy_request(path, follow_redirects_manually=True)
+        response.headers["Content-Type"] = "video/MP2T"
+        response.headers["Accept-Ranges"] = "bytes"
+
+        logger.info(f"✅ Chunk proxy OK: {response.status_code}")
+        return response
+
+    except Exception as e:
+        logger.error(f"💥 Error en chunks handler: {e}", exc_info=True)
+        return Response(f"Internal Server Error in /ace/c: {str(e)}", status=500)
+
 
 
 @app.route('/ace/l/<path:subpath>', methods=['GET', 'HEAD'])
