@@ -582,37 +582,14 @@ def manifest_path(format, id_content):
                        follow_redirects_manually=True)
 
 
-@app.route('/ace/c/<session_id>/<path:segment>', methods=['GET', 'HEAD', 'OPTIONS'])
+@app.route('/ace/c/<session_id>/<path:segment>', methods=['GET', 'HEAD'])
 def chunks(session_id, segment):
-    """Proxy para chunks .ts (mejorado para Chromecast y Gunicorn)"""
-    try:
-        logger.info(f"🎬 Chunk request: {request.method} {session_id}/{segment}")
-        path = f"ace/c/{session_id}/{segment}"
-        if request.query_string:
-            path += f"?{request.query_string.decode('utf-8')}"
-
-        # Preflight CORS (Chromecast hace esto a veces)
-        if request.method == 'OPTIONS':
-            logger.info("⚙️ OPTIONS request (preflight) recibido")
-            resp = Response('', status=204)
-            resp.headers["Access-Control-Allow-Origin"] = "*"
-            resp.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
-            resp.headers["Access-Control-Allow-Headers"] = "Range, Content-Type, Origin, X-Requested-With"
-            resp.headers["Access-Control-Expose-Headers"] = "Content-Range, Accept-Ranges, Content-Length"
-            return resp
-
-        # Pasar el request al engine
-        response = proxy_request(path, follow_redirects_manually=True)
-        response.headers["Content-Type"] = "video/MP2T"
-        response.headers["Accept-Ranges"] = "bytes"
-
-        logger.info(f"✅ Chunk proxy OK: {response.status_code}")
-        return response
-
-    except Exception as e:
-        logger.error(f"💥 Error en chunks handler: {e}", exc_info=True)
-        return Response(f"Internal Server Error in /ace/c: {str(e)}", status=500)
-
+  """Proxy para chunks .ts"""
+  logger.info(f"🎬 Chunk: {session_id}/{segment}")
+  path = f"ace/c/{session_id}/{segment}"
+  if request.query_string:
+    path += f"?{request.query_string.decode('utf-8')}"
+  return proxy_request(path, follow_redirects_manually=True)  # CAMBIADO A TRUE
 
 
 @app.route('/ace/l/<path:subpath>', methods=['GET', 'HEAD'])
@@ -642,6 +619,52 @@ def catch_all(subpath):
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
   return proxy_request(path, follow_redirects_manually=False)
+
+
+@app.route('/stream')
+def stream_continuous():
+    id_content = request.args.get('id')
+    if not id_content:
+        return "Missing id", 400
+
+    # Paso 1: Obtener la URL real del stream
+    getstream_url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
+    try:
+        # Seguir redirect internamente (como ya haces en getstream_query)
+        resp = requests.get(getstream_url, allow_redirects=False, timeout=30)
+        if resp.status_code not in (301, 302, 303, 307, 308):
+            return "No redirect from getstream", 502
+
+        location = resp.headers.get('Location')
+        if not location:
+            return "No location in redirect", 502
+
+        # Construir URL absoluta
+        if location.startswith('/'):
+            real_stream_url = f"{ACESTREAM_BASE}{location}"
+        elif location.startswith('http://acestream-arm:6878'):
+            real_stream_url = location
+        else:
+            real_stream_url = urljoin(getstream_url, location)
+
+        # Paso 2: Proxy continuo del stream real
+        def generate():
+            with requests.get(real_stream_url, stream=True, timeout=(30, 600)) as r:
+                for chunk in r.iter_content(chunk_size=32768):
+                    yield chunk
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype='video/mp2t',
+            headers={
+                'Access-Control-Allow-Origin': '*',
+                'Accept-Ranges': 'bytes'
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Stream proxy error: {e}")
+        return f"Stream error: {str(e)}", 502
 
 
 @app.route('/')
