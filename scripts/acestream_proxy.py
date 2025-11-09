@@ -413,7 +413,8 @@ def analyze_ts_chunk_deep(chunk_data):
     "video_codec": None,
     "audio_codecs": [],  # Lista de TODOS los códecs de audio encontrados
     "container": "MPEG-TS",
-    "analysis_method": "deep_ts_inspection"
+    "analysis_method": "deep_ts_inspection",
+    "audio_codec_confidence": {}  # Confianza en cada detección
   }
 
   try:
@@ -461,41 +462,54 @@ def analyze_ts_chunk_deep(chunk_data):
       elif b'\x24' in chunk_data[:4000]:
         codec_info["video_codec"] = "H.265/HEVC (from PMT)"
 
-    # === DETECCIÓN DE AUDIO (TODOS LOS CÓDECS) ===
+    # === DETECCIÓN DE AUDIO (TODOS LOS CÓDECS) CON CONFIANZA ===
 
-    audio_found = set()
+    audio_found = {}  # codec -> count
 
-    # AAC (ADTS frames)
+    # AAC (ADTS frames) - contar ocurrencias
+    aac_count = 0
     aac_patterns = [b'\xff\xf1', b'\xff\xf9']
     for pattern in aac_patterns:
-      if pattern in chunk_data:
-        audio_found.add("AAC")
-        break
+      aac_count += chunk_data.count(pattern)
 
-    # AC3/Dolby Digital
-    if b'\x0b\x77' in chunk_data:
-      audio_found.add("AC3")
+    if aac_count > 0:
+      audio_found["AAC"] = aac_count
 
-    # E-AC3 (Dolby Digital Plus)
-    if b'\x0b\x77' in chunk_data and b'\x08\x00' in chunk_data:
-      audio_found.add("E-AC3")
+    # AC3/Dolby Digital - sync word 0x0B77
+    ac3_count = chunk_data.count(b'\x0b\x77')
+    if ac3_count > 0:
+      audio_found["AC3"] = ac3_count
 
-    # MP3
+    # E-AC3 (Dolby Digital Plus) - tiene 0x0B77 + otros patrones
+    if ac3_count > 0:
+      # E-AC3 tiene un frame type diferente
+      eac3_indicators = chunk_data.count(b'\x0b\x77') > 0 and chunk_data.count(
+        b'\x08\x00') > 0
+      if eac3_indicators:
+        audio_found["E-AC3"] = ac3_count // 2  # Aproximación
+
+    # MP3 - frame sync
+    mp3_count = 0
     mp3_patterns = [b'\xff\xfb', b'\xff\xfa', b'\xff\xf3', b'\xff\xf2']
     for pattern in mp3_patterns:
-      if pattern in chunk_data:
-        audio_found.add("MP3")
-        break
+      mp3_count += chunk_data.count(pattern)
+
+    if mp3_count > 0:
+      audio_found["MP3"] = mp3_count
 
     # DTS
-    if b'\x7f\xfe\x80\x01' in chunk_data or b'\xfe\x7f\x01\x80' in chunk_data:
-      audio_found.add("DTS")
+    dts_count = chunk_data.count(b'\x7f\xfe\x80\x01') + chunk_data.count(
+      b'\xfe\x7f\x01\x80')
+    if dts_count > 0:
+      audio_found["DTS"] = dts_count
 
-    codec_info["audio_codecs"] = sorted(list(audio_found))
+    # Guardar información de confianza
+    codec_info["audio_codec_confidence"] = audio_found
+    codec_info["audio_codecs"] = sorted(list(audio_found.keys()))
 
     # Mantener campo legacy
     if audio_found:
-      codec_info["audio_codec"] = ", ".join(sorted(audio_found))
+      codec_info["audio_codec"] = ", ".join(sorted(audio_found.keys()))
     else:
       codec_info["audio_codec"] = None
 
@@ -525,17 +539,33 @@ def consolidate_codec_analysis(codec_list):
 
   video_codec = max(video_votes, key=video_votes.get) if video_votes else None
 
-  # Unir TODOS los códecs de audio encontrados
-  all_audio_codecs = set()
+  # Consolidar códecs de audio con información de frecuencia
+  audio_codec_totals = {}
   for c in codec_list:
-    all_audio_codecs.update(c.get("audio_codecs", []))
+    confidence = c.get("audio_codec_confidence", {})
+    for codec, count in confidence.items():
+      audio_codec_totals[codec] = audio_codec_totals.get(codec, 0) + count
 
-  audio_codecs_list = sorted(list(all_audio_codecs))
+  # Si un códec aparece muy poco, puede ser falso positivo
+  total_max = max(audio_codec_totals.values()) if audio_codec_totals else 0
+
+  # Filtrar falsos positivos (menos del 10% de detecciones del códec principal)
+  filtered_codecs = {}
+  for codec, count in audio_codec_totals.items():
+    if total_max > 0 and count < (total_max * 0.1):
+      logger.info(
+        f"  ⚠️ Descartando {codec} (solo {count} detecciones vs {total_max} del principal)")
+    else:
+      filtered_codecs[codec] = count
+
+  audio_codecs_list = sorted(list(filtered_codecs.keys()))
 
   return {
     "video_codec": video_codec,
     "audio_codecs": audio_codecs_list,
     "audio_codec": ", ".join(audio_codecs_list) if audio_codecs_list else None,
+    "audio_codec_counts": filtered_codecs,
+    # Añadir info de cuántas veces se detectó cada uno
     "container": "MPEG-TS",
     "analysis_method": "consolidated_multi_chunk",
     "confidence": "high" if len(codec_list) >= 3 else "medium",
@@ -544,7 +574,7 @@ def consolidate_codec_analysis(codec_list):
 
 
 def is_chromecast_compatible_v2(codec_info):
-  """Verifica compatibilidad con Chromecast - LÓGICA CORRECTA"""
+  """Verifica compatibilidad con Chromecast - LÓGICA MEJORADA CON RATIOS"""
   if not codec_info:
     return None
 
@@ -554,9 +584,11 @@ def is_chromecast_compatible_v2(codec_info):
 
   video_lower = video.lower()
   audio_codecs = codec_info.get("audio_codecs", [])
+  audio_counts = codec_info.get("audio_codec_counts", {})
 
   logger.info(
     f"🔍 Evaluando compatibilidad - Video: {video}, Audio: {audio_codecs}")
+  logger.info(f"   Frecuencias: {audio_counts}")
 
   # === VERIFICACIÓN DE VIDEO ===
   video_compatible = any([
@@ -575,48 +607,54 @@ def is_chromecast_compatible_v2(codec_info):
     return False
 
   # === VERIFICACIÓN DE AUDIO ===
-  # Chromecast puede seleccionar el códec de audio que soporta
-  # La pregunta es: ¿hay al menos UN códec compatible?
-
   audio_codecs_upper = [c.upper() for c in audio_codecs]
 
-  # Verificar si tiene AAC (el mejor para Chromecast)
+  # Verificar si tiene AAC
   has_aac = any("AAC" in codec for codec in audio_codecs_upper)
+  aac_count = audio_counts.get("AAC", 0)
 
-  # Verificar si tiene SOLO códecs incompatibles
-  only_incompatible = all(
-      any(bad in codec for bad in ["AC3", "E-AC3", "DTS", "DOLBY"])
-      for codec in audio_codecs_upper
-  ) if audio_codecs_upper else True
-
-  # Verificar si tiene MP3 (puede ser problemático en MPEG-TS)
+  # Verificar MP3
   has_mp3 = any("MP3" in codec for codec in audio_codecs_upper)
-  has_only_mp3 = has_mp3 and len(
-      [c for c in audio_codecs_upper if "MP3" not in c]) == 0
+  mp3_count = audio_counts.get("MP3", 0)
 
-  # LÓGICA DE DECISIÓN:
+  # Verificar códecs incompatibles
+  has_ac3 = any("AC3" in codec for codec in audio_codecs_upper)
+  has_eac3 = any("E-AC3" in codec for codec in audio_codecs_upper)
+  has_dts = any("DTS" in codec for codec in audio_codecs_upper)
+
+  # LÓGICA DE DECISIÓN MEJORADA:
+
+  if not has_aac and not has_mp3:
+    # Solo tiene códecs incompatibles (AC3/DTS)
+    logger.info(f"  ❌ Incompatible: Solo tiene AC3/DTS sin AAC")
+    return False
+
   if has_aac:
-    # Si tiene AAC, Chromecast puede usarlo (ignora AC3/E-AC3)
-    logger.info(f"  ✅ Compatible: Tiene AAC (Chromecast lo seleccionará)")
-    return True
-  elif only_incompatible:
-    # Solo tiene AC3/DTS/E-AC3 sin AAC ni MP3
-    logger.info(f"  ❌ Incompatible: Solo tiene códecs no soportados (AC3/DTS)")
-    return False
-  elif has_only_mp3:
-    # Solo MP3 puede ser problemático en MPEG-TS HLS
+    # Tiene AAC - verificar si es el códec dominante
+    total_audio = sum(audio_counts.values())
+    aac_ratio = aac_count / total_audio if total_audio > 0 else 0
+
+    if aac_ratio > 0.3:  # AAC representa al menos 30% del audio
+      logger.info(
+        f"  ✅ Compatible: AAC presente y significativo ({aac_ratio:.1%})")
+      return True
+    elif has_mp3 and mp3_count > aac_count * 2:
+      # MP3 es mucho más frecuente que AAC (puede ser falso positivo de AAC)
+      logger.info(
+        f"  ⚠️ Problemático: MP3 domina sobre AAC (MP3:{mp3_count} vs AAC:{aac_count})")
+      return False
+    else:
+      logger.info(f"  ✅ Compatible: Tiene AAC aunque sea minoritario")
+      return True
+
+  if has_mp3 and not has_aac:
+    # Solo MP3 (conocido por causar problemas en Chromecast con MPEG-TS HLS)
     logger.info(
-      f"  ⚠️ Problemático: Solo tiene MP3 (puede fallar en Chromecast)")
+      f"  ❌ Problemático: Solo MP3 sin AAC (causa problemas en Chromecast)")
     return False
-  elif has_mp3:
-    # Tiene MP3 + otros (pero sin AAC)
-    logger.info(f"  ⚠️ Problemático: Tiene MP3 sin AAC")
-    return False
-  else:
-    # No tiene códecs conocidos
-    logger.info(
-      f"  ❓ Desconocido: No se detectaron códecs de audio compatibles")
-    return None
+
+  logger.info(f"  ❓ Desconocido: No se pudo determinar compatibilidad")
+  return None
 
 
 @app.route('/debug/manifest/<id_content>')
