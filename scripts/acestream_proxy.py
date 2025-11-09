@@ -614,11 +614,6 @@ def chunks(session_id, segment):
   if not head:
     return Response("Empty segment", status=404)
 
-  # Si es segmento 0 y no tiene SPS/PPS, devolvemos 404
-  if segment == '0.ts' and not has_sps_pps(head):
-    logger.warning(f"❌ 0.ts sin SPS/PPS: {session_id}")
-    return Response("Segment without codec params", status=404)
-
   # Re-ensamblamos el stream
   resp.raw._fp = io.BytesIO(head + resp.raw.read())
 
