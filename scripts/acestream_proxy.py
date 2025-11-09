@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 ACESTREAM_BASE = "http://acestream-arm:6878"
+# ACESTREAM_BASE = "http://localhost:6878"
 PUBLIC_DOMAIN = "https://acestream.walerike.com"
 
 ALLOWED_ORIGINS = [
@@ -75,8 +76,8 @@ def rewrite_url(url):
   if not url:
     return url
 
-  if url.startswith('http://acestream-arm:6878'):
-    return url.replace('http://acestream-arm:6878', PUBLIC_DOMAIN)
+  if url.startswith(ACESTREAM_BASE):
+    return url.replace(ACESTREAM_BASE, PUBLIC_DOMAIN)
   elif url.startswith('/'):
     return f"{PUBLIC_DOMAIN}{url}"
   return url
@@ -165,7 +166,7 @@ def proxy_request(path, rewrite_manifest=False,
         # Construir URL completa
         if location.startswith('/'):
           next_url = f"{ACESTREAM_BASE}{location}"
-        elif location.startswith('http://acestream-arm:6878'):
+        elif location.startswith(ACESTREAM_BASE):
           next_url = location
         else:
           next_url = urljoin(target_url, location)
@@ -224,7 +225,7 @@ def proxy_request(path, rewrite_manifest=False,
 
         # PASO 1: Reemplazar URLs absolutas internas
         content = re.sub(
-            r'http://acestream-arm:6878',
+            ACESTREAM_BASE,
             PUBLIC_DOMAIN,
             content
         )
@@ -245,12 +246,18 @@ def proxy_request(path, rewrite_manifest=False,
         content = '\n'.join(rewritten_lines)
 
         # Contar cuántas URLs se reescribieron
-        urls_replaced = original_content.count('http://acestream-arm:6878')
+        urls_replaced = original_content.count(ACESTREAM_BASE)
         relative_urls = original_content.count('\n/ace/')
 
         logger.info(
           f"✅ Manifest reescrito: {urls_replaced} URLs absolutas + {relative_urls} URLs relativas ({len(content)} bytes)")
         logger.info(f"Manifest reescrito preview:\n{content[:500]}")
+
+        # Forzar 200 OK y contenido completo para manifests
+        if is_manifest_content(content_type,
+                               target_url) and resp.status_code == 206:
+          resp = requests.get(target_url, headers={'Range': 'bytes=0-'},
+                              timeout=timeout_config)
 
         return Response(
             content,
@@ -398,11 +405,11 @@ def debug_manifest(id_content):
 
         # NUEVO: Mostrar cómo quedaría reescrito
         if content:
-          rewritten = content.replace('http://acestream-arm:6878',
+          rewritten = content.replace(ACESTREAM_BASE,
                                       PUBLIC_DOMAIN)
           results["rewritten_preview"] = rewritten[:500]
           results["urls_in_manifest"] = content.count(
-            'http://acestream-arm:6878')
+            ACESTREAM_BASE)
 
     # Paso 4: Info del engine
     try:
@@ -454,13 +461,13 @@ def test_manifest(id_content):
       original = content
 
       # Reescribir
-      content = content.replace('http://acestream-arm:6878', PUBLIC_DOMAIN)
+      content = content.replace(ACESTREAM_BASE, PUBLIC_DOMAIN)
 
       return {
         "status": "success",
         "original_preview": original[:300],
         "rewritten_preview": content[:300],
-        "urls_replaced": original.count('http://acestream-arm:6878'),
+        "urls_replaced": original.count(ACESTREAM_BASE),
         "full_rewritten": content
       }
     else:
@@ -582,13 +589,13 @@ def manifest_path(format, id_content):
   return proxy_request(path, rewrite_manifest=True,
                        follow_redirects_manually=True)
 
-  def has_sps_pps(ts_chunk: bytes) -> bool:
-    """True si el chunk MPEG-TS contiene SPS/PPS (AVCDecoderConfigurationRecord)"""
-    return bool(
-        (
-              b'\x00\x00\x00\x01\x67' in ts_chunk or b'\x00\x00\x01\x67' in ts_chunk) or
-        (b'\x00\x00\x00\x01\x68' in ts_chunk or b'\x00\x00\x01\x68' in ts_chunk)
-    )
+def has_sps_pps(ts_chunk: bytes) -> bool:
+  """True si el chunk MPEG-TS contiene SPS/PPS (AVCDecoderConfigurationRecord)"""
+  return bool(
+      (
+            b'\x00\x00\x00\x01\x67' in ts_chunk or b'\x00\x00\x01\x67' in ts_chunk) or
+      (b'\x00\x00\x00\x01\x68' in ts_chunk or b'\x00\x00\x01\x68' in ts_chunk)
+  )
 
 
 @app.route('/ace/c/<session_id>/<path:segment>', methods=['GET', 'HEAD'])
@@ -669,6 +676,59 @@ def catch_all(subpath):
 def root():
   """Root"""
   return proxy_request('', follow_redirects_manually=False)
+
+@app.route('/cast')
+def cast_test():
+    """Página de prueba para castear"""
+    html = '''<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Chromecast Test</title>
+</head>
+<body>
+  <h2>Cast Test</h2>
+  <button id="castBtn">Cast</button>
+  <pre id="log"></pre>
+
+<script>
+const LOG = txt => document.querySelector('#log').textContent += txt + '\\n';
+
+window['__onGCastApiAvailable'] = function(isAvailable) {
+  if (isAvailable) {
+    const ctx = cast.framework.CastContext.getInstance();
+    ctx.setOptions({
+      receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+      autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+    });
+    LOG('Cast API ready');
+  }
+};
+
+document.getElementById('castBtn').onclick = async () => {
+  try {
+    const castSession = cast.framework.CastContext.getInstance().getCurrentSession();
+    if (!castSession) {
+      LOG('No cast session → conectando...');
+      await cast.framework.CastContext.getInstance().requestSession();
+    }
+    const session = cast.framework.CastContext.getInstance().getCurrentSession();
+    const idContent = '102bcb79ca391e37ac1fc9ee77dc53440d0a59ce';
+    const url = window.location.origin + '/ace/manifest.m3u8?id=' + idContent;
+
+    const mediaInfo = new chrome.cast.media.MediaInfo(url, 'application/vnd.apple.mpegurl');
+    const request = new chrome.cast.media.LoadRequest(mediaInfo);
+    await session.loadMedia(request);
+    LOG('✅ Cast iniciado');
+  } catch (e) {
+    LOG('❌ Error: ' + e.message);
+  }
+};
+</script>
+<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+</body>
+</html>'''
+    return Response(html, mimetype='text/html')
 
 
 if __name__ == '__main__':
