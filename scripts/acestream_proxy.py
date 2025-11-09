@@ -475,59 +475,75 @@ def analyze_ts_chunk_deep(chunk_data):
 
       # === EXTRACCIÓN DETALLADA DE HEVC PROFILE ===
       sps_pos = chunk_data.find(h265_sps)
-      if sps_pos != -1 and sps_pos + 15 < len(chunk_data):
+      if sps_pos != -1 and sps_pos + 20 < len(chunk_data):
         try:
-          # HEVC SPS estructura (después del start code 0x00000001 0x42):
-          # Byte 0: NAL unit header (0x42 = SPS)
-          # Byte 1: Segundo byte del NAL header
-          # Byte 2-3: VPS/SPS id, max_sub_layers, etc
-          # Byte 4: profile_space(2bits) + tier_flag(1bit) + profile_idc(5bits)
-          # Byte 5-8: profile_compatibility_flags
-          # Byte 9-14: constraint flags
-          # Byte 15: level_idc
+          # HEVC SPS tiene estructura compleja, buscar el PTL (Profile Tier Level)
+          # Después del start code 0x00000001 y NAL header 0x42
+          # El PTL comienza alrededor del byte 7-8 después del NAL header
 
-          base_offset = sps_pos + 5  # Saltar start code (4) + NAL header (1)
+          # Intentar múltiples offsets porque la estructura varía
+          for offset_adjust in [7, 8, 9, 10]:
+            try:
+              base_offset = sps_pos + 5 + offset_adjust
 
-          if base_offset + 15 < len(chunk_data):
-            # Parsear el profile tier level
-            ptl_byte = chunk_data[base_offset + 2]  # Ajustar offset
-            profile_space = (ptl_byte >> 6) & 0x03
-            tier_flag = (ptl_byte >> 5) & 0x01
-            profile_idc = ptl_byte & 0x1F
+              if base_offset + 15 < len(chunk_data):
+                # Byte con profile_space, tier_flag, profile_idc
+                ptl_byte = chunk_data[base_offset]
+                profile_space = (ptl_byte >> 6) & 0x03
+                tier_flag = (ptl_byte >> 5) & 0x01
+                profile_idc = ptl_byte & 0x1F
 
-            # Leer level_idc (más adelante en la estructura)
-            level_idc = chunk_data[base_offset + 13] if base_offset + 13 < len(
-              chunk_data) else 0
+                # Leer level_idc (varios bytes después)
+                level_idc = chunk_data[
+                  base_offset + 11] if base_offset + 11 < len(chunk_data) else 0
 
-            # Mapear profile_idc a nombres
-            hevc_profiles = {
-              1: "Main",
-              2: "Main 10",
-              3: "Main Still Picture",
-              4: "Format Range Extensions"
-            }
+                # Validar que los valores tienen sentido
+                if 1 <= profile_idc <= 4 and 0 <= level_idc <= 186:
+                  # Mapear profile_idc a nombres
+                  hevc_profiles = {
+                    1: "Main",
+                    2: "Main 10",
+                    3: "Main Still Picture",
+                    4: "Format Range Extensions"
+                  }
 
-            profile_name = hevc_profiles.get(profile_idc,
-                                             f"Unknown({profile_idc})")
-            tier_name = "High" if tier_flag else "Main"
-            level = level_idc / 30.0  # HEVC level: 30=1.0, 93=3.1, 120=4.0, 153=5.1
+                  profile_name = hevc_profiles.get(profile_idc,
+                                                   f"Unknown({profile_idc})")
+                  tier_name = "High" if tier_flag else "Main"
+                  level = level_idc / 30.0  # HEVC level: 30=1.0, 93=3.1, 120=4.0, 153=5.1
 
-            codec_info["video_profile"] = profile_name
-            codec_info["video_level"] = f"{level:.1f}"
-            codec_info["hevc_profile_info"] = {
-              "profile_idc": profile_idc,
-              "profile_name": profile_name,
-              "tier": tier_name,
-              "level_idc": level_idc,
-              "level": f"{level:.1f}",
-              "profile_space": profile_space
-            }
+                  codec_info["video_profile"] = profile_name
+                  codec_info["video_level"] = f"{level:.1f}"
+                  codec_info["hevc_profile_info"] = {
+                    "profile_idc": profile_idc,
+                    "profile_name": profile_name,
+                    "tier": tier_name,
+                    "level_idc": level_idc,
+                    "level": f"{level:.1f}",
+                    "profile_space": profile_space,
+                    "offset_used": offset_adjust
+                  }
 
-            logger.info(
-              f"     🎯 HEVC Profile: {profile_name}, Tier: {tier_name}, Level: {level:.1f}")
+                  logger.info(
+                    f"     🎯 HEVC Profile: {profile_name}, Tier: {tier_name}, Level: {level:.1f}")
+                  break  # Encontrado, salir del loop
+            except:
+              continue
 
         except Exception as e:
           logger.warning(f"⚠️ Error parseando HEVC SPS: {e}")
+
+      # Si no encontramos SPS, buscar en VPS también
+      if not codec_info.get("hevc_profile_info"):
+        vps_pos = chunk_data.find(h265_vps)
+        if vps_pos != -1:
+          logger.info(
+            f"     ℹ️ VPS encontrado pero SPS no parseado - HEVC confirmado sin detalles")
+          # Al menos sabemos que es HEVC
+          codec_info["hevc_profile_info"] = {
+            "profile_name": "HEVC (profile unknown)",
+            "detected_from": "VPS"
+          }
 
     elif h264_total > 0:
       codec_info["video_codec"] = "H.264/AVC"
@@ -579,6 +595,25 @@ def analyze_ts_chunk_deep(chunk_data):
       # Stream type 0x24 = H.265
       elif b'\x24' in pmt_data:
         codec_info["video_codec"] = "H.265/HEVC (from PMT)"
+        # Intentar encontrar HEVC NAL units aún si PMT dice H.265
+        logger.info(f"     🔍 PMT indica HEVC, buscando NAL units...")
+
+    # Si PMT dice H.264 pero detectamos patrones HEVC, corregir
+    if codec_info["video_codec"] == "H.264/AVC (from PMT)" and h265_total > 0:
+      logger.warning(
+        f"     ⚠️ PMT dice H.264 pero hay {h265_total} patrones HEVC - Corrigiendo")
+      codec_info["video_codec"] = "H.265/HEVC (PMT incorrect)"
+      codec_info["pmt_mismatch"] = True
+
+      # Intentar extraer profile de los patrones HEVC encontrados
+      if not codec_info.get("hevc_profile_info"):
+        vps_pos = chunk_data.find(h265_vps)
+        if vps_pos != -1:
+          codec_info["hevc_profile_info"] = {
+            "profile_name": "HEVC (detected from VPS, PMT was wrong)",
+            "detected_from": "VPS_pattern_match",
+            "note": "PMT reported H.264 but HEVC patterns detected"
+          }
 
     # === DETECCIÓN DE AUDIO (con contadores) ===
 
@@ -785,7 +820,7 @@ def is_chromecast_compatible_v2(codec_info):
 
       # Verificar level
       try:
-        level_float = float(level)
+        level_float = float(level) if level else 0
         if level_float > 5.1:
           logger.info(f"  ❌ HEVC Level muy alto ({level}) - INCOMPATIBLE")
           return False
@@ -812,11 +847,21 @@ def is_chromecast_compatible_v2(codec_info):
 
         return True
 
-    # Si no tenemos info detallada de HEVC, ser conservadores
+      # Profile desconocido pero detectado
+      if "unknown" in profile_name.lower():
+        logger.info(
+          f"  ⚠️ HEVC con profile desconocido - Asumiendo compatible conservadoramente")
+        return True  # Permitir si no sabemos el profile exacto
+
+    # Si no tenemos info detallada de HEVC pero hay muchas detecciones
     if h265_detections > 5:
       logger.info(
-        f"  ❌ HEVC sin info de profile - Asumiendo incompatible por seguridad")
-      return False
+        f"  ⚠️ HEVC detectado ({h265_detections} patrones) sin info de profile")
+      logger.info(
+        f"     Puede ser compatible con Chromecast Ultra/Gen3+ (HEVC Main)")
+      logger.info(f"     Pero incompatible con Chromecast Gen 1/2 (sin HEVC)")
+      # Retornar True porque si el usuario tiene Ultra/Gen3, funcionará
+      return True
 
     # Pocas detecciones HEVC = stream inestable o mixto
     if h265_detections <= 3:
