@@ -508,37 +508,37 @@ def ace_r(subpath):
   return proxy_request(path, follow_redirects_manually=True)  # CAMBIADO A TRUE
 
 
+# Agregá esto al final de manifest_query(), antes del return normal
 @app.route('/ace/manifest.m3u8', methods=['GET', 'HEAD'])
 def manifest_query():
-  """Proxy para manifest.m3u8 con ?id= - Con prebuffering opcional"""
-  id_content = request.args.get('id', '')
-  if not id_content:
-    return Response("Missing id parameter", status=400)
+    id_content = request.args.get('id', '')
+    if not id_content:
+        return Response("Missing id parameter", status=400)
 
-  logger.info(f"📝 Manifest request: id={id_content[:16]}...")
+    logger.info(f"📝 Manifest request: id={id_content[:16]}...")
 
-  # OPCIONAL: Prebuffering solo si se solicita explícitamente
-  prebuffer = request.args.get('prebuffer', '0') == '1'
-
-  if prebuffer:
-    try:
-      prebuffer_url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
-      logger.info(f"🔄 Prebuffering solicitado...")
-      prebuffer_resp = requests.get(prebuffer_url, allow_redirects=False,
-                                    timeout=30)
-      logger.info(f"✓ Prebuffer: {prebuffer_resp.status_code}")
-
-      if prebuffer_resp.status_code == 302:
+    # === PATCH: esperar más segmentos para IDs problemáticos ===
+    PROBLEM_IDS = {'102bcb79ca391e37ac1fc9ee77dc53440d0a59ce'}
+    if id_content in PROBLEM_IDS:
         import time
-        time.sleep(1)
-    except Exception as e:
-      logger.warning(f"⚠️ Prebuffer falló (continuando): {e}")
+        for attempt in range(15):  # max 30s
+            try:
+                r = requests.get(f"{ACESTREAM_BASE}/ace/manifest.m3u8?id={id_content}", timeout=5)
+                if r.status_code == 200 and r.text.count('.ts') >= 3:
+                    logger.info(f"✅ ID problemático listo con {r.text.count('.ts')} segmentos")
+                    rewritten = r.text.replace('http://acestream-arm:6878', PUBLIC_DOMAIN)
+                    return Response(rewritten, mimetype='application/vnd.apple.mpegurl', headers={
+                        'Access-Control-Allow-Origin': '*',
+                        'Cache-Control': 'no-cache'
+                    })
+            except:
+                pass
+            time.sleep(2)
+        logger.warning("⏱ Timeout esperando segmentos para ID problemático")
 
-  # Obtener el manifest con TIMEOUT EXTENDIDO
-  path = f"ace/manifest.m3u8?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, rewrite_manifest=True,
-                       follow_redirects_manually=True)
-
+    # === comportamiento normal ===
+    path = f"ace/manifest.m3u8?{request.query_string.decode('utf-8')}"
+    return proxy_request(path, rewrite_manifest=True, follow_redirects_manually=True)
 
 @app.route('/ace/status/<id_content>')
 def channel_status(id_content):
@@ -619,52 +619,6 @@ def catch_all(subpath):
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
   return proxy_request(path, follow_redirects_manually=False)
-
-
-@app.route('/stream')
-def stream_continuous():
-    id_content = request.args.get('id')
-    if not id_content:
-        return "Missing id", 400
-
-    # Paso 1: Obtener la URL real del stream
-    getstream_url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
-    try:
-        # Seguir redirect internamente (como ya haces en getstream_query)
-        resp = requests.get(getstream_url, allow_redirects=False, timeout=30)
-        if resp.status_code not in (301, 302, 303, 307, 308):
-            return "No redirect from getstream", 502
-
-        location = resp.headers.get('Location')
-        if not location:
-            return "No location in redirect", 502
-
-        # Construir URL absoluta
-        if location.startswith('/'):
-            real_stream_url = f"{ACESTREAM_BASE}{location}"
-        elif location.startswith('http://acestream-arm:6878'):
-            real_stream_url = location
-        else:
-            real_stream_url = urljoin(getstream_url, location)
-
-        # Paso 2: Proxy continuo del stream real
-        def generate():
-            with requests.get(real_stream_url, stream=True, timeout=(30, 600)) as r:
-                for chunk in r.iter_content(chunk_size=32768):
-                    yield chunk
-
-        return Response(
-            stream_with_context(generate()),
-            mimetype='video/mp2t',
-            headers={
-                'Access-Control-Allow-Origin': '*',
-                'Accept-Ranges': 'bytes'
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"Stream proxy error: {e}")
-        return f"Stream error: {str(e)}", 502
 
 
 @app.route('/')
