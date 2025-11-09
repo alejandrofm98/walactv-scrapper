@@ -122,7 +122,7 @@ def proxy_request(path, rewrite_manifest=False,
   timeout_config = (120, 180) if is_manifest_request else (30, 600)
 
   logger.info(
-    f"⏱️ Timeout config: {timeout_config} (manifest={is_manifest_request})")
+      f"⏱️ Timeout config: {timeout_config} (manifest={is_manifest_request})")
 
   try:
     resp = requests.request(
@@ -226,7 +226,7 @@ def proxy_request(path, rewrite_manifest=False,
         relative_urls = original_content.count('\n/ace/')
 
         logger.info(
-          f"✅ Manifest reescrito: {urls_replaced} URLs absolutas + {relative_urls} URLs relativas ({len(content)} bytes)")
+            f"✅ Manifest reescrito: {urls_replaced} URLs absolutas + {relative_urls} URLs relativas ({len(content)} bytes)")
         logger.info(f"Manifest reescrito preview:\n{content[:500]}")
 
         return Response(
@@ -305,7 +305,7 @@ def health():
 
 @app.route('/ace/status/<id_content>')
 def channel_status(id_content):
-  """Check channel status y compatibilidad de códecs analizando chunks"""
+  """Check channel status y compatibilidad de códecs analizando chunks MEJORADO"""
   try:
     url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
     resp = requests.get(url, allow_redirects=False, timeout=5)
@@ -330,29 +330,49 @@ def channel_status(id_content):
         if manifest_resp.status_code == 200:
           manifest_content = manifest_resp.text
 
-          chunk_match = re.search(
-            r'(http://acestream-arm:6878/ace/c/[^\s]+\.ts)', manifest_content)
+          # Extraer MÚLTIPLES chunks para análisis más profundo
+          chunk_urls = re.findall(
+              r'(http://acestream-arm:6878/ace/c/[^\s]+\.ts)',
+              manifest_content
+          )
 
-          if chunk_match:
-            chunk_url = chunk_match.group(1)
-            logger.info(f"🔍 Analizando chunk: {chunk_url}")
+          if chunk_urls:
+            # Analizar los primeros 3-5 chunks (más confiable)
+            chunks_to_analyze = chunk_urls[:5]
+            logger.info(
+              f"🔍 Analizando {len(chunks_to_analyze)} chunks para detección robusta")
 
-            chunk_resp = requests.get(chunk_url, timeout=15, stream=True)
+            all_codecs = []
 
-            chunk_data = b''
-            for chunk in chunk_resp.iter_content(chunk_size=1024):
-              chunk_data += chunk
-              if len(chunk_data) >= 10240:
-                break
+            for chunk_url in chunks_to_analyze:
+              try:
+                chunk_resp = requests.get(chunk_url, timeout=10, stream=True)
 
-            codec_info = analyze_ts_chunk(chunk_data)
-            result["codec_info"] = codec_info
+                # Analizar más datos (50KB en lugar de 10KB)
+                chunk_data = b''
+                for chunk in chunk_resp.iter_content(chunk_size=8192):
+                  chunk_data += chunk
+                  if len(chunk_data) >= 51200:  # 50KB
+                    break
 
-            if codec_info.get("video_codec"):
+                codec_info = analyze_ts_chunk_deep(chunk_data)
+                all_codecs.append(codec_info)
+
+              except Exception as e:
+                logger.warning(
+                  f"⚠️ Error analizando chunk {chunk_url[:80]}: {e}")
+                continue
+
+            # Consolidar resultados de múltiples chunks
+            consolidated = consolidate_codec_analysis(all_codecs)
+            result["codec_info"] = consolidated
+            result["chunks_analyzed"] = len(all_codecs)
+
+            if consolidated.get("video_codec"):
               result["chromecast_compatible"] = is_chromecast_compatible_v2(
-                codec_info)
+                consolidated)
 
-            logger.info(f"✅ Códec detectado: {codec_info}")
+            logger.info(f"✅ Códec consolidado: {consolidated}")
 
       except Exception as e:
         logger.warning(f"⚠️ No se pudo detectar códec: {e}")
@@ -380,13 +400,13 @@ def channel_status(id_content):
     }
 
 
-def analyze_ts_chunk(chunk_data):
-  """Analiza un chunk MPEG-TS para detectar códecs"""
+def analyze_ts_chunk_deep(chunk_data):
+  """Analiza un chunk MPEG-TS PROFUNDAMENTE para detectar códecs ocultos"""
   codec_info = {
     "video_codec": None,
-    "audio_codec": None,
+    "audio_codecs": [],  # Lista de TODOS los códecs de audio encontrados
     "container": "MPEG-TS",
-    "analysis_method": "ts_inspection"
+    "analysis_method": "deep_ts_inspection"
   }
 
   try:
@@ -394,44 +414,83 @@ def analyze_ts_chunk(chunk_data):
       codec_info["error"] = "Not a valid MPEG-TS file"
       return codec_info
 
+    # === DETECCIÓN DE VIDEO ===
+
+    # H.264 NAL units
     h264_patterns = [
-      b'\x00\x00\x00\x01\x67',
-      b'\x00\x00\x00\x01\x27',
+      b'\x00\x00\x00\x01\x67',  # SPS
+      b'\x00\x00\x00\x01\x27',  # Slice
       b'\x00\x00\x01\x67',
+      b'\x00\x00\x00\x01\x41',  # P-slice
     ]
 
+    # H.265/HEVC NAL units
     h265_patterns = [
-      b'\x00\x00\x00\x01\x40',
-      b'\x00\x00\x00\x01\x42',
+      b'\x00\x00\x00\x01\x40',  # VPS
+      b'\x00\x00\x00\x01\x42',  # SPS
+      b'\x00\x00\x00\x01\x44',  # PPS
       b'\x00\x00\x01\x40',
     ]
 
+    h264_count = 0
+    h265_count = 0
+
     for pattern in h264_patterns:
-      if pattern in chunk_data:
-        codec_info["video_codec"] = "H.264/AVC"
-        break
+      h264_count += chunk_data.count(pattern)
 
-    if not codec_info["video_codec"]:
-      for pattern in h265_patterns:
-        if pattern in chunk_data:
-          codec_info["video_codec"] = "H.265/HEVC"
-          break
+    for pattern in h265_patterns:
+      h265_count += chunk_data.count(pattern)
 
+    if h265_count > h264_count and h265_count > 0:
+      codec_info["video_codec"] = "H.265/HEVC"
+    elif h264_count > 0:
+      codec_info["video_codec"] = "H.264/AVC"
+
+    # Fallback: analizar PMT (Program Map Table)
     if not codec_info["video_codec"]:
-      if b'\x1b' in chunk_data[:2000]:
+      # Stream type 0x1b = H.264, 0x24 = H.265
+      if b'\x1b' in chunk_data[:4000]:
         codec_info["video_codec"] = "H.264/AVC (from PMT)"
-      elif b'\x24' in chunk_data[:2000]:
+      elif b'\x24' in chunk_data[:4000]:
         codec_info["video_codec"] = "H.265/HEVC (from PMT)"
 
-    if b'\xff\xf1' in chunk_data or b'\xff\xf9' in chunk_data:
-      codec_info["audio_codec"] = "AAC"
-    elif b'\x0b\x77' in chunk_data:
-      codec_info["audio_codec"] = "AC3/Dolby Digital"
-    elif b'\xff\xfb' in chunk_data or b'\xff\xfa' in chunk_data:
-      codec_info["audio_codec"] = "MP3"
+    # === DETECCIÓN DE AUDIO (TODOS LOS CÓDECS) ===
 
-    if not codec_info["audio_codec"] and codec_info["video_codec"]:
-      codec_info["audio_codec"] = "AAC (assumed)"
+    audio_found = set()
+
+    # AAC (ADTS frames)
+    aac_patterns = [b'\xff\xf1', b'\xff\xf9']
+    for pattern in aac_patterns:
+      if pattern in chunk_data:
+        audio_found.add("AAC")
+        break
+
+    # AC3/Dolby Digital
+    if b'\x0b\x77' in chunk_data:
+      audio_found.add("AC3")
+
+    # E-AC3 (Dolby Digital Plus)
+    if b'\x0b\x77' in chunk_data and b'\x08\x00' in chunk_data:
+      audio_found.add("E-AC3")
+
+    # MP3
+    mp3_patterns = [b'\xff\xfb', b'\xff\xfa', b'\xff\xf3', b'\xff\xf2']
+    for pattern in mp3_patterns:
+      if pattern in chunk_data:
+        audio_found.add("MP3")
+        break
+
+    # DTS
+    if b'\x7f\xfe\x80\x01' in chunk_data or b'\xfe\x7f\x01\x80' in chunk_data:
+      audio_found.add("DTS")
+
+    codec_info["audio_codecs"] = sorted(list(audio_found))
+
+    # Mantener campo legacy
+    if audio_found:
+      codec_info["audio_codec"] = ", ".join(sorted(audio_found))
+    else:
+      codec_info["audio_codec"] = None
 
   except Exception as e:
     codec_info["analysis_error"] = str(e)
@@ -439,22 +498,75 @@ def analyze_ts_chunk(chunk_data):
   return codec_info
 
 
+def consolidate_codec_analysis(codec_list):
+  """Consolida análisis de múltiples chunks para resultado más confiable"""
+  if not codec_list:
+    return {
+      "video_codec": None,
+      "audio_codecs": [],
+      "audio_codec": None,
+      "container": "MPEG-TS",
+      "confidence": "none"
+    }
+
+  # Votar por el video codec más común
+  video_votes = {}
+  for c in codec_list:
+    vc = c.get("video_codec")
+    if vc:
+      video_votes[vc] = video_votes.get(vc, 0) + 1
+
+  video_codec = max(video_votes, key=video_votes.get) if video_votes else None
+
+  # Unir TODOS los códecs de audio encontrados
+  all_audio_codecs = set()
+  for c in codec_list:
+    all_audio_codecs.update(c.get("audio_codecs", []))
+
+  audio_codecs_list = sorted(list(all_audio_codecs))
+
+  return {
+    "video_codec": video_codec,
+    "audio_codecs": audio_codecs_list,
+    "audio_codec": ", ".join(audio_codecs_list) if audio_codecs_list else None,
+    "container": "MPEG-TS",
+    "analysis_method": "consolidated_multi_chunk",
+    "confidence": "high" if len(codec_list) >= 3 else "medium",
+    "chunks_analyzed": len(codec_list)
+  }
+
+
 def is_chromecast_compatible_v2(codec_info):
-  """Verifica compatibilidad con Chromecast basado en análisis de chunk"""
+  """Verifica compatibilidad con Chromecast - VERSION ESTRICTA"""
   if not codec_info:
     return None
 
   video = codec_info.get("video_codec", "").lower()
-  audio = codec_info.get("audio_codec", "").lower()
+  audio_codecs = codec_info.get("audio_codecs", [])
 
-  video_compatible = "h.264" in video or "avc" in video or "vp8" in video or "vp9" in video
-  audio_compatible = "aac" in audio or "mp3" in audio or "opus" in audio
-
-  if "ac3" in audio or "dolby" in audio:
-    audio_compatible = False
+  # VIDEO: solo H.264, VP8, VP9
+  video_compatible = any([
+    "h.264" in video,
+    "avc" in video,
+    "vp8" in video,
+    "vp9" in video
+  ])
 
   if "h.265" in video or "hevc" in video:
-    video_compatible = False
+    return False  # HEVC no soportado
+
+  # AUDIO: si hay AC3/DTS/E-AC3, NO ES COMPATIBLE
+  incompatible_audio = ["AC3", "E-AC3", "DTS", "DOLBY"]
+  for codec in audio_codecs:
+    if any(bad in codec.upper() for bad in incompatible_audio):
+      return False
+
+  # Debe tener al menos un códec de audio compatible
+  compatible_audio = ["AAC", "MP3", "OPUS", "VORBIS"]
+  audio_compatible = any(
+      any(good in codec.upper() for good in compatible_audio)
+      for codec in audio_codecs
+  ) if audio_codecs else False
 
   return video_compatible and audio_compatible
 
@@ -529,11 +641,11 @@ def debug_manifest(id_content):
                                       PUBLIC_DOMAIN)
           results["rewritten_preview"] = rewritten[:500]
           results["urls_in_manifest"] = content.count(
-            'http://acestream-arm:6878')
+              'http://acestream-arm:6878')
 
     try:
       resp4 = requests.get(
-        f"{ACESTREAM_BASE}/webui/api/service?method=get_stats", timeout=5)
+          f"{ACESTREAM_BASE}/webui/api/service?method=get_stats", timeout=5)
       results[
         "engine_stats"] = resp4.json() if resp4.status_code == 200 else None
     except:
