@@ -544,7 +544,7 @@ def consolidate_codec_analysis(codec_list):
 
 
 def is_chromecast_compatible_v2(codec_info):
-  """Verifica compatibilidad con Chromecast - VERSION ESTRICTA"""
+  """Verifica compatibilidad con Chromecast - LÓGICA CORRECTA"""
   if not codec_info:
     return None
 
@@ -558,7 +558,7 @@ def is_chromecast_compatible_v2(codec_info):
   logger.info(
     f"🔍 Evaluando compatibilidad - Video: {video}, Audio: {audio_codecs}")
 
-  # VIDEO: solo H.264, VP8, VP9
+  # === VERIFICACIÓN DE VIDEO ===
   video_compatible = any([
     "h.264" in video_lower,
     "avc" in video_lower,
@@ -568,42 +568,55 @@ def is_chromecast_compatible_v2(codec_info):
 
   if "h.265" in video_lower or "hevc" in video_lower:
     logger.info(f"  ❌ Video incompatible: HEVC detectado")
-    return False  # HEVC no soportado
+    return False
 
   if not video_compatible:
     logger.info(f"  ❌ Video incompatible: códec no soportado")
     return False
 
-  # AUDIO: si hay AC3/DTS/E-AC3, NO ES COMPATIBLE
-  incompatible_audio = ["AC3", "E-AC3", "DTS", "DOLBY"]
-  for codec in audio_codecs:
-    codec_upper = codec.upper()
-    for bad in incompatible_audio:
-      if bad in codec_upper:
-        logger.info(
-          f"  ❌ Audio incompatible: {codec} detectado (Chromecast no soporta)")
-        return False
+  # === VERIFICACIÓN DE AUDIO ===
+  # Chromecast puede seleccionar el códec de audio que soporta
+  # La pregunta es: ¿hay al menos UN códec compatible?
 
-  # Debe tener al menos un códec de audio compatible
-  compatible_audio = ["AAC", "MP3", "OPUS", "VORBIS"]
-  audio_compatible = False
+  audio_codecs_upper = [c.upper() for c in audio_codecs]
 
-  if audio_codecs:
-    for codec in audio_codecs:
-      codec_upper = codec.upper()
-      for good in compatible_audio:
-        if good in codec_upper:
-          audio_compatible = True
-          break
-      if audio_compatible:
-        break
+  # Verificar si tiene AAC (el mejor para Chromecast)
+  has_aac = any("AAC" in codec for codec in audio_codecs_upper)
 
-  if not audio_compatible:
-    logger.info(f"  ❌ Audio incompatible: no hay códec compatible")
+  # Verificar si tiene SOLO códecs incompatibles
+  only_incompatible = all(
+      any(bad in codec for bad in ["AC3", "E-AC3", "DTS", "DOLBY"])
+      for codec in audio_codecs_upper
+  ) if audio_codecs_upper else True
+
+  # Verificar si tiene MP3 (puede ser problemático en MPEG-TS)
+  has_mp3 = any("MP3" in codec for codec in audio_codecs_upper)
+  has_only_mp3 = has_mp3 and len(
+      [c for c in audio_codecs_upper if "MP3" not in c]) == 0
+
+  # LÓGICA DE DECISIÓN:
+  if has_aac:
+    # Si tiene AAC, Chromecast puede usarlo (ignora AC3/E-AC3)
+    logger.info(f"  ✅ Compatible: Tiene AAC (Chromecast lo seleccionará)")
+    return True
+  elif only_incompatible:
+    # Solo tiene AC3/DTS/E-AC3 sin AAC ni MP3
+    logger.info(f"  ❌ Incompatible: Solo tiene códecs no soportados (AC3/DTS)")
     return False
-
-  logger.info(f"  ✅ Compatible: Video={video}, Audio compatible encontrado")
-  return True
+  elif has_only_mp3:
+    # Solo MP3 puede ser problemático en MPEG-TS HLS
+    logger.info(
+      f"  ⚠️ Problemático: Solo tiene MP3 (puede fallar en Chromecast)")
+    return False
+  elif has_mp3:
+    # Tiene MP3 + otros (pero sin AAC)
+    logger.info(f"  ⚠️ Problemático: Tiene MP3 sin AAC")
+    return False
+  else:
+    # No tiene códecs conocidos
+    logger.info(
+      f"  ❓ Desconocido: No se detectaron códecs de audio compatibles")
+    return None
 
 
 @app.route('/debug/manifest/<id_content>')
