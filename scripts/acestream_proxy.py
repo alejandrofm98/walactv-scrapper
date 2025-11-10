@@ -87,7 +87,9 @@ def is_manifest_content(content_type, url):
     return False
 
 
-def proxy_request(path, rewrite_manifest=False, follow_redirects_manually=False):
+# 3. MEJORA EN LA FUNCIÓN proxy_request PARA MANIFESTS
+def proxy_request(path, rewrite_manifest=False,
+    follow_redirects_manually=False):
     """Proxy genérico con soporte mejorado para diferentes tipos de streams"""
     if path.startswith('http'):
         target_url = path
@@ -96,23 +98,37 @@ def proxy_request(path, rewrite_manifest=False, follow_redirects_manually=False)
 
     headers = {
         key: value for key, value in request.headers
-        if key.lower() not in ['host', 'connection', 'content-length', 'transfer-encoding', 'content-encoding']
+        if key.lower() not in ['host', 'connection', 'content-length',
+                               'transfer-encoding', 'content-encoding']
     }
 
     if 'Range' in headers:
         logger.info(f"🎯 Range Request: {headers['Range']}")
 
-    logger.info(f"→ {request.method} {target_url}")
+    logger.info(f"→ {request.method} {target_url[:100]}...")
+
+    # Detectar tipo de contenido
     is_manifest_request = 'manifest' in path.lower() or rewrite_manifest
-    timeout_config = (120, 180) if is_manifest_request else (30, 600)
-    logger.info(f"⏱️ Timeout config: {timeout_config} (manifest={is_manifest_request})")
+    is_chunk_request = '/ace/c/' in path.lower()
+
+    # Timeouts adaptados al tipo de contenido
+    if is_manifest_request:
+        timeout_config = (60, 180)  # Manifest: más tiempo de conexión
+    elif is_chunk_request:
+        timeout_config = (30, 300)  # Chunks: timeout medio
+    else:
+        timeout_config = (30, 600)  # Otros: timeout largo
+
+    logger.info(
+        f"⏱️ Timeout: {timeout_config} (manifest={is_manifest_request}, chunk={is_chunk_request})")
 
     try:
         resp = requests.request(
             method=request.method,
             url=target_url,
             headers=headers,
-            data=request.get_data() if request.method in ['POST', 'PUT', 'PATCH'] else None,
+            data=request.get_data() if request.method in ['POST', 'PUT',
+                                                          'PATCH'] else None,
             allow_redirects=False,
             stream=True,
             timeout=timeout_config,
@@ -120,23 +136,30 @@ def proxy_request(path, rewrite_manifest=False, follow_redirects_manually=False)
         )
         logger.info(f"✓ {resp.status_code} from acestream")
 
+        # Seguir redirects manualmente si está habilitado
         redirect_count = 0
         max_redirects = 10
-        while resp.status_code in [301, 302, 303, 307, 308] and redirect_count < max_redirects:
+
+        while resp.status_code in [301, 302, 303, 307,
+                                   308] and redirect_count < max_redirects:
             location = resp.headers.get('Location', '')
             if not location:
                 break
+
             redirect_count += 1
             logger.info(f"🔄 Redirect #{redirect_count}: {location[:100]}")
 
             if follow_redirects_manually:
+                # Construir URL del redirect
                 if location.startswith('/'):
                     next_url = f"{ACESTREAM_BASE}{location}"
                 elif location.startswith('http://acestream-arm:6878'):
                     next_url = location
                 else:
                     next_url = urljoin(target_url, location)
-                logger.info(f"🔄 Siguiendo redirect internamente: {next_url[:100]}")
+
+                logger.info(f"🔄 Following internally: {next_url[:100]}")
+
                 resp = requests.request(
                     method='GET',
                     url=next_url,
@@ -146,76 +169,127 @@ def proxy_request(path, rewrite_manifest=False, follow_redirects_manually=False)
                     timeout=timeout_config,
                     verify=False
                 )
-                logger.info(f"✓ {resp.status_code} después de redirect")
+                logger.info(f"✓ {resp.status_code} after redirect")
                 target_url = next_url
             else:
+                # Reescribir y enviar al cliente
                 new_location = rewrite_url(location)
-                logger.info(f"🔄 Redirect al cliente: {new_location[:100]}")
+                logger.info(f"🔄 Redirecting client to: {new_location[:100]}")
                 return redirect(new_location, code=resp.status_code)
 
+        # Log de errores
         if resp.status_code >= 400:
             try:
                 error_content = resp.text[:500]
-                logger.error(f"❌ Acestream error {resp.status_code}: {error_content}")
+                logger.error(
+                    f"❌ Acestream error {resp.status_code}: {error_content}")
             except:
                 pass
 
+        # Headers de respuesta
         excluded_headers = [
-            'content-encoding', 'content-length', 'transfer-encoding', 'connection',
-            'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailers', 'upgrade'
+            'content-encoding', 'content-length', 'transfer-encoding',
+            'connection',
+            'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te',
+            'trailers', 'upgrade'
         ]
+
         response_headers = [
             (name, value) for name, value in resp.headers.items()
-            if name.lower() not in excluded_headers and not name.lower().startswith('access-control-')
+            if name.lower() not in excluded_headers and
+               not name.lower().startswith('access-control-')
         ]
 
-        if not any(name.lower() == 'accept-ranges' for name, _ in response_headers):
+        # Agregar Accept-Ranges si no existe
+        if not any(
+            name.lower() == 'accept-ranges' for name, _ in response_headers):
             response_headers.append(('Accept-Ranges', 'bytes'))
 
+        # Procesar manifests
         content_type = resp.headers.get('Content-Type', '').lower()
+
         if rewrite_manifest or is_manifest_content(content_type, target_url):
             try:
                 content = resp.text
                 original_content = content
-                content = re.sub(r'http://acestream-arm:6878', PUBLIC_DOMAIN, content)
+
+                # Reescribir URLs absolutas
+                content = re.sub(r'http://acestream-arm:6878', PUBLIC_DOMAIN,
+                                 content)
+
+                # Reescribir URLs relativas en el manifest
                 lines = content.split('\n')
                 rewritten_lines = []
-                for line in lines:
-                    if not line.startswith('#') and line.strip().startswith('/ace/'):
-                        if PUBLIC_DOMAIN not in line:
-                            line = PUBLIC_DOMAIN + line.strip()
-                    rewritten_lines.append(line)
-                content = '\n'.join(rewritten_lines)
-                urls_replaced = original_content.count('http://acestream-arm:6878')
-                relative_urls = original_content.count('\n/ace/')
-                logger.info(f"✅ Manifest reescrito: {urls_replaced} URLs absolutas + {relative_urls} URLs relativas ({len(content)} bytes)")
-                logger.info(f"Manifest reescrito preview:\n{content[:500]}")
-                return Response(content, status=resp.status_code, headers=response_headers)
-            except Exception as e:
-                logger.error(f"❌ Error reescribiendo manifest: {e}")
 
+                for line in lines:
+                    stripped = line.strip()
+                    # Si es una línea de chunk relativa
+                    if not line.startswith('#') and stripped.startswith(
+                        '/ace/'):
+                        if PUBLIC_DOMAIN not in line:
+                            line = PUBLIC_DOMAIN + stripped
+                    rewritten_lines.append(line)
+
+                content = '\n'.join(rewritten_lines)
+
+                urls_replaced = original_content.count(
+                    'http://acestream-arm:6878')
+                relative_urls = original_content.count('\n/ace/')
+
+                logger.info(
+                    f"✅ Manifest rewritten: {urls_replaced} absolute + {relative_urls} relative URLs ({len(content)} bytes)")
+
+                # Agregar headers de cache para manifests
+                response_headers.append(
+                    ('Cache-Control', 'no-cache, no-store, must-revalidate'))
+                response_headers.append(('Pragma', 'no-cache'))
+                response_headers.append(('Expires', '0'))
+
+                return Response(
+                    content,
+                    status=resp.status_code,
+                    headers=response_headers
+                )
+            except Exception as e:
+                logger.error(f"❌ Error rewriting manifest: {e}", exc_info=True)
+
+        # Streaming de contenido binario
         def generate():
             try:
-                chunk_size = 8192
+                # Tamaño de chunk adaptado al tipo de contenido
                 if 'video' in content_type or 'mpegts' in content_type:
-                    chunk_size = 32768
+                    chunk_size = 65536  # 64KB para video
+                elif is_manifest_request:
+                    chunk_size = 8192  # 8KB para manifests
+                else:
+                    chunk_size = 32768  # 32KB por defecto
+
                 for chunk in resp.iter_content(chunk_size=chunk_size):
                     if chunk:
                         yield chunk
             except Exception as e:
                 logger.error(f"❌ Error streaming: {e}")
 
-        return Response(stream_with_context(generate()), status=resp.status_code, headers=response_headers, direct_passthrough=True)
+        return Response(
+            stream_with_context(generate()),
+            status=resp.status_code,
+            headers=response_headers,
+            direct_passthrough=True
+        )
 
     except requests.exceptions.ConnectionError as e:
         logger.error(f"🔌 Connection error: {e}")
-        return Response(f"Bad Gateway: Cannot connect to Acestream at {ACESTREAM_BASE}", status=502)
+        return Response(
+            f"Bad Gateway: Cannot connect to Acestream at {ACESTREAM_BASE}",
+            status=502
+        )
     except requests.exceptions.Timeout as e:
         logger.error(f"⏱️ Timeout: {e}")
         timeout_msg = "Gateway Timeout: Stream needs more time to buffer. "
         if 'manifest' in path.lower():
             timeout_msg += "This channel may have low peer availability or require longer buffering time (>3min)."
-        return Response(timeout_msg, status=504)
+        return Response(timeout_msg, status=504,
+                        headers=[('Retry-After', '30')])
     except requests.exceptions.RequestException as e:
         logger.error(f"❌ Request error: {e}")
         return Response(f"Bad Gateway: {str(e)}", status=502)
@@ -955,85 +1029,202 @@ def test_manifest(id_content):
 
 
 # === FUNCIÓN DE PREBUFFERING ===
-def wait_for_manifest_chunks(manifest_url, min_chunks=3, max_wait=15):
+def wait_for_manifest_chunks(manifest_url, min_chunks=3, max_wait=30):
+    """Espera a que el manifest tenga suficientes chunks antes de devolverlo"""
     start_time = time.time()
     attempt = 0
+    last_chunk_count = 0
+    stable_count = 0
+
     while time.time() - start_time < max_wait:
         attempt += 1
         try:
-            resp = requests.get(manifest_url, timeout=10)
+            resp = requests.get(manifest_url, timeout=15, allow_redirects=True)
             if resp.status_code == 200:
                 content = resp.text
                 chunks = re.findall(r'\.ts', content)
                 chunk_count = len(chunks)
-                logger.info(f"  🔄 Attempt {attempt}: {chunk_count} chunks found")
-                if chunk_count >= min_chunks:
+
+                logger.info(
+                    f"  🔄 Attempt {attempt}: {chunk_count} chunks found")
+
+                # Verificar que el manifest es estable (mismo número de chunks)
+                if chunk_count == last_chunk_count and chunk_count > 0:
+                    stable_count += 1
+                else:
+                    stable_count = 0
+
+                last_chunk_count = chunk_count
+
+                # Retornar cuando tengamos suficientes chunks Y el manifest sea estable
+                if chunk_count >= min_chunks and stable_count >= 2:
                     elapsed = time.time() - start_time
-                    logger.info(f"  ✅ Manifest ready with {chunk_count} chunks ({elapsed:.2f}s)")
+                    logger.info(
+                        f"  ✅ Manifest ready: {chunk_count} chunks, stable for 2 checks ({elapsed:.2f}s)")
                     return content, elapsed
+
                 time.sleep(2)
+            else:
+                logger.warning(f"  ⚠️ Status {resp.status_code}, waiting...")
+                time.sleep(3)
         except Exception as e:
             logger.warning(f"  ⚠️ Error checking manifest: {e}")
-            time.sleep(2)
+            time.sleep(3)
+
+    # Último intento después del timeout
     try:
-        resp = requests.get(manifest_url, timeout=10)
+        resp = requests.get(manifest_url, timeout=15, allow_redirects=True)
         if resp.status_code == 200:
             content = resp.text
             chunks = len(re.findall(r'\.ts', content))
             elapsed = time.time() - start_time
-            logger.warning(f"  ⏱️ Timeout reached with {chunks} chunks ({elapsed:.2f}s)")
+            logger.warning(
+                f"  ⏱️ Timeout reached with {chunks} chunks ({elapsed:.2f}s)")
             return content, elapsed
-    except:
-        pass
+    except Exception as e:
+        logger.error(f"  ❌ Final attempt failed: {e}")
+
     return None, time.time() - start_time
 
 
-# === ENDPOINT ÚNICO PARA MANIFEST ===
+# 2. ENDPOINT MANIFEST MEJORADO
 @app.route('/ace/manifest.m3u8', methods=['GET', 'HEAD'])
 def manifest_query():
     id_content = request.args.get('id', '')
     if not id_content:
         return Response("Missing id parameter", status=400)
-    logger.info(f"📝 Manifest request: id={id_content[:16]}...")
 
+    logger.info(
+        f"📝 Manifest request: id={id_content[:16]}... from {request.remote_addr}")
+
+    # Detectar Chromecast o solicitud explícita de prebuffering
     user_agent = request.headers.get('User-Agent', '').lower()
-    is_chromecast = any(kw in user_agent for kw in ['chromecast', 'cast', 'googlecast', 'cenc'])
-    force_prebuffer = request.args.get('chromecast', '0') == '1' or request.args.get('prebuffer', '0') == '1'
+    is_chromecast = any(
+        kw in user_agent for kw in ['chromecast', 'cast', 'googlecast', 'cenc'])
+    force_prebuffer = request.args.get('chromecast',
+                                       '0') == '1' or request.args.get(
+        'prebuffer', '0') == '1'
     should_prebuffer = is_chromecast or force_prebuffer
 
     if should_prebuffer:
-        logger.info(f"  🎯 Chromecast detected - enabling smart prebuffering")
+        logger.info(f"  🎯 Chromecast detected (UA: {user_agent[:100]})")
 
+    # Paso 1: Activar el stream
     try:
         prebuffer_url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
-        logger.info(f"  🔄 Triggering stream...")
-        prebuffer_resp = requests.get(prebuffer_url, allow_redirects=False, timeout=30)
-        logger.info(f"  ✓ Stream trigger: {prebuffer_resp.status_code}")
-    except Exception as e:
-        logger.warning(f"  ⚠️ Stream trigger failed: {e}")
+        logger.info(f"  🔄 Triggering stream: {prebuffer_url}")
 
+        prebuffer_resp = requests.get(
+            prebuffer_url,
+            allow_redirects=False,
+            timeout=45  # Aumentado de 30 a 45
+        )
+
+        logger.info(f"  ✓ Stream trigger: {prebuffer_resp.status_code}")
+
+        # Si recibimos un redirect, seguirlo para asegurar que el stream está activo
+        if prebuffer_resp.status_code in [301, 302, 307, 308]:
+            location = prebuffer_resp.headers.get('Location', '')
+            if location:
+                logger.info(f"  🔄 Following getstream redirect...")
+                if location.startswith('/'):
+                    location = f"{ACESTREAM_BASE}{location}"
+                requests.get(location, timeout=30, allow_redirects=True)
+
+    except requests.exceptions.Timeout:
+        logger.error(f"  ⏱️ Stream trigger timeout - continuing anyway")
+    except Exception as e:
+        logger.warning(f"  ⚠️ Stream trigger failed: {e} - continuing anyway")
+
+    # Paso 2: Obtener el manifest
     manifest_path = f"ace/manifest.m3u8?id={id_content}"
     target_url = f"{ACESTREAM_BASE}/{manifest_path}"
 
     try:
-        resp = requests.get(target_url, allow_redirects=False, timeout=30)
+        # Primera solicitud al manifest
+        resp = requests.get(target_url, allow_redirects=False, timeout=45)
+        redirect_count = 0
+        max_redirects = 5
 
-        if resp.status_code in [301, 302]:
+        # Seguir redirects hasta llegar al manifest real
+        while resp.status_code in [301, 302, 307,
+                                   308] and redirect_count < max_redirects:
             location = resp.headers.get('Location', '')
+            if not location:
+                break
+
+            redirect_count += 1
+            logger.info(
+                f"  🔄 Manifest redirect #{redirect_count}: {location[:80]}...")
+
+            # Construir URL completa
             if location.startswith('/'):
                 target_url = f"{ACESTREAM_BASE}{location}"
             elif location.startswith('http://acestream-arm:6878'):
                 target_url = location
             else:
                 target_url = urljoin(ACESTREAM_BASE, location)
-            logger.info(f"  🔄 Following redirect to manifest")
 
+            resp = requests.get(target_url, allow_redirects=False, timeout=45)
+            logger.info(f"  ✓ Status after redirect: {resp.status_code}")
+
+        # Paso 3: Procesar el manifest según el cliente
         if should_prebuffer:
-            content, elapsed = wait_for_manifest_chunks(target_url, min_chunks=3, max_wait=15)
+            logger.info(
+                f"  ⏳ Prebuffering for Chromecast (target: {target_url[:80]}...)")
+            content, elapsed = wait_for_manifest_chunks(
+                target_url,
+                min_chunks=3,  # Mínimo 3 chunks
+                max_wait=30  # Esperar hasta 30 segundos
+            )
+
             if content:
-                content = re.sub(r'http://acestream-arm:6878', PUBLIC_DOMAIN, content)
+                # Reescribir URLs
+                content = re.sub(r'http://acestream-arm:6878', PUBLIC_DOMAIN,
+                                 content)
+
+                # Contar chunks
                 chunk_count = len(re.findall(r'\.ts', content))
-                logger.info(f"  ✅ Serving manifest with {chunk_count} chunks to Chromecast")
+                logger.info(
+                    f"  ✅ Serving manifest with {chunk_count} chunks to Chromecast ({elapsed:.2f}s)")
+
+                return Response(
+                    content,
+                    status=200,
+                    headers=[
+                        ('Content-Type', 'application/vnd.apple.mpegurl'),
+                        ('Accept-Ranges', 'bytes'),
+                        ('Cache-Control',
+                         'no-cache, no-store, must-revalidate'),
+                        ('Pragma', 'no-cache'),
+                        ('Expires', '0')
+                    ]
+                )
+            else:
+                logger.error(
+                    f"  ❌ Failed to get stable manifest after {elapsed:.2f}s")
+                return Response(
+                    "Stream is still buffering. Please try again in 30 seconds.",
+                    status=503,
+                    headers=[('Retry-After', '30')]
+                )
+
+        else:
+            # Cliente normal: devolver manifest inmediatamente
+            resp_final = requests.get(target_url, timeout=45,
+                                      allow_redirects=True)
+
+            if resp_final.status_code == 200:
+                content = resp_final.text
+
+                # Reescribir URLs
+                content = re.sub(r'http://acestream-arm:6878', PUBLIC_DOMAIN,
+                                 content)
+
+                chunk_count = len(re.findall(r'\.ts', content))
+                logger.info(
+                    f"  ✅ Serving manifest with {chunk_count} chunks (no prebuffer)")
+
                 return Response(
                     content,
                     status=200,
@@ -1044,33 +1235,25 @@ def manifest_query():
                     ]
                 )
             else:
-                logger.error(f"  ❌ Failed to get manifest after waiting")
-                return Response("Manifest not ready", status=504)
-
-        else:
-            resp_final = requests.get(target_url, timeout=30)
-            if resp_final.status_code == 200:
-                content = resp_final.text
-                content = re.sub(r'http://acestream-arm:6878', PUBLIC_DOMAIN, content)
-                chunk_count = len(re.findall(r'\.ts', content))
-                logger.info(f"  ✅ Serving manifest with {chunk_count} chunks (no prebuffer)")
+                logger.error(f"  ❌ Manifest returned {resp_final.status_code}")
                 return Response(
-                    content,
-                    status=200,
-                    headers=[
-                        ('Content-Type', 'application/vnd.apple.mpegurl'),
-                        ('Accept-Ranges', 'bytes')
-                    ]
+                    f"Manifest error: {resp_final.status_code}",
+                    status=resp_final.status_code
                 )
-            else:
-                return Response(f"Manifest error: {resp_final.status_code}", status=resp_final.status_code)
 
     except requests.exceptions.Timeout:
-        logger.error(f"  ⏱️ Manifest timeout")
-        return Response("Manifest timeout", status=504)
+        logger.error(f"  ⏱️ Manifest timeout after following redirects")
+        return Response(
+            "Manifest timeout. The stream may need more time to buffer.",
+            status=504,
+            headers=[('Retry-After', '30')]
+        )
     except Exception as e:
         logger.error(f"  ❌ Manifest error: {e}", exc_info=True)
-        return Response(f"Manifest error: {str(e)}", status=500)
+        return Response(
+            f"Manifest error: {str(e)}",
+            status=500
+        )
 
 
 # === ENDPOINT ESPECIAL PARA CHROMECAST ===
