@@ -1097,7 +1097,6 @@ def manifest_query():
     logger.info(
         f"📝 Manifest request: id={id_content[:16]}... from {request.remote_addr}")
 
-    # Detectar Chromecast o solicitud explícita de prebuffering
     user_agent = request.headers.get('User-Agent', '').lower()
     is_chromecast = any(
         kw in user_agent for kw in ['chromecast', 'cast', 'googlecast', 'cenc'])
@@ -1107,153 +1106,28 @@ def manifest_query():
     should_prebuffer = is_chromecast or force_prebuffer
 
     if should_prebuffer:
-        logger.info(f"  🎯 Chromecast detected (UA: {user_agent[:100]})")
+        logger.info(f"  🎯 Chromecast detected")
 
-    # Paso 1: Activar el stream
-    try:
-        prebuffer_url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
-        logger.info(f"  🔄 Triggering stream: {prebuffer_url}")
+    # CAMBIO CLAVE: Usar proxy_request() como lo hace getstream
+    path = f"ace/manifest.m3u8?id={id_content}"
 
-        prebuffer_resp = requests.get(
-            prebuffer_url,
-            allow_redirects=False,
-            timeout=45  # Aumentado de 30 a 45
-        )
+    # Si es Chromecast, primero activamos el stream
+    if should_prebuffer:
+        try:
+            logger.info(f"  🔄 Pre-activating stream for Chromecast...")
+            prebuffer_url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
+            requests.get(prebuffer_url, timeout=30, allow_redirects=True)
+            logger.info(f"  ⏳ Waiting 3s for stream to start...")
+            time.sleep(3)
+        except Exception as e:
+            logger.warning(f"  ⚠️ Pre-activation failed: {e}")
 
-        logger.info(f"  ✓ Stream trigger: {prebuffer_resp.status_code}")
-
-        # Si recibimos un redirect, seguirlo para asegurar que el stream está activo
-        if prebuffer_resp.status_code in [301, 302, 307, 308]:
-            location = prebuffer_resp.headers.get('Location', '')
-            if location:
-                logger.info(f"  🔄 Following getstream redirect...")
-                if location.startswith('/'):
-                    location = f"{ACESTREAM_BASE}{location}"
-                requests.get(location, timeout=30, allow_redirects=True)
-
-    except requests.exceptions.Timeout:
-        logger.error(f"  ⏱️ Stream trigger timeout - continuing anyway")
-    except Exception as e:
-        logger.warning(f"  ⚠️ Stream trigger failed: {e} - continuing anyway")
-
-    # Paso 2: Obtener el manifest
-    manifest_path = f"ace/manifest.m3u8?id={id_content}"
-    target_url = f"{ACESTREAM_BASE}/{manifest_path}"
-
-    try:
-        # Primera solicitud al manifest
-        resp = requests.get(target_url, allow_redirects=False, timeout=45)
-        redirect_count = 0
-        max_redirects = 5
-
-        # Seguir redirects hasta llegar al manifest real
-        while resp.status_code in [301, 302, 307,
-                                   308] and redirect_count < max_redirects:
-            location = resp.headers.get('Location', '')
-            if not location:
-                break
-
-            redirect_count += 1
-            logger.info(
-                f"  🔄 Manifest redirect #{redirect_count}: {location[:80]}...")
-
-            # Construir URL completa
-            if location.startswith('/'):
-                target_url = f"{ACESTREAM_BASE}{location}"
-            elif location.startswith('http://acestream-arm:6878'):
-                target_url = location
-            else:
-                target_url = urljoin(ACESTREAM_BASE, location)
-
-            resp = requests.get(target_url, allow_redirects=False, timeout=45)
-            logger.info(f"  ✓ Status after redirect: {resp.status_code}")
-
-        # Paso 3: Procesar el manifest según el cliente
-        if should_prebuffer:
-            logger.info(
-                f"  ⏳ Prebuffering for Chromecast (target: {target_url[:80]}...)")
-            content, elapsed = wait_for_manifest_chunks(
-                target_url,
-                min_chunks=3,  # Mínimo 3 chunks
-                max_wait=30  # Esperar hasta 30 segundos
-            )
-
-            if content:
-                # Reescribir URLs
-                content = re.sub(r'http://acestream-arm:6878', PUBLIC_DOMAIN,
-                                 content)
-
-                # Contar chunks
-                chunk_count = len(re.findall(r'\.ts', content))
-                logger.info(
-                    f"  ✅ Serving manifest with {chunk_count} chunks to Chromecast ({elapsed:.2f}s)")
-
-                return Response(
-                    content,
-                    status=200,
-                    headers=[
-                        ('Content-Type', 'application/vnd.apple.mpegurl'),
-                        ('Accept-Ranges', 'bytes'),
-                        ('Cache-Control',
-                         'no-cache, no-store, must-revalidate'),
-                        ('Pragma', 'no-cache'),
-                        ('Expires', '0')
-                    ]
-                )
-            else:
-                logger.error(
-                    f"  ❌ Failed to get stable manifest after {elapsed:.2f}s")
-                return Response(
-                    "Stream is still buffering. Please try again in 30 seconds.",
-                    status=503,
-                    headers=[('Retry-After', '30')]
-                )
-
-        else:
-            # Cliente normal: devolver manifest inmediatamente
-            resp_final = requests.get(target_url, timeout=45,
-                                      allow_redirects=True)
-
-            if resp_final.status_code == 200:
-                content = resp_final.text
-
-                # Reescribir URLs
-                content = re.sub(r'http://acestream-arm:6878', PUBLIC_DOMAIN,
-                                 content)
-
-                chunk_count = len(re.findall(r'\.ts', content))
-                logger.info(
-                    f"  ✅ Serving manifest with {chunk_count} chunks (no prebuffer)")
-
-                return Response(
-                    content,
-                    status=200,
-                    headers=[
-                        ('Content-Type', 'application/vnd.apple.mpegurl'),
-                        ('Accept-Ranges', 'bytes'),
-                        ('Cache-Control', 'no-cache')
-                    ]
-                )
-            else:
-                logger.error(f"  ❌ Manifest returned {resp_final.status_code}")
-                return Response(
-                    f"Manifest error: {resp_final.status_code}",
-                    status=resp_final.status_code
-                )
-
-    except requests.exceptions.Timeout:
-        logger.error(f"  ⏱️ Manifest timeout after following redirects")
-        return Response(
-            "Manifest timeout. The stream may need more time to buffer.",
-            status=504,
-            headers=[('Retry-After', '30')]
-        )
-    except Exception as e:
-        logger.error(f"  ❌ Manifest error: {e}", exc_info=True)
-        return Response(
-            f"Manifest error: {str(e)}",
-            status=500
-        )
+    # USAR proxy_request() exactamente como getstream
+    return proxy_request(
+        path,
+        rewrite_manifest=True,  # Esto reescribe las URLs
+        follow_redirects_manually=True  # Esto sigue redirects internamente
+    )
 
 
 # === ENDPOINT ESPECIAL PARA CHROMECAST ===
