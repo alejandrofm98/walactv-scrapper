@@ -5,6 +5,15 @@ import logging
 from urllib.parse import urljoin
 from collections import Counter
 import time
+from collections import OrderedDict
+from threading import Lock
+
+# Al inicio del archivo, después de las importaciones
+chunk_cache = OrderedDict()
+chunk_cache_lock = Lock()
+MAX_CACHE_SIZE = 50
+
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,6 +30,16 @@ ALLOWED_ORIGINS = [
     "https://acestream.walerike.com"
 ]
 ALLOW_ALL_ORIGINS = False
+
+def cache_chunk(key, data):
+    with chunk_cache_lock:
+        if len(chunk_cache) >= MAX_CACHE_SIZE:
+            chunk_cache.popitem(last=False)
+        chunk_cache[key] = data
+
+def get_cached_chunk(key):
+    with chunk_cache_lock:
+        return chunk_cache.get(key)
 
 
 @app.after_request
@@ -1087,7 +1106,6 @@ def wait_for_manifest_chunks(manifest_url, min_chunks=3, max_wait=30):
     return None, time.time() - start_time
 
 
-# 2. ENDPOINT MANIFEST MEJORADO
 @app.route('/ace/manifest.m3u8', methods=['GET', 'HEAD'])
 def manifest_query():
     id_content = request.args.get('id', '')
@@ -1100,33 +1118,86 @@ def manifest_query():
     user_agent = request.headers.get('User-Agent', '').lower()
     is_chromecast = any(
         kw in user_agent for kw in ['chromecast', 'cast', 'googlecast', 'cenc'])
-    force_prebuffer = request.args.get('chromecast',
-                                       '0') == '1' or request.args.get(
-        'prebuffer', '0') == '1'
-    should_prebuffer = is_chromecast or force_prebuffer
 
-    if should_prebuffer:
-        logger.info(f"  🎯 Chromecast detected")
+    if is_chromecast:
+        logger.info(f"  🎯 Chromecast detected - Pre-buffering stream...")
 
-    # CAMBIO CLAVE: Usar proxy_request() como lo hace getstream
-    path = f"ace/manifest.m3u8?id={id_content}"
-
-    # Si es Chromecast, primero activamos el stream
-    if should_prebuffer:
         try:
-            logger.info(f"  🔄 Pre-activating stream for Chromecast...")
+            # 1. Activar stream
             prebuffer_url = f"{ACESTREAM_BASE}/ace/getstream?id={id_content}"
-            requests.get(prebuffer_url, timeout=30, allow_redirects=True)
-            logger.info(f"  ⏳ Waiting 3s for stream to start...")
-            time.sleep(3)
-        except Exception as e:
-            logger.warning(f"  ⚠️ Pre-activation failed: {e}")
+            requests.get(prebuffer_url, timeout=60, allow_redirects=True)
 
-    # USAR proxy_request() exactamente como getstream
+            # 2. Esperar a que el manifest tenga chunks disponibles Y VERIFICABLES
+            manifest_url = f"{ACESTREAM_BASE}/ace/manifest.m3u8?id={id_content}"
+
+            max_wait = 45  # segundos
+            start_time = time.time()
+            chunk_verified = False
+
+            while time.time() - start_time < max_wait:
+                try:
+                    # Obtener manifest
+                    manifest_resp = requests.get(manifest_url, timeout=15,
+                                                 allow_redirects=True)
+
+                    if manifest_resp.status_code == 200:
+                        content = manifest_resp.text
+                        chunk_urls = re.findall(
+                            r'(http://acestream-arm:6878/ace/c/[^\s]+\.ts)',
+                            content)
+
+                        if len(chunk_urls) >= 3:
+                            # VERIFICAR que el primer chunk sea DESCARGABLE
+                            try:
+                                first_chunk = chunk_urls[0]
+                                logger.info(
+                                    f"  🔍 Verifying first chunk availability...")
+                                chunk_resp = requests.head(first_chunk,
+                                                           timeout=10)
+
+                                if chunk_resp.status_code == 200:
+                                    # Intentar descargar los primeros bytes
+                                    test_download = requests.get(first_chunk,
+                                                                 timeout=10,
+                                                                 stream=True)
+                                    test_data = next(test_download.iter_content(
+                                        chunk_size=8192), None)
+
+                                    if test_data and len(test_data) > 0:
+                                        chunk_verified = True
+                                        elapsed = time.time() - start_time
+                                        logger.info(
+                                            f"  ✅ Stream ready with {len(chunk_urls)} chunks ({elapsed:.2f}s)")
+                                        break
+                                    else:
+                                        logger.warning(
+                                            f"  ⚠️ Chunk returned empty data")
+                                else:
+                                    logger.warning(
+                                        f"  ⚠️ Chunk not ready: {chunk_resp.status_code}")
+                            except Exception as e:
+                                logger.warning(
+                                    f"  ⚠️ Chunk verification failed: {e}")
+
+                    time.sleep(2)
+
+                except Exception as e:
+                    logger.warning(f"  ⚠️ Manifest check failed: {e}")
+                    time.sleep(3)
+
+            if not chunk_verified:
+                logger.warning(f"  ⏱️ Timeout: Stream may not be fully ready")
+                # No retornar error, dejar que Chromecast intente de todas formas
+
+        except Exception as e:
+            logger.error(f"  ❌ Pre-buffering failed: {e}")
+
+    # Proceder con proxy normal
+    path = f"ace/manifest.m3u8?id={id_content}"
     return proxy_request(
         path,
-        rewrite_manifest=True,  # Esto reescribe las URLs
-        follow_redirects_manually=True  # Esto sigue redirects internamente
+        rewrite_manifest=True,
+        follow_redirects_manually=True
     )
 
 
@@ -1180,11 +1251,105 @@ def manifest_path(format, id_content):
 
 @app.route('/ace/c/<session_id>/<path:segment>', methods=['GET', 'HEAD'])
 def chunks(session_id, segment):
+    cache_key = f"{session_id}/{segment}"
+
+    # Intentar desde cache primero
+    if request.method == 'GET':
+        cached_data = get_cached_chunk(cache_key)
+        if cached_data:
+            logger.info(f"🎬 Chunk (cached): {session_id}/{segment}")
+            return Response(
+                cached_data,
+                status=200,
+                headers=[
+                    ('Content-Type', 'video/mp2t'),
+                    ('Accept-Ranges', 'bytes'),
+                    ('Cache-Control', 'public, max-age=300')
+                ]
+            )
+
     logger.info(f"🎬 Chunk: {session_id}/{segment}")
     path = f"ace/c/{session_id}/{segment}"
     if request.query_string:
         path += f"?{request.query_string.decode('utf-8')}"
+
+    # Si es GET, cachear el chunk
+    if request.method == 'GET':
+        target_url = f"{ACESTREAM_BASE}/{path}"
+        try:
+            resp = requests.get(target_url, timeout=30)
+            if resp.status_code == 200:
+                data = resp.content
+                cache_chunk(cache_key, data)
+                return Response(
+                    data,
+                    status=200,
+                    headers=[
+                        ('Content-Type', 'video/mp2t'),
+                        ('Accept-Ranges', 'bytes'),
+                        ('Cache-Control', 'public, max-age=300')
+                    ]
+                )
+        except Exception as e:
+            logger.error(f"❌ Chunk fetch failed: {e}")
+
     return proxy_request(path, follow_redirects_manually=True)
+
+
+@app.route('/debug/compare-streams')
+def debug_compare():
+    """Comparar los dos streams problemáticos"""
+    working_id = "cf6ffdfa3c51268c0bd216da6b275fb866160c0c"
+    broken_id = "192f2ac5b372dfddef694e48edd2d56e308b51e7"
+
+    results = {"working": {}, "broken": {}}
+
+    for label, stream_id in [("working", working_id), ("broken", broken_id)]:
+        try:
+            # Activar stream
+            start = time.time()
+            requests.get(f"{ACESTREAM_BASE}/ace/getstream?id={stream_id}",
+                         timeout=60, allow_redirects=True)
+            activation_time = time.time() - start
+
+            time.sleep(3)
+
+            # Obtener manifest
+            start = time.time()
+            manifest_resp = requests.get(
+                f"{ACESTREAM_BASE}/ace/manifest.m3u8?id={stream_id}",
+                timeout=30, allow_redirects=True)
+            manifest_time = time.time() - start
+
+            chunk_urls = re.findall(
+                r'(http://acestream-arm:6878/ace/c/[^\s]+\.ts)',
+                manifest_resp.text)
+
+            # Probar primer chunk
+            chunk_times = []
+            chunk_sizes = []
+            if chunk_urls:
+                for chunk_url in chunk_urls[:3]:
+                    start = time.time()
+                    chunk_resp = requests.get(chunk_url, timeout=20)
+                    chunk_time = time.time() - start
+                    chunk_times.append(chunk_time)
+                    chunk_sizes.append(len(chunk_resp.content))
+
+            results[label] = {
+                "activation_time": round(activation_time, 2),
+                "manifest_time": round(manifest_time, 2),
+                "chunk_count": len(chunk_urls),
+                "chunk_times": [round(t, 2) for t in chunk_times],
+                "chunk_sizes": chunk_sizes,
+                "avg_chunk_time": round(sum(chunk_times) / len(chunk_times),
+                                        2) if chunk_times else 0
+            }
+
+        except Exception as e:
+            results[label] = {"error": str(e)}
+
+    return results
 
 
 @app.route('/ace/l/<path:subpath>', methods=['GET', 'HEAD'])
