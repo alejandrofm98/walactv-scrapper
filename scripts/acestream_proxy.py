@@ -26,12 +26,22 @@ chunk_cache = OrderedDict()
 chunk_cache_lock = Lock()
 MAX_CHUNK_CACHE_SIZE = 100  # Aumentado para Chromecast
 
-# Cache de warmup
+# Cache de warmup - COMPARTIDO entre workers via archivo
+import os
+import json
+import tempfile
+
+CACHE_DIR = os.path.join(tempfile.gettempdir(), 'acestream_warmup')
+os.makedirs(CACHE_DIR, exist_ok=True)
+
 stream_cache = {}
 stream_cache_lock = Lock()
-WARMUP_EXPIRY = timedelta(minutes=10)  # Aumentado
-WARMUP_TIMEOUT = 150  # 2.5 minutos para Chromecast
-CHROMECAST_WARMUP_TIMEOUT = 180  # 3 minutos para Chromecast
+warmup_in_progress = {}  # Para evitar warmups duplicados
+warmup_lock = Lock()
+
+WARMUP_EXPIRY = timedelta(minutes=10)
+WARMUP_TIMEOUT = 90  # Reducido - si tarda más, el stream no sirve
+CHROMECAST_WARMUP_TIMEOUT = 120  # Máximo 2 minutos
 
 
 class StreamWarmup:
@@ -86,18 +96,34 @@ def is_chromecast(user_agent):
 # Funciones de warmup mejoradas
 def prewarm_stream(stream_id, aggressive=False):
   """Pre-calienta el stream y pre-cachea primeros chunks"""
-  logger.info(
-    f"🔥 Pre-warming {'[AGGRESSIVE]' if aggressive else ''}: {stream_id[:16]}")
-  warmup = StreamWarmup(stream_id)
 
-  with stream_cache_lock:
-    stream_cache[stream_id] = warmup
+  # Evitar warmups duplicados entre workers
+  with warmup_lock:
+    if stream_id in warmup_in_progress:
+      logger.info(f"⏭️ Warmup already in progress for {stream_id[:16]}")
+      return
+    warmup_in_progress[stream_id] = True
 
   try:
-    # Paso 1: Activar stream
+    logger.info(
+      f"🔥 Pre-warming {'[AGGRESSIVE]' if aggressive else ''}: {stream_id[:16]}")
+    warmup = StreamWarmup(stream_id)
+
+    with stream_cache_lock:
+      stream_cache[stream_id] = warmup
+
+    # Paso 1: Activar stream con timeout reducido
     start = time.time()
-    resp = requests.get(f"{ACESTREAM_BASE}/ace/getstream?id={stream_id}",
-                        timeout=120, allow_redirects=True)
+    try:
+      resp = requests.get(f"{ACESTREAM_BASE}/ace/getstream?id={stream_id}",
+                          timeout=60, allow_redirects=True)  # Reducido a 60s
+
+      # Verificar respuesta
+      if resp.status_code >= 500:
+        raise Exception(
+          f"Acestream error {resp.status_code}: {resp.text[:100]}")
+    except requests.exceptions.Timeout:
+      raise Exception("Stream activation timeout - stream may be unavailable")
 
     warmup.activation_time = time.time() - start
     logger.info(f"✓ Stream activated in {warmup.activation_time:.2f}s")
