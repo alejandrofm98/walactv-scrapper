@@ -2,10 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Instalar dependencias para el proxy
-RUN pip install flask requests gunicorn gevent
+# 1. Instalar ffmpeg (desde repositorios oficiales) y deps. auxiliares
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copiar el script del proxy
+# 2. Dependencias Python
+RUN pip install --no-cache-dir flask requests gunicorn gevent
+
+# 3. Copiar el proxy
 COPY scripts/acestream_proxy.py /app/scripts/
 
 EXPOSE 8000
