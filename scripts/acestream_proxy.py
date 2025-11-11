@@ -24,13 +24,17 @@ ALLOW_ALL_ORIGINS = False
 # Cache de chunks
 chunk_cache = OrderedDict()
 chunk_cache_lock = Lock()
-MAX_CHUNK_CACHE_SIZE = 50
+MAX_CHUNK_CACHE_SIZE = 100
 
 # Cache de warmup
 stream_cache = {}
 stream_cache_lock = Lock()
-WARMUP_EXPIRY = timedelta(minutes=5)
+warmup_in_progress = {}  # Para evitar warmups duplicados
+warmup_lock = Lock()
+
+WARMUP_EXPIRY = timedelta(minutes=8)
 WARMUP_TIMEOUT = 90
+CHROMECAST_WARMUP_TIMEOUT = 120  # Más tiempo para Chromecast
 
 
 class StreamWarmup:
@@ -41,6 +45,7 @@ class StreamWarmup:
     self.activation_time = None
     self.created_at = datetime.now()
     self.last_used = datetime.now()
+    self.chunks_verified = 0
 
   def is_expired(self):
     return datetime.now() - self.last_used > WARMUP_EXPIRY
@@ -73,26 +78,57 @@ def clear_chunk_cache():
     chunk_cache.clear()
 
 
-# Funciones de warmup
-def prewarm_stream(stream_id):
-  logger.info(f"🔥 Pre-warming: {stream_id[:16]}")
-  warmup = StreamWarmup(stream_id)
+def is_chromecast(user_agent):
+  """Detecta si la petición viene de Chromecast"""
+  if not user_agent:
+    return False
+  ua_lower = user_agent.lower()
+  return any(
+      kw in ua_lower for kw in ['chromecast', 'cast', 'googlecast', 'crkey'])
 
-  with stream_cache_lock:
-    stream_cache[stream_id] = warmup
+
+# Funciones de warmup mejoradas para Chromecast
+def prewarm_stream(stream_id, aggressive=False):
+  """Pre-calienta el stream con validación estricta para Chromecast"""
+
+  # Evitar warmups duplicados entre workers
+  with warmup_lock:
+    if stream_id in warmup_in_progress:
+      logger.info(f"⏭️ Warmup already in progress: {stream_id[:16]}")
+      return
+    warmup_in_progress[stream_id] = True
 
   try:
+    logger.info(
+      f"🔥 Pre-warming {'[CHROMECAST]' if aggressive else ''}: {stream_id[:16]}")
+    warmup = StreamWarmup(stream_id)
+
+    with stream_cache_lock:
+      stream_cache[stream_id] = warmup
+
+    # Paso 1: Activar stream
     start = time.time()
-    resp = requests.get(f"{ACESTREAM_BASE}/ace/getstream?id={stream_id}",
-                        timeout=90, allow_redirects=True)
+    try:
+      resp = requests.get(f"{ACESTREAM_BASE}/ace/getstream?id={stream_id}",
+                          timeout=60, allow_redirects=True)
+
+      if resp.status_code >= 500:
+        raise Exception(f"Acestream error {resp.status_code}")
+
+    except requests.exceptions.Timeout:
+      raise Exception("Stream activation timeout")
 
     warmup.activation_time = time.time() - start
-    logger.info(f"✓ Activated in {warmup.activation_time:.2f}s")
+    logger.info(f"✓ Stream activated in {warmup.activation_time:.2f}s")
 
+    # Paso 2: Esperar manifest válido con chunks listos
     manifest_url = f"{ACESTREAM_BASE}/ace/manifest.m3u8?id={stream_id}"
-    start_wait = time.time()
+    timeout = CHROMECAST_WARMUP_TIMEOUT if aggressive else WARMUP_TIMEOUT
+    attempts = 0
+    max_attempts = timeout // 3
 
-    while time.time() - start_wait < WARMUP_TIMEOUT:
+    while attempts < max_attempts:
+      attempts += 1
       try:
         manifest_resp = requests.get(manifest_url, timeout=15,
                                      allow_redirects=True)
@@ -102,46 +138,105 @@ def prewarm_stream(stream_id):
                               manifest_resp.text)
 
           if len(chunks) >= 3:
-            # Verificar primer chunk
-            chunk_resp = requests.get(chunks[0], timeout=15, stream=True)
-            if chunk_resp.status_code == 200:
-              test_data = next(chunk_resp.iter_content(chunk_size=8192), None)
-              if test_data and len(test_data) > 0:
-                warmup.ready = True
-                logger.info(f"✅ Ready in {time.time() - start:.2f}s")
-                return
+            logger.debug(f"📋 Found {len(chunks)} chunks (attempt {attempts})")
 
-        time.sleep(2)
-      except Exception as e:
-        logger.warning(f"⚠️ Manifest check: {e}")
+            # CRÍTICO para Chromecast: verificar que chunks funcionan
+            if aggressive:
+              # Verificar primeros 2 chunks con contenido real
+              valid = 0
+              for i, chunk_url in enumerate(chunks[:2]):
+                try:
+                  chunk_resp = requests.get(chunk_url, timeout=12, stream=True)
+                  if chunk_resp.status_code == 200:
+                    # Leer primeros bytes para confirmar
+                    test_data = next(chunk_resp.iter_content(chunk_size=8192),
+                                     None)
+                    if test_data and len(test_data) > 100:
+                      valid += 1
+                      logger.debug(
+                        f"✓ Chunk {i + 1} verified ({len(test_data)} bytes)")
+                    else:
+                      logger.debug(f"⚠️ Chunk {i + 1} empty or too small")
+                      break
+                  else:
+                    logger.debug(
+                      f"⚠️ Chunk {i + 1} returned {chunk_resp.status_code}")
+                    break
+                except Exception as e:
+                  logger.debug(f"⚠️ Chunk {i + 1} failed: {e}")
+                  break
+
+              if valid >= 2:
+                warmup.ready = True
+                warmup.chunks_verified = valid
+                total_time = time.time() - start
+                logger.info(
+                  f"✅ Stream READY for Chromecast in {total_time:.2f}s ({valid} chunks verified)")
+                return
+            else:
+              # Para no-Chromecast, solo verificar primer chunk
+              try:
+                chunk_resp = requests.get(chunks[0], timeout=10, stream=True)
+                if chunk_resp.status_code == 200:
+                  test_data = next(chunk_resp.iter_content(chunk_size=8192),
+                                   None)
+                  if test_data and len(test_data) > 0:
+                    warmup.ready = True
+                    warmup.chunks_verified = 1
+                    total_time = time.time() - start
+                    logger.info(f"✅ Stream READY in {total_time:.2f}s")
+                    return
+              except Exception as e:
+                logger.debug(f"Chunk check: {e}")
+
         time.sleep(3)
 
-    warmup.error = "Timeout"
-    logger.warning(f"⏱️ Timeout for {stream_id[:16]}")
+      except requests.exceptions.Timeout:
+        logger.debug(f"Manifest timeout (attempt {attempts})")
+        time.sleep(2)
+      except Exception as e:
+        logger.debug(f"Manifest check error: {e}")
+        time.sleep(3)
+
+    warmup.error = "Timeout: stream not ready"
+    logger.warning(
+      f"⏱️ Warmup timeout after {attempts} attempts: {stream_id[:16]}")
+
   except Exception as e:
     warmup.error = str(e)
-    logger.error(f"❌ Failed: {e}")
+    logger.error(f"❌ Warmup failed for {stream_id[:16]}: {e}")
+  finally:
+    with warmup_lock:
+      warmup_in_progress.pop(stream_id, None)
 
 
-def get_or_prewarm_stream(stream_id, wait=True, timeout=WARMUP_TIMEOUT):
+def get_or_prewarm_stream(stream_id, wait=True, timeout=WARMUP_TIMEOUT,
+    aggressive=False):
+  """Obtiene o inicia warmup del stream"""
   with stream_cache_lock:
     warmup = stream_cache.get(stream_id)
 
     # Limpiar expirados
     expired = [sid for sid, w in stream_cache.items() if w.is_expired()]
     for sid in expired:
+      logger.debug(f"🗑️ Removing expired: {sid[:16]}")
       del stream_cache[sid]
 
-    if warmup and warmup.ready and not warmup.error:
-      warmup.mark_used()
-      return warmup
+    if warmup:
+      if warmup.ready and not warmup.error:
+        warmup.mark_used()
+        logger.debug(f"♻️ Using cached warmup: {stream_id[:16]}")
+        return warmup
+      elif warmup.error:
+        logger.info(f"🔄 Retrying failed warmup: {stream_id[:16]}")
+        warmup = None
 
-    if not warmup or warmup.error:
-      warmup = None
-
+  # Iniciar nuevo warmup
   if not warmup:
-    Thread(target=prewarm_stream, args=(stream_id,), daemon=True).start()
+    Thread(target=prewarm_stream, args=(stream_id, aggressive),
+           daemon=True).start()
 
+  # Esperar si se solicita
   if wait:
     start = time.time()
     while time.time() - start < timeout:
@@ -151,8 +246,11 @@ def get_or_prewarm_stream(stream_id, wait=True, timeout=WARMUP_TIMEOUT):
           warmup.mark_used()
           return warmup
         if warmup and warmup.error:
+          logger.error(f"❌ Warmup error: {warmup.error}")
           return None
       time.sleep(0.5)
+
+    logger.warning(f"⏱️ Wait timeout after {timeout}s")
     return None
 
   return None
@@ -341,15 +439,25 @@ def health():
       f"{ACESTREAM_BASE}/webui/api/service?method=get_version", timeout=5)
     acestream_status = "ok" if resp.status_code == 200 else "error"
     version = resp.json() if resp.status_code == 200 else None
-  except:
+  except Exception as e:
     acestream_status = "unreachable"
-    version = None
+    version = {"error": str(e)}
 
   with stream_cache_lock:
     warmup_stats = {
       "total": len(stream_cache),
-      "ready": sum(1 for w in stream_cache.values() if w.ready)
+      "ready": sum(1 for w in stream_cache.values() if w.ready),
+      "failed": sum(1 for w in stream_cache.values() if w.error),
+      "streams": [{"id": sid[:16],
+                   "ready": w.ready,
+                   "error": w.error,
+                   "chunks": w.chunks_verified,
+                   "age": int((datetime.now() - w.created_at).total_seconds())}
+                  for sid, w in list(stream_cache.items())[:10]]
     }
+
+  with warmup_lock:
+    in_progress = len(warmup_in_progress)
 
   with chunk_cache_lock:
     chunk_stats = {"size": len(chunk_cache), "max": MAX_CHUNK_CACHE_SIZE}
@@ -358,22 +466,27 @@ def health():
     "status": "ok",
     "acestream": {"status": acestream_status, "version": version},
     "warmup_cache": warmup_stats,
+    "warmup_in_progress": in_progress,
     "chunk_cache": chunk_stats
   }
 
 
 @app.route('/ace/prewarm/<id_content>')
 def prewarm_endpoint(id_content):
+  aggressive = request.args.get('aggressive', 'false').lower() == 'true'
+
   with stream_cache_lock:
     existing = stream_cache.get(id_content)
     if existing and existing.ready:
       return {
         "status": "ready",
         "activation_time": existing.activation_time,
-        "age_seconds": (datetime.now() - existing.created_at).total_seconds()
+        "age_seconds": (datetime.now() - existing.created_at).total_seconds(),
+        "chunks_verified": existing.chunks_verified
       }
 
-  Thread(target=prewarm_stream, args=(id_content,), daemon=True).start()
+  Thread(target=prewarm_stream, args=(id_content, aggressive),
+         daemon=True).start()
   return {"status": "warming",
           "check_status": f"/ace/warmup-status/{id_content}"}
 
@@ -391,7 +504,8 @@ def warmup_status(id_content):
       "ready": warmup.ready,
       "error": warmup.error,
       "activation_time": warmup.activation_time,
-      "age_seconds": (datetime.now() - warmup.created_at).total_seconds()
+      "age_seconds": (datetime.now() - warmup.created_at).total_seconds(),
+      "chunks_verified": warmup.chunks_verified
     }
 
 
@@ -410,13 +524,36 @@ def manifest_query():
   if not id_content:
     return Response("Missing id parameter", status=400)
 
-  user_agent = request.headers.get('User-Agent', '').lower()
-  is_chromecast = any(
-      kw in user_agent for kw in ['chromecast', 'cast', 'googlecast'])
+  user_agent = request.headers.get('User-Agent', '')
+  is_cast = is_chromecast(user_agent)
 
-  if is_chromecast:
-    logger.info(f"🎯 Chromecast: {id_content[:16]}")
-    get_or_prewarm_stream(id_content, wait=True, timeout=WARMUP_TIMEOUT)
+  if is_cast:
+    logger.info(f"🎯 Chromecast manifest: {id_content[:16]}")
+
+    # Para Chromecast: ESPERAR a que el stream esté listo
+    warmup = get_or_prewarm_stream(id_content, wait=True,
+                                   timeout=CHROMECAST_WARMUP_TIMEOUT,
+                                   aggressive=True)
+
+    if not warmup or not warmup.ready:
+      error_detail = warmup.error if warmup else "Stream initialization timeout"
+      logger.error(f"❌ Chromecast: stream not ready - {error_detail}")
+
+      # Devolver 503 con Retry-After para que Chromecast reintente
+      return Response(
+          f"Stream not ready: {error_detail}. Please wait and try again.",
+          status=503,
+          headers=[
+            ('Retry-After', '45'),
+            ('Cache-Control', 'no-cache, no-store, must-revalidate')
+          ]
+      )
+
+    logger.info(
+      f"✅ Chromecast: serving ready stream ({warmup.chunks_verified} chunks verified)")
+  else:
+    # Para navegadores/VLC: warmup en background, no esperar
+    get_or_prewarm_stream(id_content, wait=False, aggressive=False)
 
   return proxy_request(f"ace/manifest.m3u8?id={id_content}",
                        rewrite_manifest=True, follow_redirects_manually=True)
@@ -428,9 +565,11 @@ def getstream_query():
   if not id_content:
     return Response("Missing id parameter", status=400)
 
-  user_agent = request.headers.get('User-Agent', '').lower()
-  if any(kw in user_agent for kw in ['chromecast', 'cast', 'googlecast']):
-    get_or_prewarm_stream(id_content, wait=False)
+  user_agent = request.headers.get('User-Agent', '')
+  if is_chromecast(user_agent):
+    logger.info(f"🎯 Chromecast getstream: {id_content[:16]}")
+    # Iniciar warmup agresivo en background
+    get_or_prewarm_stream(id_content, wait=False, aggressive=True)
 
   path = f"ace/getstream?{request.query_string.decode('utf-8')}"
   return proxy_request(path, follow_redirects_manually=True)
@@ -457,6 +596,7 @@ def manifest_path(format, id_content):
 def chunks(session_id, segment):
   cache_key = f"{session_id}/{segment}"
 
+  # Intentar servir desde cache
   if request.method == 'GET':
     cached = get_cached_chunk(cache_key)
     if cached:
@@ -470,6 +610,7 @@ def chunks(session_id, segment):
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
 
+  # Para GET, intentar cachear
   if request.method == 'GET':
     try:
       resp = requests.get(f"{ACESTREAM_BASE}/{path}", timeout=30)
@@ -484,6 +625,7 @@ def chunks(session_id, segment):
     except:
       pass
 
+  # Fallback a proxy normal
   return proxy_request(path, follow_redirects_manually=True)
 
 
@@ -530,8 +672,9 @@ def background_cleanup():
     time.sleep(300)
     try:
       cleanup_warmup_cache()
+      logger.debug("🧹 Cleanup completed")
     except Exception as e:
-      logger.error(f"❌ Cleanup: {e}")
+      logger.error(f"❌ Cleanup error: {e}")
 
 
 Thread(target=background_cleanup, daemon=True).start()
