@@ -32,7 +32,7 @@ services:
       - dokploy-network
 
   acestream-arm:
-    image: jopsis/acestream:x64
+    image: jopsis/acestream:arm64-v3.2.14-android14
     container_name: acestream-arm
     restart: unless-stopped
     hostname: acestream-arm
