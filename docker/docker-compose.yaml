@@ -49,7 +49,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - dokploy-network
-    command: daemon --docker
+    command: daemon --docker --log.level=debug
 
   acestream-arm:
     image: jopsis/acestream:arm64-v3.2.14-android14
