@@ -30,6 +30,24 @@ services:
       - path: .env
     networks:
       - dokploy-network
+    # NO pongas restart, Ofelia lo manejará
+    labels:
+      ofelia.enabled: "true"
+      ofelia.job-run.futbol-daily.schedule: "0 8 * * *"
+      ofelia.job-run.futbol-daily.container: "walactv-futboltv"
+
+  # Scheduler
+  ofelia:
+    image: mcuadros/ofelia:latest
+    container_name: ofelia-scheduler
+    restart: unless-stopped
+    depends_on:
+      - walactv-futboltv
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - dokploy-network
+    command: daemon --docker
 
   acestream-arm:
     image: jopsis/acestream:arm64-v3.2.14-android14
