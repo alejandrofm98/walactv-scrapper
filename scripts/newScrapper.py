@@ -3,7 +3,7 @@ Web scraper optimizado para eventos deportivos con extracción de streams M3U8.
 Incluye manejo robusto de drivers, timeouts y procesamiento concurrente.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
@@ -47,6 +47,44 @@ def similar(a: str, b: str) -> float:
   """Calcula la similitud entre dos strings (0.0 a 1.0)."""
   return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
+def is_after_today_6am(dia_agenda):
+  # Set Spanish locale for month names
+  locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
+
+  # Extract the date part from the string
+  date_str = dia_agenda.split(' - ')[
+    1]  # Gets 'Sábado 15 de Noviembre de 2025'
+
+  # Parse the date
+  date_obj = datetime.strptime(date_str, '%A %d de %B de %Y')
+
+  # Get current date and time
+  now = datetime.now()
+
+  # Create a datetime for today at 6 AM
+  today_6am = now.replace(hour=6, minute=0, second=0, microsecond=0)
+
+  # If current time is before 6 AM, use yesterday's 6 AM
+  if now < today_6am:
+    today_6am = (now - timedelta(days=1)).replace(hour=6, minute=0, second=0,
+                                                  microsecond=0)
+
+  # Compare the dates
+  return date_obj.date() > today_6am.date()
+
+def get_today_agenda_text():
+  # Set Spanish locale for month names
+  locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
+
+  # Get current date
+  today = datetime.now()
+
+  # Format the date in Spanish
+  # %A: Full weekday name, %d: Day of the month, %B: Full month name, %Y: Year
+  formatted_date = today.strftime("%A %d de %B de %Y")
+
+  # Return in the required format
+  return f"Agenda - {formatted_date}"
 
 # ==================== MANEJO DE TOKENS ====================
 
@@ -110,6 +148,7 @@ class DataManager:
     """Obtiene los enlaces de canales desde Firebase."""
     db = Database("canales", "canales_2.0", None)
     return db.get_doc_firebase().to_dict()
+
 
 
 # ==================== PROCESAMIENTO DE EVENTOS ====================
@@ -194,11 +233,11 @@ class EventProcessor:
     """Agrega enlaces a los eventos que tienen coincidencias."""
     for coincidencia in coincidencias:
       pos2 = coincidencia['posicion_2']
-      canal_nombre = self._obtener_canal_por_posicion(dic2, pos2)
-      if canal_nombre:
-        canal_link = self._buscar_enlace_canal(canal_nombre)
+      canales_nombre = self._obtener_canal_por_posicion(dic2, pos2)
+      for canal in canales_nombre:
+        canal_link = self._buscar_enlace_canal(canal)
         if canal_link:
-          enlace = {"canal": canal_nombre, "link": "acestream",
+          enlace = {"canal": canal, "link": "acestream",
                     "m3u8": canal_link}
           dic1["eventos"][coincidencia['posicion_1']]['enlaces'].append(enlace)
 
@@ -228,7 +267,7 @@ class EventProcessor:
     """Obtiene el nombre del canal dado su posición."""
     try:
       canales_lista = dic[str(posicion + 1)]['canales']
-      return canales_lista[0]
+      return canales_lista
     except (KeyError, IndexError):
       pass
     return None
@@ -236,7 +275,7 @@ class EventProcessor:
   def _buscar_enlace_canal(self, nombre_canal: str) -> Optional[str]:
     """Busca el enlace M3U8 de un canal por su nombre."""
     for canal in self.enlaces_canales.get("canales", []):
-      if canal['canal'].lower() == nombre_canal.lower():
+      if canal['canal'].lower() == nombre_canal[0].lower():
         return canal.get("m3u8")
     return None
 
@@ -520,6 +559,13 @@ class StreamScraper:
 
     dia_agenda = menu.find("b").text if menu.find("b") else ""
     eventos_elementos = menu.find_all("li", class_=lambda x: x != "subitem1")
+
+    self.eventos = {"dia": dia_agenda, "fecha": datetime.now().isoformat(), "eventos": []}
+
+    if not is_after_today_6am(dia_agenda):
+      self.eventos["dia"]=get_today_agenda_text()
+      print("❌ Agenda no es del día actual")
+      return
 
     self.eventos = {"dia": dia_agenda, "fecha": datetime.now().isoformat(), "eventos": []}
     for evento in eventos_elementos:
@@ -818,6 +864,7 @@ class StreamScraper:
 
     except Exception as e:
       print(f"Error extrayendo M3U8: {e}")
+
 
 # ==================== FUNCIÓN PRINCIPAL ====================
 

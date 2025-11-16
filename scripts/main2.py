@@ -44,9 +44,6 @@ def job():
     scraper = StreamScraper()
     eventos = scraper.scrape()
 
-    if not eventos or "eventos" not in eventos:
-      return
-
     eventos = unificar_con_acestream(eventos)
     eventos = categorizar_eventos(eventos)
     DataManager.guardar_eventos(eventos)
