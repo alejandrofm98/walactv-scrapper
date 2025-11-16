@@ -30,19 +30,21 @@ services:
       - path: .env
     networks:
       - dokploy-network
-    # NO pongas restart, Ofelia lo manejará
+    container_name: walactv-futboltv  # Importante: nombre explícito
     labels:
       ofelia.enabled: "true"
       ofelia.job-run.futbol-daily.schedule: "0 8 * * *"
       ofelia.job-run.futbol-daily.container: "walactv-futboltv"
+      ofelia.job-run.futbol-daily.no-overlap: "true"
 
-  # Scheduler
+  # Ofelia debe iniciar DESPUÉS
   ofelia:
     image: mcuadros/ofelia:latest
     container_name: ofelia-scheduler
     restart: unless-stopped
     depends_on:
-      - walactv-futboltv
+      walactv-futboltv:
+        condition: service_started  # Esperar a que exista el contenedor
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
