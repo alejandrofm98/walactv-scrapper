@@ -49,21 +49,31 @@ def similar(a: str, b: str) -> float:
 
 
 def is_after_today_6am(dia_agenda):
-  locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
+  # Mapeo manual de meses en español
+  meses = {
+    'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
+    'mayo': 5, 'junio': 6, 'julio': 7, 'agosto': 8,
+    'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12
+  }
 
-  date_str = dia_agenda.split(' - ')[1]
-  date_obj = datetime.strptime(date_str, '%A %d de %B de %Y')
+  # Extract the date part from the string
+  date_str = dia_agenda.split(' - ')[1]  # 'Lunes 17 de Noviembre de 2025'
 
+  # Parse manually: día de mes de año
+  partes = date_str.split(' de ')
+  dia_nombre_y_numero = partes[0].split()  # ['Lunes', '17']
+  dia = int(dia_nombre_y_numero[1])
+  mes = meses[partes[1].lower()]  # 'Noviembre' -> 11
+  ano = int(partes[2])
+
+  # Create date object
+  date_obj = datetime(ano, mes, dia).date()
+
+  # Get current date and time
   now = datetime.now()
 
-  # Si son antes de las 6 AM, el "día efectivo" es ayer
-  if now.hour < 6:
-    effective_today = (now - timedelta(days=1)).date()
-  else:
-    effective_today = now.date()
-
-  # True si date_obj es el día efectivo y ya pasaron las 6 AM
-  return date_obj.date() == effective_today and now.hour >= 6
+  # Return True only if date is today AND time is past 6 AM
+  return date_obj == now.date() and now.hour >= 6
 
 
 def get_today_agenda_text():
