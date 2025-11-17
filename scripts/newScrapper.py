@@ -47,30 +47,24 @@ def similar(a: str, b: str) -> float:
   """Calcula la similitud entre dos strings (0.0 a 1.0)."""
   return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
+
 def is_after_today_6am(dia_agenda):
-  # Set Spanish locale for month names
   locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
 
-  # Extract the date part from the string
-  date_str = dia_agenda.split(' - ')[
-    1]  # Gets 'Sábado 15 de Noviembre de 2025'
-
-  # Parse the date
+  date_str = dia_agenda.split(' - ')[1]
   date_obj = datetime.strptime(date_str, '%A %d de %B de %Y')
 
-  # Get current date and time
   now = datetime.now()
 
-  # Create a datetime for today at 6 AM
-  today_6am = now.replace(hour=6, minute=0, second=0, microsecond=0)
+  # Si son antes de las 6 AM, el "día efectivo" es ayer
+  if now.hour < 6:
+    effective_today = (now - timedelta(days=1)).date()
+  else:
+    effective_today = now.date()
 
-  # If current time is before 6 AM, use yesterday's 6 AM
-  if now < today_6am:
-    today_6am = (now - timedelta(days=1)).replace(hour=6, minute=0, second=0,
-                                                  microsecond=0)
+  # True si date_obj es el día efectivo y ya pasaron las 6 AM
+  return date_obj.date() == effective_today and now.hour >= 6
 
-  # Compare the dates
-  return date_obj.date() > today_6am.date()
 
 def get_today_agenda_text():
   # Set Spanish locale for month names
