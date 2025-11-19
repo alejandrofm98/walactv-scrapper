@@ -48,7 +48,7 @@ services:
     # Sin comando, usará /etc/ofelia/config.ini automáticamente
 
   acestream-arm:
-    image: jopsis/arm64-v3.2.14-update
+    image: jopsis/acestream:arm64-v3.2.14-update
     container_name: acestream-arm
     restart: unless-stopped
     hostname: acestream-arm
