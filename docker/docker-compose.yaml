@@ -50,7 +50,6 @@ services:
   acestream-arm:
     image: jopsis/acestream:arm64-v3.2.14-update
     container_name: acestream-arm
-    platform: linux/amd64
     restart: unless-stopped
     hostname: acestream-arm
     tmpfs:
