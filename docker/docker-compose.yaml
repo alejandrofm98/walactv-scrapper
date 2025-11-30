@@ -47,47 +47,7 @@ services:
       - dokploy-network
     # Sin comando, usará /etc/ofelia/config.ini automáticamente
 
-  acestream-arm:
-    image: jopsis/acestream:x64
-    container_name: acestream-arm
-    platform: linux/amd64
-    restart: unless-stopped
-    hostname: acestream-arm
-    tmpfs:
-      - /dev/shm:size=2g,mode=1777
-    ports:
-      - "6878:6878"
-    environment:
-      TZ: Europe/Madrid
-      ALLOW_REMOTE_ACCESS: "yes"
-    volumes:
-      - acestream-config:/acestream.engine
-    networks:
-      dokploy-network:
-        ipv4_address: 10.0.1.156
 
-  acestream-proxy:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile-acestream
-    container_name: acestream-proxy
-    restart: unless-stopped
-    # Cambia esta línea:
-    command: ["gunicorn", "-w", "4", "-k", "gevent", "--worker-connections", "1000", "-b", "0.0.0.0:8000", "--timeout", "300", "scripts.acestream_proxy:app"]
-    depends_on:
-      - acestream-arm
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=dokploy-network"
-      - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
-      - "traefik.http.routers.acestream-secure.entrypoints=websecure"
-      - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
-      - "traefik.http.services.acestream-secure.loadbalancer.server.port=8000"
-      # Deshabilitar CORS de Traefik para evitar conflictos
-      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolalloworiginlist="
-      - "traefik.http.routers.acestream-secure.middlewares="
-    networks:
-      - dokploy-network
 
 
 
@@ -132,29 +92,6 @@ services:
 #
 #          sleep 60
 #        done
-
-
-#  acestream-local:
-#    image: jopsis/acestream:x64
-#    container_name: acestream-local
-#    privileged: true
-#    restart: unless-stopped
-#    hostname: acestream-arm
-#    tmpfs:
-#      - /dev/shm:size=2g,mode=1777
-#    ports:
-#      - "6878:6878"
-#    environment:
-#      TZ: Europe/Madrid
-#      ALLOW_REMOTE_ACCESS: "yes"
-#    volumes:
-#      - acestream-config:/acestream.engine
-
-
-volumes:
-  acestream-config:
-  caddy_data:
-  caddy_config:
 
 networks:
   dokploy-network:
