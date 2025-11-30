@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     command: ["python", "proxificaUrl.py"]
     env_file:
-      - ../.env
+      - .env
     networks:
       - dokploy-network
 
@@ -17,7 +17,7 @@ services:
     restart: unless-stopped
     command: ["python", "main2.py"]
     env_file:
-      - ../.env
+      - .env
     networks:
       - dokploy-network
 
@@ -28,7 +28,7 @@ services:
     container_name: walactv-futboltv
     restart: unless-stopped
     env_file:
-      - ../.env
+      - .env
     networks:
       - dokploy-network
     command: ["sh", "-c", "while true; do sleep 3600; done"]
@@ -41,7 +41,7 @@ services:
       - walactv-futboltv
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ../docker/ofelia-config.ini:/etc/ofelia/config.ini:ro
+      - docker/ofelia-config.ini:/etc/ofelia/config.ini:ro
     networks:
       - dokploy-network
 
