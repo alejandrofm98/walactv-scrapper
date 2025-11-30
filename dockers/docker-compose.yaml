@@ -2,7 +2,7 @@ services:
   walactv-proxificaurl:
     build:
       context: ../
-      dockerfile: docker/Dockerfile
+      dockerfile: /Dockerfile
     restart: unless-stopped
     command: [ "python", "proxificaUrl.py" ]
     env_file:
@@ -13,7 +13,7 @@ services:
   walactv-new-scrapper:
     build:
       context: ../
-      dockerfile: docker/Dockerfile
+      dockerfile: /Dockerfile
     restart: unless-stopped
     command: [ "python", "main2.py" ]
     env_file:
@@ -24,7 +24,7 @@ services:
   walactv-futboltv:
     build:
       context: ../
-      dockerfile: docker/Dockerfile
+      dockerfile: /Dockerfile
     container_name: walactv-futboltv
     restart: unless-stopped
     env_file:
@@ -42,7 +42,7 @@ services:
       - walactv-futboltv
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./docker/ofelia-config.ini:/etc/ofelia/config.ini:ro
+      - ./dockers/ofelia-config.ini:/etc/ofelia/config.ini:ro
     networks:
       - dokploy-network
     # Sin comando, usará /etc/ofelia/config.ini automáticamente

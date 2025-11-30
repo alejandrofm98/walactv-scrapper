@@ -21,7 +21,7 @@ services:
   acestream-proxy:
     build:
       context: ..
-      dockerfile: docker/Dockerfile-acestream
+      dockerfile: /Dockerfile-acestream
     container_name: acestream-proxy
     restart: unless-stopped
     # Cambia esta línea:
