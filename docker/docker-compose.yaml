@@ -41,7 +41,7 @@ services:
       - walactv-futboltv
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - docker/ofelia-config.ini:/etc/ofelia/config.ini:ro
+      - ./ofelia-config.ini:/etc/ofelia/config.ini:ro
     networks:
       - dokploy-network
 
