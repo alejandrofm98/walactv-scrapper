@@ -1,39 +1,38 @@
 services:
   walactv-proxificaurl:
     build:
-      context: ../
-      dockerfile: /Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
     restart: unless-stopped
-    command: [ "python", "proxificaUrl.py" ]
+    command: ["python", "proxificaUrl.py"]
     env_file:
-      - path: .env
+      - ../.env
     networks:
       - dokploy-network
 
   walactv-new-scrapper:
     build:
-      context: ../
-      dockerfile: /Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
     restart: unless-stopped
-    command: [ "python", "main2.py" ]
+    command: ["python", "main2.py"]
     env_file:
-      - path: .env
+      - ../.env
     networks:
       - dokploy-network
 
   walactv-futboltv:
     build:
-      context: ../
-      dockerfile: /Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
     container_name: walactv-futboltv
     restart: unless-stopped
     env_file:
-      - path: .env
+      - ../.env
     networks:
       - dokploy-network
-    command: [ "sh", "-c", "while true; do sleep 3600; done" ]  # Mantener vivo
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
 
-    # Scheduler con archivo de configuración
   ofelia:
     image: mcuadros/ofelia:latest
     container_name: ofelia-scheduler
@@ -42,11 +41,9 @@ services:
       - walactv-futboltv
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./dockers/ofelia-config.ini:/etc/ofelia/config.ini:ro
+      - ../docker/ofelia-config.ini:/etc/ofelia/config.ini:ro
     networks:
       - dokploy-network
-    # Sin comando, usará /etc/ofelia/config.ini automáticamente
-
 
 networks:
   dokploy-network:

@@ -21,10 +21,9 @@ services:
   acestream-proxy:
     build:
       context: ..
-      dockerfile: /Dockerfile-acestream
+      dockerfile: Dockerfile-acestream
     container_name: acestream-proxy
     restart: unless-stopped
-    # Cambia esta línea:
     command: ["gunicorn", "-w", "4", "-k", "gevent", "--worker-connections", "1000", "-b", "0.0.0.0:8000", "--timeout", "300", "scripts.acestream_proxy:app"]
     depends_on:
       - acestream
@@ -35,7 +34,6 @@ services:
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=8000"
-      # Deshabilitar CORS de Traefik para evitar conflictos
       - "traefik.http.middlewares.acestream-cors.headers.accesscontrolalloworiginlist="
       - "traefik.http.routers.acestream-secure.middlewares="
     networks:
@@ -43,7 +41,6 @@ services:
 
 volumes:
   acestream-config:
-
 
 networks:
   dokploy-network:
