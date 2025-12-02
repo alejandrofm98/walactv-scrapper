@@ -15,7 +15,7 @@ services:
     volumes:
       - acestream-config:/acestream.engine
     networks:
-      - acestream-net   # ← RED BRIDGE CORRECTA (sale a Internet)
+      - acestream-net   # Red bridge para salida a Internet
 
   acestream-proxy:
     build:
@@ -29,15 +29,26 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
+
+      # HTTP Router para ACME challenge sin redirección global
+      - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acestream-http.entrypoints=web"
+      - "traefik.http.routers.acestream-http.middlewares=acestream-redirect"
+
+      # Middleware que redirige HTTP → HTTPS después del challenge
+      - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
+
+      # Router HTTPS principal con certificado Let’s Encrypt
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
+
+      # Puerto interno del servicio
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=8000"
-      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolalloworiginlist="
-      - "traefik.http.routers.acestream-secure.middlewares="
+
     networks:
-      - dokploy-network   # ← Para que Traefik lo detecte
-      - acestream-net     # ← Comunicación directa con AceStream
+      - dokploy-network   # Para que Traefik lo detecte
+      - acestream-net     # Comunicación directa con AceStream
 
 volumes:
   acestream-config:
@@ -47,4 +58,4 @@ networks:
     external: true
 
   acestream-net:
-    driver: bridge     # ← Red local que sí tiene salida a Internet
+    driver: bridge   # Red bridge con salida a Internet
