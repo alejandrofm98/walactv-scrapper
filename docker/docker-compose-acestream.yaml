@@ -12,7 +12,6 @@ services:
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
-    # Añade esta configuración DNS
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -20,7 +19,7 @@ services:
     volumes:
       - acestream-config:/acestream.engine
     networks:
-      - acestream-net
+      - dokploy-network
 
   acestream-proxy:
     build:
@@ -31,24 +30,27 @@ services:
     command: ["gunicorn", "-w", "4", "-k", "gevent", "--worker-connections", "1000", "-b", "0.0.0.0:8000", "--timeout", "300", "scripts.acestream_proxy:app"]
     depends_on:
       - acestream
-    # También añade DNS al proxy por si acaso
     dns:
       - 8.8.8.8
       - 8.8.4.4
+    ports:
+      - "8000:8000"
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
+      # HTTP (redirección a HTTPS)
       - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-http.entrypoints=web"
       - "traefik.http.routers.acestream-http.middlewares=acestream-redirect"
       - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
+      # HTTPS
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=8000"
     networks:
       - dokploy-network
-      - acestream-net
+      - acestream-
 
 volumes:
   acestream-config:
@@ -56,6 +58,3 @@ volumes:
 networks:
   dokploy-network:
     external: true
-
-  acestream-net:
-    driver: bridge
