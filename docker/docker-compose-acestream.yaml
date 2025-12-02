@@ -39,21 +39,25 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
 
-      # HTTP (redirección a HTTPS) - ACTUALIZAR ESTA LÍNEA
+      # Middleware de redirección
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+
+      # Router HTTP (redirige a HTTPS)
       - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-http.entrypoints=web"
-      - "traefik.http.routers.acestream-http.middlewares=acestream-redirect"  # ← CAMBIAR
+      - "traefik.http.routers.acestream-http.middlewares=redirect-to-https"
+      - "traefik.http.routers.acestream-http.service=acestream-proxy"
 
-      # AÑADIR NUEVA MIDDLEWARE PARA EXCLUIR ACME
-      - "traefik.http.middlewares.acestream-redirect-chain.chain.middlewares=strip-acme,acestream-redirect"
-      - "traefik.http.middlewares.strip-acme.stripprefix.prefixes=/.well-known/acme-challenge"
-      - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
+      # Router HTTPS (principal)
+      - "traefik.http.routers.acestream-https.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acestream-https.entrypoints=websecure"
+      - "traefik.http.routers.acestream-https.tls=true"
+      - "traefik.http.routers.acestream-https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.acestream-https.service=acestream-proxy"
 
-      # HTTPS (sin cambios)
-      - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
-      - "traefik.http.routers.acestream-secure.entrypoints=websecure"
-      - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
-      - "traefik.http.services.acestream-secure.loadbalancer.server.port=8000"
+      # Service
+      - "traefik.http.services.acestream-proxy.loadbalancer.server.port=8000"
     networks:
       - dokploy-network
 
