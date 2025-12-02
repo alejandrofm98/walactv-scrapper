@@ -15,8 +15,7 @@ services:
     volumes:
       - acestream-config:/acestream.engine
     networks:
-      dokploy-network:
-        ipv4_address: 10.0.1.156
+      - acestream-net   # ← RED BRIDGE CORRECTA (sale a Internet)
 
   acestream-proxy:
     build:
@@ -37,7 +36,8 @@ services:
       - "traefik.http.middlewares.acestream-cors.headers.accesscontrolalloworiginlist="
       - "traefik.http.routers.acestream-secure.middlewares="
     networks:
-      - dokploy-network
+      - dokploy-network   # ← Para que Traefik lo detecte
+      - acestream-net     # ← Comunicación directa con AceStream
 
 volumes:
   acestream-config:
@@ -45,3 +45,6 @@ volumes:
 networks:
   dokploy-network:
     external: true
+
+  acestream-net:
+    driver: bridge     # ← Red local que sí tiene salida a Internet
