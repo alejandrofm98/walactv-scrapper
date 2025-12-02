@@ -38,12 +38,18 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
-      # HTTP (redirección a HTTPS)
+
+      # HTTP (redirección a HTTPS) - ACTUALIZAR ESTA LÍNEA
       - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-http.entrypoints=web"
-      - "traefik.http.routers.acestream-http.middlewares=acestream-redirect"
+      - "traefik.http.routers.acestream-http.middlewares=acestream-redirect"  # ← CAMBIAR
+
+      # AÑADIR NUEVA MIDDLEWARE PARA EXCLUIR ACME
+      - "traefik.http.middlewares.acestream-redirect-chain.chain.middlewares=strip-acme,acestream-redirect"
+      - "traefik.http.middlewares.strip-acme.stripprefix.prefixes=/.well-known/acme-challenge"
       - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
-      # HTTPS
+
+      # HTTPS (sin cambios)
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
