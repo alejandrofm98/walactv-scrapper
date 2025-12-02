@@ -12,10 +12,15 @@ services:
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
+    # Añade esta configuración DNS
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     volumes:
       - acestream-config:/acestream.engine
     networks:
-      - acestream-net   # Red bridge para salida a Internet
+      - acestream-net
 
   acestream-proxy:
     build:
@@ -26,29 +31,24 @@ services:
     command: ["gunicorn", "-w", "4", "-k", "gevent", "--worker-connections", "1000", "-b", "0.0.0.0:8000", "--timeout", "300", "scripts.acestream_proxy:app"]
     depends_on:
       - acestream
+    # También añade DNS al proxy por si acaso
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
-
-      # HTTP Router para ACME challenge sin redirección global
       - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-http.entrypoints=web"
       - "traefik.http.routers.acestream-http.middlewares=acestream-redirect"
-
-      # Middleware que redirige HTTP → HTTPS después del challenge
       - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
-
-      # Router HTTPS principal con certificado Let’s Encrypt
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
-
-      # Puerto interno del servicio
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=8000"
-
     networks:
-      - dokploy-network   # Para que Traefik lo detecte
-      - acestream-net     # Comunicación directa con AceStream
+      - dokploy-network
+      - acestream-net
 
 volumes:
   acestream-config:
@@ -58,4 +58,4 @@ networks:
     external: true
 
   acestream-net:
-    driver: bridge   # Red bridge con salida a Internet
+    driver: bridge
