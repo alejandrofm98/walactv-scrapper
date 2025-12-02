@@ -35,6 +35,8 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
+    ports:
+      - "8000:8000"
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
