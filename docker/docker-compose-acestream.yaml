@@ -33,15 +33,19 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
-    expose:
-      - "8000"
+    ports:
+      - "8000:8000"
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
-      # HTTPS solamente - deja que Traefik maneje el redirect automáticamente
+      # HTTP (redirección a HTTPS)
+      - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acestream-http.entrypoints=web"
+      - "traefik.http.routers.acestream-http.middlewares=acestream-redirect"
+      - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
+      # HTTPS
       - "traefik.http.routers.acestream-secure.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-secure.entrypoints=websecure"
-      - "traefik.http.routers.acestream-secure.tls=true"
       - "traefik.http.routers.acestream-secure.tls.certresolver=letsencrypt"
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=8000"
     networks:
