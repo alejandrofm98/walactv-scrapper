@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Configuración
-ACESTREAM_BASE = "http://acestream-arm:6878"
+ACESTREAM_BASE = "http://acestream:6878"
 PUBLIC_DOMAIN = "https://acestream.walerike.com"
 ALLOWED_ORIGINS = ["https://walactvweb.walerike.com",
                    "https://acestream.walerike.com"]
