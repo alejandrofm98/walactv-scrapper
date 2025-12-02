@@ -50,7 +50,6 @@ services:
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=8000"
     networks:
       - dokploy-network
-      - acestream-
 
 volumes:
   acestream-config:
