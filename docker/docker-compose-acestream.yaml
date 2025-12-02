@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   acestream:
     image: jopsis/acestream:x64
@@ -12,7 +14,6 @@ services:
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
-    # Añade esta configuración DNS
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -20,18 +21,22 @@ services:
     volumes:
       - acestream-config:/acestream.engine
     networks:
+      - dokploy-network  # Añadir también a la red de dokploy
       - acestream-net
 
   acestream-proxy:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile-acestream
+      context: .
+      dockerfile: Dockerfile-acestream  # Asegúrate que está en el contexto correcto
     container_name: acestream-proxy
     restart: unless-stopped
-    command: ["gunicorn", "-w", "4", "-k", "gevent", "--worker-connections", "1000", "-b", "0.0.0.0:8000", "--timeout", "300", "scripts.acestream_proxy:app"]
+    ports:
+      - "8000:8000"  # AÑADIR ESTO para acceso directo si es necesario
     depends_on:
       - acestream
-    # También añade DNS al proxy por si acaso
+    environment:
+      ACESTREAM_HOST: "acestream"  # Nombre del servicio, no localhost
+      ACESTREAM_PORT: "6878"
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -48,7 +53,7 @@ services:
       - "traefik.http.services.acestream-secure.loadbalancer.server.port=8000"
     networks:
       - dokploy-network
-      - acestream-net
+      - acestream-net  # Añadir también a la red de acestream para comunicación interna
 
 volumes:
   acestream-config:
