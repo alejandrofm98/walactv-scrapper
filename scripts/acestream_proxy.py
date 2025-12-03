@@ -98,7 +98,7 @@ def prewarm_stream(stream_id):
                                      allow_redirects=True)
 
         if manifest_resp.status_code == 200:
-          chunks = re.findall(r'(http://acestream-arm:6878/ace/c/[^\s]+\.ts)',
+          chunks = re.findall(r'(' + ACESTREAM_BASE + r'/ace/c/[^\s]+\.ts)',
                               manifest_resp.text)
 
           if len(chunks) >= 3:
@@ -204,8 +204,8 @@ def handle_preflight(path=None):
 def rewrite_url(url):
   if not url:
     return url
-  if url.startswith('http://acestream-arm:6878'):
-    return url.replace('http://acestream-arm:6878', PUBLIC_DOMAIN)
+  if url.startswith(ACESTREAM_BASE):
+    return url.replace(ACESTREAM_BASE, PUBLIC_DOMAIN)
   elif url.startswith('/'):
     return f"{PUBLIC_DOMAIN}{url}"
   return url
@@ -260,7 +260,7 @@ def proxy_request(path, rewrite_manifest=False,
       if follow_redirects_manually:
         if location.startswith('/'):
           next_url = f"{ACESTREAM_BASE}{location}"
-        elif location.startswith('http://acestream-arm:6878'):
+        elif location.startswith(ACESTREAM_BASE):
           next_url = location
         else:
           next_url = urljoin(target_url, location)
@@ -288,7 +288,7 @@ def proxy_request(path, rewrite_manifest=False,
     # Reescribir manifests
     if rewrite_manifest or is_manifest_content(content_type, target_url):
       content = resp.text
-      content = re.sub(r'http://acestream-arm:6878', PUBLIC_DOMAIN, content)
+      content = re.sub(re.escape(ACESTREAM_BASE), PUBLIC_DOMAIN, content)
 
       lines = []
       for line in content.split('\n'):
