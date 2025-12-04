@@ -16,6 +16,7 @@ services:
     networks:
       - dokploy-network
 
+
   aacestream-init:
     image: alpine:latest
     container_name: acestream-init
