@@ -23,9 +23,7 @@ services:
       start_period: 30s
 
   acestream-init:
-    build:
-      context: ./docker
-      dockerfile: Dockerfile-acestream-init
+    image: alpine:latest
     container_name: acestream-init
     depends_on:
       acestream:
@@ -33,6 +31,27 @@ services:
     environment:
       EMAIL: ${ACESTREAM_EMAIL}
       PASSWORD: ${ACESTREAM_PASSWORD}
+    command: >
+      sh -c "
+      apk add --no-cache curl jq &&
+      echo '⏳ Esperando 30 segundos...' &&
+      sleep 30 &&
+      echo '🔑 Obteniendo token...' &&
+      TOKEN='' &&
+      until [ -n \"$TOKEN\" ] && [ \"$TOKEN\" != 'null' ]; do
+        TOKEN=$(curl -s 'http://acestream:6878/server/api?api_version=3&method=get_api_access_token' | jq -r '.result.token' 2>/dev/null) || true;
+        echo \"TOKEN=$TOKEN\";
+        [ -n \"$TOKEN\" ] && [ \"$TOKEN\" != 'null' ] || sleep 2;
+      done &&
+      echo '✅ Token: '$TOKEN &&
+      echo '🔐 Login (1/2)...' &&
+      RESP=$(curl -s \"http://acestream:6878/server/api?api_version=3&method=sign_in&token=$TOKEN&password=$PASSWORD&email=$EMAIL\") &&
+      echo $RESP | jq '.' &&
+      sleep 2 &&
+      echo '🔍 Verificando (2/2)...' &&
+      curl -s \"http://acestream:6878/server/api?api_version=3&method=get_user_info&token=$TOKEN\" | jq '.' &&
+      echo '✨ Completado'
+      "
     networks:
       - dokploy-network
     restart: "no"
