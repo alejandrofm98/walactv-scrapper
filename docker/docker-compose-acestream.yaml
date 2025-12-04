@@ -26,8 +26,8 @@ services:
       EMAIL: ${ACESTREAM_EMAIL}
       PASSWORD: ${ACESTREAM_PASSWORD}
     volumes:
-      - ./docker/acestream-init.sh:/acestream-init.sh
-    command: /acestream-init.sh
+      - ./docker/acestream-init.sh:/acestream-init.sh:ro  # Agrega :ro para solo lectura
+    entrypoint: ["/bin/sh", "/acestream-init.sh"]  # Cambia command por entrypoint
     networks:
       - dokploy-network
 
