@@ -8,5 +8,8 @@ RUN apk add --no-cache curl jq
 COPY docker/post_start.sh /post_start.sh
 RUN chmod +x /post_start.sh
 
+# dejamos el entrypoint original
+ENTRYPOINT ["/acestream/acestreamengine/acestream.sh"]  # o dejar el entrypoint original sin tocar
+
 # ejecutamos nuestro script después del arranque usando command
 CMD ["/post_start.sh"]
