@@ -1,6 +1,6 @@
 services:
   acestream:
-    image: jopsis/acestream:arm64-v3.2.14-update
+    image: jopsis/acestream:x64
     container_name: acestream
     restart: unless-stopped
     hostname: acestream
@@ -15,41 +15,44 @@ services:
       - acestream-config:/acestream.engine
     networks:
       - dokploy-network
-    healthcheck:
-      test: ["CMD", "sh", "-c", "curl -sf http://localhost:6878/server/api?api_version=3&method=get_api_access_token | grep -q token"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-      start_period: 30s
 
   acestream-init:
     image: alpine:latest
     container_name: acestream-init
     depends_on:
-      acestream:
-        condition: service_healthy
+      - acestream
     environment:
       EMAIL: ${ACESTREAM_EMAIL}
       PASSWORD: ${ACESTREAM_PASSWORD}
     command: >
       sh -c "
       apk add --no-cache curl jq &&
+      echo '🔍 Variables:' &&
+      echo \"EMAIL: $$EMAIL\" &&
+      echo \"PASSWORD: ***\" &&
       echo '⏳ Esperando 30 segundos...' &&
       sleep 30 &&
       echo '🔑 Obteniendo token...' &&
       TOKEN='' &&
-      until [ -n \"$TOKEN\" ] && [ \"$TOKEN\" != 'null' ]; do
-        TOKEN=$(curl -s 'http://acestream:6878/server/api?api_version=3&method=get_api_access_token' | jq -r '.result.token' 2>/dev/null) || true;
-        echo \"TOKEN=$TOKEN\";
-        [ -n \"$TOKEN\" ] && [ \"$TOKEN\" != 'null' ] || sleep 2;
+      RETRIES=0 &&
+      until [ -n \"$$TOKEN\" ] && [ \"$$TOKEN\" != 'null' ]; do
+        if [ $$RETRIES -ge 30 ]; then
+          echo '❌ No se pudo obtener token';
+          exit 1;
+        fi;
+        TOKEN=$$(curl -s 'http://acestream:6878/server/api?api_version=3&method=get_api_access_token' | jq -r '.result.token' 2>/dev/null) || true;
+        echo \"Intento $$((RETRIES+1)): TOKEN=$$TOKEN\";
+        [ -n \"$$TOKEN\" ] && [ \"$$TOKEN\" != 'null' ] || sleep 3;
+        RETRIES=$$((RETRIES+1));
       done &&
-      echo '✅ Token: '$TOKEN &&
+      echo '✅ Token obtenido: '$$TOKEN &&
       echo '🔐 Login (1/2)...' &&
-      RESP=$(curl -s \"http://acestream:6878/server/api?api_version=3&method=sign_in&token=$TOKEN&password=$PASSWORD&email=$EMAIL\") &&
-      echo $RESP | jq '.' &&
+      RESP=$$(curl -s \"http://acestream:6878/server/api?api_version=3&method=sign_in&token=$$TOKEN&password=$$PASSWORD&email=$$EMAIL\") &&
+      echo \"Respuesta login:\" &&
+      echo $$RESP | jq '.' &&
       sleep 2 &&
       echo '🔍 Verificando (2/2)...' &&
-      curl -s \"http://acestream:6878/server/api?api_version=3&method=get_user_info&token=$TOKEN\" | jq '.' &&
+      curl -s \"http://acestream:6878/server/api?api_version=3&method=get_user_info&token=$$TOKEN\" | jq '.' &&
       echo '✨ Completado'
       "
     networks:
@@ -64,8 +67,7 @@ services:
     restart: unless-stopped
     command: ["gunicorn", "-w", "4", "-k", "gevent", "--worker-connections", "1000", "-b", "0.0.0.0:8000", "--timeout", "300", "scripts.acestream_proxy:app"]
     depends_on:
-      acestream:
-        condition: service_healthy
+      - acestream
     dns:
       - 8.8.8.8
       - 8.8.4.4
