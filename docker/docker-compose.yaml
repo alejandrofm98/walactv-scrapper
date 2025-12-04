@@ -37,6 +37,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    container_name: walactv-actualiza-canales
     restart: unless-stopped
     command: ["sh", "-c", "while true; do sleep 3600; done"]
     env_file:
