@@ -17,19 +17,19 @@ services:
       - dokploy-network
 
 
-  aacestream-init:
-    image: alpine:latest
+  acestream-init:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile-acestream-init
     container_name: acestream-init
     depends_on:
       - acestream
     environment:
       EMAIL: ${ACESTREAM_EMAIL}
       PASSWORD: ${ACESTREAM_PASSWORD}
-    volumes:
-      - ./docker/acestream-init.sh:/acestream-init.sh:ro  # Agrega :ro para solo lectura
-    command: /acestream-init.sh
     networks:
       - dokploy-network
+
 
 
 
