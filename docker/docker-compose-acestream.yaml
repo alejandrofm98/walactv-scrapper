@@ -1,8 +1,6 @@
 services:
   acestream:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile-acestream-engine
+    image: jopsis/acestream:arm64-v3.2.14-update
     container_name: acestream
     restart: unless-stopped
     hostname: acestream
@@ -13,16 +11,31 @@ services:
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
-      EMAIL: ${ACESTREAM_EMAIL}
-      PASSWORD: ${ACESTREAM_PASSWORD}
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
-      - 1.1.1.1
     volumes:
       - acestream-config:/acestream.engine
     networks:
       - dokploy-network
+
+  acestream-init:
+    image: alpine:latest
+    container_name: acestream-init
+    depends_on:
+      - acestream
+    environment:
+      EMAIL: ${ACESTREAM_EMAIL}
+      PASSWORD: ${ACESTREAM_PASSWORD}
+    entrypoint: /bin/sh
+    command:
+      -c |
+        apk add --no-cache curl jq &&
+        echo "Esperando 30 segundos para que AceStream arranque..." &&
+        sleep 30 &&
+        TOKEN=$(curl -s "http://acestream:6878/server/api?api_version=3&method=get_api_access_token" | jq -r ".result.token") &&
+        curl -s "http://acestream:6878/server/api?api_version=3&method=sign_in&token=${TOKEN}&password=${PASSWORD}&email=${EMAIL}" &&
+        echo "Petición de login completada"
+    networks:
+      - dokploy-network
+
 
 
   acestream-proxy:
