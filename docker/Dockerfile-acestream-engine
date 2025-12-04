@@ -1,7 +1,9 @@
 FROM jopsis/acestream:arm64-v3.2.14-update
 
-RUN apt-get update && apt-get install -y curl jq && rm -rf /var/lib/apt/lists/*
+# instalar curl y jq
+RUN apk add --no-cache curl jq
 
+# copiar entrypoint
 COPY docker/entrypoint-acestream.sh /entrypoint-acestream.sh
 RUN chmod +x /entrypoint-acestream.sh
 
