@@ -33,6 +33,17 @@ services:
       - dokploy-network
     command: ["sh", "-c", "while true; do sleep 3600; done"]
 
+  walactv-actualiza-canales:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    env_file:
+      - .env
+    networks:
+      - dokploy-network
+
   ofelia:
     image: mcuadros/ofelia:latest
     container_name: ofelia-scheduler
