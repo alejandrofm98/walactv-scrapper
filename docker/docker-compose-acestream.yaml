@@ -24,16 +24,12 @@ services:
     environment:
       EMAIL: ${ACESTREAM_EMAIL}
       PASSWORD: ${ACESTREAM_PASSWORD}
+    volumes:
+      - ./docker/acestream-init.sh:/acestream-init.sh
     entrypoint: /bin/sh
-    command: -c "apk add --no-cache curl jq && \
-      echo 'Esperando 30 segundos para que AceStream arranque...' && \
-      sleep 30 && \
-      TOKEN=\$(curl -s 'http://acestream:6878/server/api?api_version=3&method=get_api_access_token' | jq -r '.result.token') && \
-      curl -s 'http://acestream:6878/server/api?api_version=3&method=sign_in&token=\$TOKEN&password=${PASSWORD}&email=${EMAIL}' && \
-      echo 'Petición de login completada'"
+    command: /acestream-init.sh
     networks:
       - dokploy-network
-
 
 
 
