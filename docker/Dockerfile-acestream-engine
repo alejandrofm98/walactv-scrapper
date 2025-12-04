@@ -1,10 +1,15 @@
+# Dockerfile
 FROM jopsis/acestream:arm64-v3.2.14-update
 
-# instalar curl y jq
+# instalar jq y curl para hacer las peticiones
 RUN apk add --no-cache curl jq
 
-# copiar entrypoint
-COPY docker/entrypoint-acestream.sh /entrypoint-acestream.sh
-RUN chmod +x /entrypoint-acestream.sh
+# copiar nuestro script que hace las peticiones
+COPY docker/post_start.sh /post_start.sh
+RUN chmod +x /post_start.sh
 
-ENTRYPOINT ["/entrypoint-acestream.sh"]
+# dejamos el entrypoint original
+ENTRYPOINT ["/acestream/acestreamengine/acestream.sh"]  # o dejar el entrypoint original sin tocar
+
+# ejecutamos nuestro script después del arranque usando command
+CMD ["/post_start.sh"]
