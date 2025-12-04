@@ -1,8 +1,9 @@
 services:
   acestream:
-    image: jopsis/acestream:x64
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile-acestream-engine
     container_name: acestream
-    platform: linux/amd64
     restart: unless-stopped
     hostname: acestream
     tmpfs:
@@ -12,6 +13,8 @@ services:
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
+      EMAIL: ${ACESTREAM_EMAIL}
+      PASSWORD: ${ACESTREAM_PASSWORD}
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -20,6 +23,7 @@ services:
       - acestream-config:/acestream.engine
     networks:
       - dokploy-network
+
 
   acestream-proxy:
     build:

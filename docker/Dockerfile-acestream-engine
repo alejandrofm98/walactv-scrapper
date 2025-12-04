@@ -1,0 +1,8 @@
+FROM jopsis/acestream:arm64-v3.2.14-update
+
+RUN apt-get update && apt-get install -y curl jq && rm -rf /var/lib/apt/lists/*
+
+COPY docker/entrypoint-acestream.sh /entrypoint-acestream.sh
+RUN chmod +x /entrypoint-acestream.sh
+
+ENTRYPOINT ["/entrypoint-acestream.sh"]
