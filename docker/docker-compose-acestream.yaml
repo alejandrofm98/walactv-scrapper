@@ -15,7 +15,12 @@ services:
       - acestream-config:/acestream.engine
     networks:
       - dokploy-network
-
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -sf http://localhost:6878/server/api?api_version=3&method=get_api_access_token | grep -q token"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
 
   acestream-init:
     build:
@@ -23,15 +28,14 @@ services:
       dockerfile: Dockerfile-acestream-init
     container_name: acestream-init
     depends_on:
-      - acestream
+      acestream:
+        condition: service_healthy
     environment:
       EMAIL: ${ACESTREAM_EMAIL}
       PASSWORD: ${ACESTREAM_PASSWORD}
     networks:
       - dokploy-network
-
-
-
+    restart: "no"
 
   acestream-proxy:
     build:
@@ -41,7 +45,8 @@ services:
     restart: unless-stopped
     command: ["gunicorn", "-w", "4", "-k", "gevent", "--worker-connections", "1000", "-b", "0.0.0.0:8000", "--timeout", "300", "scripts.acestream_proxy:app"]
     depends_on:
-      - acestream
+      acestream:
+        condition: service_healthy
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -50,25 +55,17 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
-
-      # Middleware de redirección
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
-
-      # Router HTTP (redirige a HTTPS)
       - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-http.entrypoints=web"
       - "traefik.http.routers.acestream-http.middlewares=redirect-to-https"
       - "traefik.http.routers.acestream-http.service=acestream-proxy"
-
-      # Router HTTPS (principal)
       - "traefik.http.routers.acestream-https.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-https.entrypoints=websecure"
       - "traefik.http.routers.acestream-https.tls=true"
       - "traefik.http.routers.acestream-https.tls.certresolver=letsencrypt"
       - "traefik.http.routers.acestream-https.service=acestream-proxy"
-
-      # Service
       - "traefik.http.services.acestream-proxy.loadbalancer.server.port=8000"
     networks:
       - dokploy-network
