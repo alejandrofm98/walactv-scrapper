@@ -19,7 +19,7 @@ import traceback
 import threading
 import locale
 from difflib import SequenceMatcher
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 from database import Database
 import requests
 import urllib.parse
@@ -163,6 +163,21 @@ class EventProcessor:
   def __init__(self):
     self.mapeo_canales = DataManager.obtener_mapeo_canales()
     self.enlaces_canales = DataManager.obtener_enlaces_canales()
+    # Índice rápido: nombre_canal.lower() -> m3u8
+    self._indice_canales: Dict[str, Optional[str]] = {}
+    self._indexar_canales()
+
+  def _indexar_canales(self) -> None:
+    """Construye un índice en memoria para búsquedas rápidas de canales."""
+    self._indice_canales = {}
+    for canal in self.enlaces_canales.get("canales", []):
+      nombre = canal.get("canal")
+      if not nombre:
+        continue
+      clave = nombre.strip().lower()
+      # Si hay duplicados, preferimos el primero no vacío
+      if clave not in self._indice_canales or not self._indice_canales[clave]:
+        self._indice_canales[clave] = canal.get("m3u8")
 
   def unificar_eventos(self, dic1: Dict, dic2: Dict,
       umbral: float = 0.6) -> None:
@@ -237,7 +252,7 @@ class EventProcessor:
     """Agrega enlaces a los eventos que tienen coincidencias."""
     for coincidencia in coincidencias:
       pos2 = coincidencia['posicion_2']
-      canales_nombre = self._obtener_canal_por_posicion(dic2, pos2)
+      canales_nombre = self._obtener_canal_por_posicion(dic2, pos2)  # Lista normalizada
       for canal in canales_nombre:
         canal_link = self._buscar_enlace_canal(canal)
         if canal_link:
@@ -249,38 +264,94 @@ class EventProcessor:
     """Agrega eventos que no tuvieron coincidencias."""
     for key, value in enumerate(dic2.items()):
       evento_data = dic2[str(key + 1)]
-      canal_nombre = self._obtener_canal_por_posicion(dic2, key)
+      canales_nombres = self._obtener_canal_por_posicion(dic2, key)
 
       nuevo_evento = {
-        "titulo": f"{evento_data['competicion']} {evento_data['equipos']}",
-        "hora": evento_data["hora"],
+        "titulo": f"{evento_data.get('competicion','')} {evento_data.get('equipos','')}".strip(),
+        "hora": evento_data.get("hora", "00:00"),
         "enlaces": []
       }
 
-      if canal_nombre:
-        canal_link = self._buscar_enlace_canal(canal_nombre)
+      # Intentar obtener el primer enlace válido entre la lista de canales
+      if canales_nombres:
+        canal_link = self._buscar_enlace_canal(canales_nombres)
         if canal_link:
-          enlace = {"canal": canal_nombre, "link": "acestream",
+          enlace = {"canal": canales_nombres[0], "link": "acestream",
                     "m3u8": canal_link}
           nuevo_evento['enlaces'].append(enlace)
 
       dic1["eventos"].append(nuevo_evento)
 
-  def _obtener_canal_por_posicion(self, dic: Dict, posicion: int) -> Optional[
-    str]:
-    """Obtiene el nombre del canal dado su posición."""
+  def _obtener_canal_por_posicion(self, dic: Dict, posicion: int) -> List[str]:
+    """Obtiene el/los nombre(s) del canal dado su posición; siempre devuelve lista."""
     try:
       canales_lista = dic[str(posicion + 1)]['canales']
-      return canales_lista
-    except (KeyError, IndexError):
+      # Si ya es lista, normalizar espacios
+      if isinstance(canales_lista, list):
+        return [c.strip() for c in canales_lista if isinstance(c, str) and c.strip()]
+      # Si es string, separar por delimitadores comunes
+      if isinstance(canales_lista, str):
+        partes = re.split(r'[,/;|\-–—]+', canales_lista)
+        return [p.strip() for p in partes if p.strip()]
+    except (KeyError, IndexError, TypeError):
       pass
-    return None
+    return []
 
-  def _buscar_enlace_canal(self, nombre_canal: str) -> Optional[str]:
-    """Busca el enlace M3U8 de un canal por su nombre."""
-    for canal in self.enlaces_canales.get("canales", []):
-      if canal['canal'].lower() == nombre_canal[0].lower():
-        return canal.get("m3u8")
+  def _buscar_enlace_canal(self, nombre_canal: Union[str, List[str]]) -> Optional[str]:
+    """Busca el enlace M3U8 de un canal por su nombre o por una lista de nombres.
+       - Usa índice O(1) para coincidencia exacta.
+       - Normaliza cadenas (strip, lower).
+       - Intenta coincidencia simple (antes del '-', '(' etc).
+       - Como fallback, usa comparación difusa y devuelve la mejor coincidencia si supera 0.8.
+    """
+    # Asegurar índice
+    if not hasattr(self, "_indice_canales") or not self._indice_canales:
+      self._indexar_canales()
+
+    if not nombre_canal:
+      return None
+
+    # Si viene una lista, iterar y devolver el primer match válido
+    if isinstance(nombre_canal, list):
+      for nc in nombre_canal:
+        enlace = self._buscar_enlace_canal(nc)
+        if enlace:
+          return enlace
+      return None
+
+    # Normalizar nombre
+    nombre = str(nombre_canal).strip().lower()
+    if not nombre:
+      return None
+
+    # 1) Coincidencia exacta
+    if enlace := self._indice_canales.get(nombre):
+      return enlace
+
+    # 2) Intentar versión simplificada (antes de '-' o '(' o '[')
+    nombre_simple = re.split(r'[-–—\(|\[]', nombre)[0].strip()
+    if nombre_simple and (enlace := self._indice_canales.get(nombre_simple)):
+      return enlace
+
+    # 3) Buscar por substring (por si en índice están como 'canal x' y buscamos 'canal')
+    for key, val in self._indice_canales.items():
+      if nombre in key or key in nombre:
+        if val:
+          return val
+
+    # 4) Fallback difuso (mejor puntuación)
+    best = None
+    best_score = 0.0
+    for key in self._indice_canales.keys():
+      score = similar(key, nombre)
+      if score > best_score:
+        best_score = score
+        best = key
+
+    if best_score >= 0.8:
+      return self._indice_canales.get(best)
+
+    # No encontrado
     return None
 
   def _ordenar_eventos_por_hora(self, dic1: Dict) -> None:
