@@ -6,7 +6,6 @@ services:
     hostname: acestream
     tmpfs:
       - /dev/shm:size=2g,mode=1777
-      - /root/.ACEStream/.acestream_cache:size=1g,mode=1777
     ports:
       - "6878:6878"
     environment:
