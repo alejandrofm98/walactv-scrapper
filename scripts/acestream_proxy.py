@@ -1,12 +1,16 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import re
+import time
+import logging
 from flask import Flask, request, Response, redirect, stream_with_context
 import requests
-import re
-import logging
 from urllib.parse import urljoin
 from collections import OrderedDict
-import time
 from threading import Thread, Lock
 from datetime import datetime, timedelta
+from urllib3.exceptions import HeaderParsingError
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
@@ -14,14 +18,16 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# --------------------------
 # Configuración
+# --------------------------
 ACESTREAM_BASE = "http://acestream:6878"
 PUBLIC_DOMAIN = "https://acestream.walerike.com"
 ALLOWED_ORIGINS = ["https://walactvweb.walerike.com",
                    "https://acestream.walerike.com"]
 ALLOW_ALL_ORIGINS = False
 
-# Cache de chunks
+# Cache de chunks (simple LRU)
 chunk_cache = OrderedDict()
 chunk_cache_lock = Lock()
 MAX_CHUNK_CACHE_SIZE = 50
@@ -32,7 +38,9 @@ stream_cache_lock = Lock()
 WARMUP_EXPIRY = timedelta(minutes=5)
 WARMUP_TIMEOUT = 90
 
-
+# --------------------------
+# Clases y utilidades
+# --------------------------
 class StreamWarmup:
   def __init__(self, stream_id):
     self.stream_id = stream_id
@@ -49,7 +57,6 @@ class StreamWarmup:
     self.last_used = datetime.now()
 
 
-# Funciones de cache de chunks
 def get_cached_chunk(key):
   with chunk_cache_lock:
     if key in chunk_cache:
@@ -73,7 +80,9 @@ def clear_chunk_cache():
     chunk_cache.clear()
 
 
-# Funciones de warmup
+# --------------------------
+# Warmup / prewarming
+# --------------------------
 def prewarm_stream(stream_id):
   logger.info(f"🔥 Pre-warming: {stream_id[:16]}")
   warmup = StreamWarmup(stream_id)
@@ -83,33 +92,38 @@ def prewarm_stream(stream_id):
 
   try:
     start = time.time()
-    resp = requests.get(f"{ACESTREAM_BASE}/ace/getstream?id={stream_id}",
-                        timeout=90, allow_redirects=True)
+    # 1) Intento de activar stream (equivalente a load/getstream)
+    try:
+      resp = requests.get(f"{ACESTREAM_BASE}/ace/getstream?id={stream_id}",
+                          timeout=90, allow_redirects=True)
+      warmup.activation_time = time.time() - start
+      logger.info(f"✓ Activation request completed in {warmup.activation_time:.2f}s (status {resp.status_code})")
+    except Exception as e:
+      logger.warning(f"⚠️ Activation request failed: {e}")
 
-    warmup.activation_time = time.time() - start
-    logger.info(f"✓ Activated in {warmup.activation_time:.2f}s")
-
+    # 2) Esperar manifest y comprobar primeros chunks
     manifest_url = f"{ACESTREAM_BASE}/ace/manifest.m3u8?id={stream_id}"
     start_wait = time.time()
 
     while time.time() - start_wait < WARMUP_TIMEOUT:
       try:
-        manifest_resp = requests.get(manifest_url, timeout=15,
-                                     allow_redirects=True)
+        manifest_resp = requests.get(manifest_url, timeout=15, allow_redirects=True)
 
         if manifest_resp.status_code == 200:
-          chunks = re.findall(r'(' + ACESTREAM_BASE + r'/ace/c/[^\s]+\.ts)',
-                              manifest_resp.text)
+          chunks = re.findall(r'(' + re.escape(ACESTREAM_BASE) + r'/ace/c/[^\s]+\.ts)', manifest_resp.text)
 
           if len(chunks) >= 3:
             # Verificar primer chunk
-            chunk_resp = requests.get(chunks[0], timeout=15, stream=True)
-            if chunk_resp.status_code == 200:
-              test_data = next(chunk_resp.iter_content(chunk_size=8192), None)
-              if test_data and len(test_data) > 0:
-                warmup.ready = True
-                logger.info(f"✅ Ready in {time.time() - start:.2f}s")
-                return
+            try:
+              chunk_resp = requests.get(chunks[0], timeout=15, stream=True)
+              if chunk_resp.status_code == 200:
+                test_data = next(chunk_resp.iter_content(chunk_size=8192), None)
+                if test_data and len(test_data) > 0:
+                  warmup.ready = True
+                  logger.info(f"✅ Ready in {time.time() - start:.2f}s")
+                  return
+            except Exception as e:
+              logger.debug(f"Chunk test failed: {e}")
 
         time.sleep(2)
       except Exception as e:
@@ -117,10 +131,10 @@ def prewarm_stream(stream_id):
         time.sleep(3)
 
     warmup.error = "Timeout"
-    logger.warning(f"⏱️ Timeout for {stream_id[:16]}")
+    logger.warning(f"⏱️ Timeout warming {stream_id[:16]}")
   except Exception as e:
     warmup.error = str(e)
-    logger.error(f"❌ Failed: {e}")
+    logger.error(f"❌ Warmup failed: {e}")
 
 
 def get_or_prewarm_stream(stream_id, wait=True, timeout=WARMUP_TIMEOUT):
@@ -165,7 +179,9 @@ def cleanup_warmup_cache():
       del stream_cache[sid]
 
 
-# CORS y preflight
+# --------------------------
+# CORS & Preflight
+# --------------------------
 @app.after_request
 def add_cors_headers(response):
   origin = request.headers.get('Origin')
@@ -178,12 +194,9 @@ def add_cors_headers(response):
   else:
     response.headers['Access-Control-Allow-Origin'] = '*'
 
-  response.headers[
-    'Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, HEAD'
-  response.headers[
-    'Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Range, Accept, Origin, X-Requested-With'
-  response.headers[
-    'Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Content-Type, Accept-Ranges'
+  response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, HEAD'
+  response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Range, Accept, Origin, X-Requested-With'
+  response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Content-Type, Accept-Ranges'
   response.headers['Access-Control-Max-Age'] = '3600'
 
   if 'Accept-Ranges' not in response.headers:
@@ -200,7 +213,9 @@ def handle_preflight(path=None):
   return Response('', status=204)
 
 
+# --------------------------
 # Utilidades
+# --------------------------
 def rewrite_url(url):
   if not url:
     return url
@@ -220,35 +235,70 @@ def is_manifest_content(content_type, url):
           any(ext in url.lower() for ext in manifest_exts))
 
 
-# Proxy principal
+# --------------------------
+# Proxy principal (mejorado)
+# --------------------------
 def proxy_request(path, rewrite_manifest=False,
     follow_redirects_manually=False):
-  target_url = path if path.startswith(
-    'http') else f"{ACESTREAM_BASE}/{path.lstrip('/')}"
-
+  target_url = path if path.startswith('http') else f"{ACESTREAM_BASE}/{path.lstrip('/')}"
   headers = {k: v for k, v in request.headers if k.lower() not in
-             ['host', 'connection', 'content-length', 'transfer-encoding',
-              'content-encoding']}
+             ['host', 'connection', 'content-length', 'transfer-encoding', 'content-encoding']}
 
   is_manifest = 'manifest' in path.lower() or rewrite_manifest
   is_chunk = '/ace/c/' in path.lower()
 
+  # Timeout tuples: (connect, read)
   timeout = (60, 180) if is_manifest else ((30, 300) if is_chunk else (30, 600))
 
   try:
+    # Primer intento: stream=True para chunked responses
     resp = requests.request(
         method=request.method,
         url=target_url,
         headers=headers,
-        data=request.get_data() if request.method in ['POST', 'PUT',
-                                                      'PATCH'] else None,
+        data=request.get_data() if request.method in ['POST', 'PUT', 'PATCH'] else None,
         allow_redirects=False,
         stream=True,
         timeout=timeout,
         verify=False
     )
 
-    # Seguir redirects manualmente
+    # -----------------------------------------------------------------
+    # Caso especial: 500 con body pequeño o vacío -> retry automático
+    # y caso "couldn't find resource" -> 404 más útil
+    # -----------------------------------------------------------------
+    if resp.status_code == 500:
+      # Intentamos leer un poco del contenido (requests rellenará .content si es pequeño)
+      content_bytes = b''
+      try:
+        # .content puede descargar entero; está bien porque suele ser pequeño en errores 500
+        content_bytes = resp.content or b''
+      except Exception:
+        content_bytes = b''
+
+      # Mensaje claro cuando el engine no encuentra el recurso
+      if b"couldn't find resource" in content_bytes.lower():
+        logger.warning(f"⚠️ AceStream: couldn't find resource -> {target_url}")
+        return Response("AceStream: recurso no disponible (canal offline o sin peers)", status=404)
+
+      # Retry si 500 vacío o truncado
+      if not content_bytes or len(content_bytes) < 10:
+        logger.warning(f"⚠️ Upstream returned 500 empty/truncated. Retrying {target_url}")
+        time.sleep(1)
+        resp = requests.request(
+            method=request.method,
+            url=target_url,
+            headers=headers,
+            data=request.get_data() if request.method in ['POST', 'PUT', 'PATCH'] else None,
+            allow_redirects=False,
+            stream=True,
+            timeout=timeout,
+            verify=False
+        )
+
+    # -----------------------------------------------------------------
+    # Manejo de redirects (si se desea seguir manualmente)
+    # -----------------------------------------------------------------
     redirect_count = 0
     while resp.status_code in [301, 302, 303, 307, 308] and redirect_count < 10:
       location = resp.headers.get('Location', '')
@@ -271,7 +321,9 @@ def proxy_request(path, rewrite_manifest=False,
       else:
         return redirect(rewrite_url(location), code=resp.status_code)
 
-    # Headers de respuesta
+    # -----------------------------------------------------------------
+    # Preparar headers de respuesta al cliente (excluir ciertos headers)
+    # -----------------------------------------------------------------
     excluded = ['content-encoding', 'content-length', 'transfer-encoding',
                 'connection', 'keep-alive', 'proxy-authenticate',
                 'proxy-authorization', 'te', 'trailers', 'upgrade']
@@ -285,37 +337,52 @@ def proxy_request(path, rewrite_manifest=False,
 
     content_type = resp.headers.get('Content-Type', '').lower()
 
-    # Reescribir manifests
+    # -----------------------------------------------------------------
+    # Reescribir manifests (m3u8 / mpd)
+    # -----------------------------------------------------------------
     if rewrite_manifest or is_manifest_content(content_type, target_url):
-      content = resp.text
-      content = re.sub(re.escape(ACESTREAM_BASE), PUBLIC_DOMAIN, content)
+      try:
+        content = resp.text
+        # Reemplazar urls internas por PUBLIC_DOMAIN
+        content = re.sub(re.escape(ACESTREAM_BASE), PUBLIC_DOMAIN, content)
 
-      lines = []
-      for line in content.split('\n'):
-        stripped = line.strip()
-        if not line.startswith('#') and stripped.startswith('/ace/'):
-          if PUBLIC_DOMAIN not in line:
-            line = PUBLIC_DOMAIN + stripped
-        lines.append(line)
+        lines = []
+        for line in content.split('\n'):
+          stripped = line.strip()
+          if not line.startswith('#') and stripped.startswith('/ace/'):
+            if PUBLIC_DOMAIN not in line:
+              line = PUBLIC_DOMAIN + stripped
+          lines.append(line)
 
-      content = '\n'.join(lines)
+        content = '\n'.join(lines)
 
-      response_headers.extend([
-        ('Cache-Control', 'no-cache, no-store, must-revalidate'),
-        ('Pragma', 'no-cache'),
-        ('Expires', '0')
-      ])
+        response_headers.extend([
+          ('Cache-Control', 'no-cache, no-store, must-revalidate'),
+          ('Pragma', 'no-cache'),
+          ('Expires', '0')
+        ])
 
-      return Response(content, status=resp.status_code,
-                      headers=response_headers)
+        return Response(content, status=resp.status_code,
+                        headers=response_headers)
+      except Exception as e:
+        logger.warning(f"⚠️ Error rewriting manifest: {e}")
 
-    # Streaming
+    # -----------------------------------------------------------------
+    # Streaming normal (chunks, video, etc.)
+    # -----------------------------------------------------------------
     def generate():
-      chunk_size = 65536 if 'video' in content_type else (
-        8192 if is_manifest else 32768)
-      for chunk in resp.iter_content(chunk_size=chunk_size):
-        if chunk:
-          yield chunk
+      # Elegir tamaño de chunk según tipo
+      chunk_size = 65536 if 'video' in content_type else (8192 if is_manifest else 32768)
+      try:
+        for chunk in resp.iter_content(chunk_size=chunk_size):
+          if chunk:
+            yield chunk
+      except HeaderParsingError:
+        # Puede saltar aquí si upstream rompió headers en mitad de stream
+        logger.warning(f"⚠️ HeaderParsingError while streaming {target_url}")
+        raise
+      except Exception as e:
+        logger.error(f"⚠️ Stream iteration error for {target_url}: {e}")
 
     return Response(stream_with_context(generate()), status=resp.status_code,
                     headers=response_headers, direct_passthrough=True)
@@ -324,21 +391,30 @@ def proxy_request(path, rewrite_manifest=False,
     msg = "Gateway Timeout"
     if 'manifest' in path.lower():
       msg += ": Stream buffering"
+    logger.warning(f"⏱️ Timeout proxying {path}")
     return Response(msg, status=504, headers=[('Retry-After', '30')])
+
   except requests.exceptions.ConnectionError:
-    return Response(f"Bad Gateway: Cannot connect to {ACESTREAM_BASE}",
-                    status=502)
+    logger.warning(f"🚫 Cannot connect to AceStream at {ACESTREAM_BASE}")
+    return Response(f"Bad Gateway: Cannot connect to {ACESTREAM_BASE}", status=502)
+
+  except HeaderParsingError as e:
+    logger.warning(f"⚠️ Upstream header parsing error for {path}: {e}")
+    return Response("Upstream error: AceStream devolvió una respuesta inválida",
+                    status=502, headers=[('Retry-After', '5')])
+
   except Exception as e:
-    logger.error(f"❌ Error: {e}", exc_info=True)
+    logger.error(f"❌ Proxy unexpected error for {path}: {e}", exc_info=True)
     return Response(f"Internal Server Error: {str(e)}", status=500)
 
 
-# Endpoints principales
+# --------------------------
+# Endpoints (manteniendo tus rutas originales)
+# --------------------------
 @app.route('/health')
 def health():
   try:
-    resp = requests.get(
-      f"{ACESTREAM_BASE}/webui/api/service?method=get_version", timeout=5)
+    resp = requests.get(f"{ACESTREAM_BASE}/webui/api/service?method=get_version", timeout=5)
     acestream_status = "ok" if resp.status_code == 200 else "error"
     version = resp.json() if resp.status_code == 200 else None
   except:
@@ -374,8 +450,7 @@ def prewarm_endpoint(id_content):
       }
 
   Thread(target=prewarm_stream, args=(id_content,), daemon=True).start()
-  return {"status": "warming",
-          "check_status": f"/ace/warmup-status/{id_content}"}
+  return {"status": "warming", "check_status": f"/ace/warmup-status/{id_content}"}
 
 
 @app.route('/ace/warmup-status/<id_content>')
@@ -386,8 +461,7 @@ def warmup_status(id_content):
       return {"status": "not_started"}
 
     return {
-      "status": "ready" if warmup.ready else (
-        "error" if warmup.error else "warming"),
+      "status": "ready" if warmup.ready else ("error" if warmup.error else "warming"),
       "ready": warmup.ready,
       "error": warmup.error,
       "activation_time": warmup.activation_time,
@@ -411,8 +485,7 @@ def manifest_query():
     return Response("Missing id parameter", status=400)
 
   user_agent = request.headers.get('User-Agent', '').lower()
-  is_chromecast = any(
-      kw in user_agent for kw in ['chromecast', 'cast', 'googlecast'])
+  is_chromecast = any(kw in user_agent for kw in ['chromecast', 'cast', 'googlecast'])
 
   if is_chromecast:
     logger.info(f"🎯 Chromecast: {id_content[:16]}")
@@ -449,8 +522,7 @@ def manifest_path(format, id_content):
   path = f"ace/manifest/{format}/{id_content}"
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, rewrite_manifest=True,
-                       follow_redirects_manually=True)
+  return proxy_request(path, rewrite_manifest=True, follow_redirects_manually=True)
 
 
 @app.route('/ace/c/<session_id>/<path:segment>', methods=['GET', 'HEAD'])
@@ -481,8 +553,8 @@ def chunks(session_id, segment):
           ('Accept-Ranges', 'bytes'),
           ('Cache-Control', 'public, max-age=300')
         ])
-    except:
-      pass
+    except Exception as e:
+      logger.debug(f"Chunk fetch fail for {path}: {e}")
 
   return proxy_request(path, follow_redirects_manually=True)
 
@@ -524,17 +596,20 @@ def root():
   return proxy_request('')
 
 
+# --------------------------
 # Background cleanup
+# --------------------------
 def background_cleanup():
   while True:
     time.sleep(300)
     try:
       cleanup_warmup_cache()
     except Exception as e:
-      logger.error(f"❌ Cleanup: {e}")
-
+      logger.error(f"❌ Cleanup error: {e}")
 
 Thread(target=background_cleanup, daemon=True).start()
 
+
 if __name__ == '__main__':
+  # Configura host/port según tu docker-compose/traefik
   app.run(host='0.0.0.0', port=8000, threaded=True)
