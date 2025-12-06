@@ -5,7 +5,13 @@ services:
     restart: unless-stopped
     hostname: acestream
     tmpfs:
-      - /dev/shm:size=2g,mode=1777
+      - /dev/shm:size=2g
+      - /root/.ACEStream:size=200m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "6878:6878"
     environment:
