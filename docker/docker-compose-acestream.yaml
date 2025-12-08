@@ -31,6 +31,54 @@ services:
         reservations:
           memory: 2G
 
+  acexy:
+    image: ghcr.io/javinator9889/acexy:latest
+    container_name: acexy
+    restart: unless-stopped
+    # NO expongas el puerto directamente
+    expose:
+      - "8080"
+    environment:
+      ACEXY_LISTEN_ADDR: ":8080"
+      ACEXY_SCHEME: "https"  # Cambiar a HTTPS
+      ACEXY_HOST: "acestream"
+      ACEXY_PORT: "6878"
+      ACEXY_M3U8_STREAM_TIMEOUT: "60s"
+      ACEXY_M3U8: "false"
+      ACEXY_EMPTY_TIMEOUT: "60s"
+      ACEXY_BUFFER_SIZE: 4MB
+      ACEXY_NO_RESPONSE_TIMEOUT: "10s"
+    labels:
+      # Habilitar Traefik
+      - "traefik.enable=true"
+
+      # Router HTTP
+      - "traefik.http.routers.acexy.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acexy.entrypoints=web"
+
+      # Redirect HTTP -> HTTPS
+      - "traefik.http.routers.acexy.middlewares=https-redirect"
+      - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
+
+      # Router HTTPS
+      - "traefik.http.routers.acexy-secure.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acexy-secure.entrypoints=websecure"
+      - "traefik.http.routers.acexy-secure.tls=true"
+      - "traefik.http.routers.acexy-secure.tls.certresolver=letsencrypt"
+
+      # Service
+      - "traefik.http.services.acexy.loadbalancer.server.port=8080"
+
+      # Timeouts largos para streaming
+      - "traefik.http.services.acexy.loadbalancer.server.scheme=http"
+      - "traefik.http.middlewares.acexy-timeout.buffering.retryExpression=IsNetworkError() && Attempts() < 3"
+
+    depends_on:
+      - acestream
+    networks:
+      - dokploy-network
+
+
   acestream-cleaner:
     image: alpine:latest
     container_name: acestream-cleaner
@@ -143,37 +191,39 @@ services:
       - dokploy-network
     restart: "no"
 
-  acestream-proxy:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile-acestream
-    container_name: acestream-proxy
-    restart: unless-stopped
-    command: ["gunicorn", "-w", "4", "-k", "gevent", "--worker-connections", "1000", "-b", "0.0.0.0:8000", "--timeout", "300", "scripts.acestream_proxy:app"]
-    depends_on:
-      - acestream
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
-    ports:
-      - "8000:8000"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=dokploy-network"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
-      - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
-      - "traefik.http.routers.acestream-http.entrypoints=web"
-      - "traefik.http.routers.acestream-http.middlewares=redirect-to-https"
-      - "traefik.http.routers.acestream-http.service=acestream-proxy"
-      - "traefik.http.routers.acestream-https.rule=Host(`acestream.walerike.com`)"
-      - "traefik.http.routers.acestream-https.entrypoints=websecure"
-      - "traefik.http.routers.acestream-https.tls=true"
-      - "traefik.http.routers.acestream-https.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.acestream-https.service=acestream-proxy"
-      - "traefik.http.services.acestream-proxy.loadbalancer.server.port=8000"
-    networks:
-      - dokploy-network
+#  acestream-proxy:
+#    build:
+#      context: ..
+#      dockerfile: docker/Dockerfile-acestream
+#    container_name: acestream-proxy
+#    restart: unless-stopped
+#    command: ["gunicorn", "-w", "4", "-k", "gevent", "--worker-connections", "1000", "-b", "0.0.0.0:8000", "--timeout", "300", "scripts.acestream_proxy:app"]
+#    depends_on:
+#      - acestream
+#    dns:
+#      - 8.8.8.8
+#      - 8.8.4.4
+#    ports:
+#      - "8000:8000"
+#    labels:
+#      - "traefik.enable=true"
+#      - "traefik.docker.network=dokploy-network"
+#      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+#      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+#      - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
+#      - "traefik.http.routers.acestream-http.entrypoints=web"
+#      - "traefik.http.routers.acestream-http.middlewares=redirect-to-https"
+#      - "traefik.http.routers.acestream-http.service=acestream-proxy"
+#      - "traefik.http.routers.acestream-https.rule=Host(`acestream.walerike.com`)"
+#      - "traefik.http.routers.acestream-https.entrypoints=websecure"
+#      - "traefik.http.routers.acestream-https.tls=true"
+#      - "traefik.http.routers.acestream-https.tls.certresolver=letsencrypt"
+#      - "traefik.http.routers.acestream-https.service=acestream-proxy"
+#      - "traefik.http.services.acestream-proxy.loadbalancer.server.port=8000"
+#    networks:
+#      - dokploy-network
+
+
 
 volumes:
   acestream-config:
@@ -181,3 +231,6 @@ volumes:
 networks:
   dokploy-network:
     external: true
+  aceserver:
+    name: aceserver
+    driver: bridge
