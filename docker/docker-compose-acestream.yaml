@@ -5,8 +5,9 @@ services:
     restart: unless-stopped
     hostname: acestream
     tmpfs:
-      - /dev/shm:size=2g
-      - /root/.ACEStream:size=200m
+      - /dev/shm:size=4g
+      - /root/.ACEStream:size=2g
+      - /tmp:size=1g
     logging:
       driver: "json-file"
       options:
@@ -17,8 +18,85 @@ services:
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
+      CACHE_SIZE: "1024"
+      DISK_CACHE_SIZE: "1536"
     volumes:
       - acestream-config:/acestream.engine
+    networks:
+      - dokploy-network
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  acestream-cleaner:
+    image: alpine:latest
+    container_name: acestream-cleaner
+    restart: unless-stopped
+    depends_on:
+      - acestream
+    environment:
+      TZ: Europe/Madrid
+      CLEAN_INTERVAL: "1800"
+      DISK_THRESHOLD: "80"
+      MAX_FILE_AGE: "30"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: >
+      sh -c "
+        apk add --no-cache docker-cli bash &&
+        echo '🧹 AceStream Auto-Cleaner iniciado' &&
+        
+        while true; do
+          echo '[$(date)] 🔍 Iniciando limpieza...' &&
+          
+          if ! docker ps --format '{{.Names}}' | grep -q '^acestream$$'; then
+            echo '[$(date)] ⚠️  Contenedor no está corriendo' &&
+            sleep 60 &&
+            continue
+          fi &&
+          
+          echo '[$(date)] 🗑️  Limpiando archivos antiguos...' &&
+          docker exec acestream sh -c '
+            find /root/.ACEStream -type f -mmin +30 -delete 2>/dev/null || true
+            find /tmp -type f -mmin +30 -delete 2>/dev/null || true
+            find /root/.ACEStream -name \"*.log\" -mtime +1 -delete 2>/dev/null || true
+          ' 2>/dev/null &&
+          
+          DISK_USAGE=$$(docker exec acestream sh -c \"df /root/.ACEStream | tail -1 | awk '{print \$$5}' | sed 's/%//'\" 2>/dev/null || echo 0) &&
+          echo '[$(date)] 📊 Uso de disco: '$$DISK_USAGE'%' &&
+          
+          if [ \"$$DISK_USAGE\" -gt \"80\" ]; then
+            echo '[$(date)] ⚠️  Uso alto - Limpieza agresiva' &&
+            docker exec acestream sh -c '
+              find /root/.ACEStream -type f ! -name \"*.conf\" ! -name \"*.db\" -delete 2>/dev/null || true
+              rm -rf /tmp/* 2>/dev/null || true
+              sync
+            ' 2>/dev/null &&
+            
+            NEW_USAGE=$$(docker exec acestream sh -c \"df /root/.ACEStream | tail -1 | awk '{print \$$5}' | sed 's/%//'\" 2>/dev/null || echo 0) &&
+            echo '[$(date)] 📊 Nuevo uso: '$$NEW_USAGE'%' &&
+            
+            if [ \"$$NEW_USAGE\" -gt \"90\" ]; then
+              echo '[$(date)] 🔄 Reiniciando contenedor...' &&
+              docker restart acestream &&
+              sleep 15
+            fi
+          fi &&
+          
+          docker exec acestream sh -c '
+            find /root/.ACEStream -type d -name \"session_*\" -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+          ' 2>/dev/null &&
+          
+          FILE_COUNT=$$(docker exec acestream sh -c 'find /root/.ACEStream -type f 2>/dev/null | wc -l' 2>/dev/null || echo 0) &&
+          echo '[$(date)] 📁 Archivos en cache: '$$FILE_COUNT &&
+          echo '[$(date)] ✅ Limpieza completada' &&
+          
+          sleep $${CLEAN_INTERVAL}
+        done
+      "
     networks:
       - dokploy-network
 
