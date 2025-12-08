@@ -6,11 +6,38 @@ import time
 import logging
 from flask import Flask, request, Response, redirect, stream_with_context
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from urllib.parse import urljoin
 from collections import OrderedDict
 from threading import Thread, Lock
 from datetime import datetime, timedelta
 from urllib3.exceptions import HeaderParsingError
+
+# IMPORTANTE: Deshabilitar strict header parsing
+import urllib3
+
+urllib3.disable_warnings()
+
+# Parche para tolerar headers malformados de AceStream
+import http.client
+
+original_parse_headers = http.client.HTTPResponse._read_status
+
+
+def patched_read_status(self):
+  try:
+    return original_parse_headers(self)
+  except Exception:
+    # Forzar parseo tolerante cuando hay headers malformados
+    self.version = 11
+    self.status = 500
+    self.reason = "Internal Server Error"
+    return
+
+
+http.client.HTTPResponse._read_status = patched_read_status
+http.client.HTTPConnection._http_vsn_str = 'HTTP/1.1'
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
@@ -37,6 +64,33 @@ stream_cache = {}
 stream_cache_lock = Lock()
 WARMUP_EXPIRY = timedelta(minutes=5)
 WARMUP_TIMEOUT = 90
+
+
+# --------------------------
+# Session con retry automático
+# --------------------------
+def create_session_with_retries():
+  """Crea una sesión de requests con retry automático y headers tolerantes"""
+  session = requests.Session()
+
+  # Retry strategy para errores 500, 502, 503, 504
+  retry_strategy = Retry(
+      total=3,
+      backoff_factor=1,
+      status_forcelist=[500, 502, 503, 504],
+      allowed_methods=["HEAD", "GET", "OPTIONS"]
+  )
+
+  adapter = HTTPAdapter(max_retries=retry_strategy)
+  session.mount("http://", adapter)
+  session.mount("https://", adapter)
+
+  return session
+
+
+# Session global reutilizable
+session = create_session_with_retries()
+
 
 # --------------------------
 # Clases y utilidades
@@ -81,6 +135,53 @@ def clear_chunk_cache():
 
 
 # --------------------------
+# Utilidad para requests con manejo de errores
+# --------------------------
+def safe_request(method, url, max_attempts=3, **kwargs):
+  """
+  Hace request con retry manual para HeaderParsingError
+  """
+  last_error = None
+
+  for attempt in range(max_attempts):
+    try:
+      resp = session.request(method, url, **kwargs)
+      return resp
+
+    except HeaderParsingError as e:
+      last_error = e
+      logger.warning(
+        f"⚠️ HeaderParsingError (intento {attempt + 1}/{max_attempts}): {url}")
+
+      if attempt < max_attempts - 1:
+        time.sleep(1 * (attempt + 1))  # backoff exponencial
+        continue
+      else:
+        # Último intento: devolver None
+        logger.error(
+          f"❌ HeaderParsingError persistente después de {max_attempts} intentos")
+        return None
+
+    except requests.exceptions.ConnectionError as e:
+      last_error = e
+      logger.warning(
+        f"⚠️ ConnectionError (intento {attempt + 1}/{max_attempts}): {e}")
+
+      if attempt < max_attempts - 1:
+        time.sleep(2 * (attempt + 1))
+        continue
+      else:
+        return None
+
+    except Exception as e:
+      last_error = e
+      logger.error(f"❌ Error inesperado: {e}")
+      return None
+
+  return None
+
+
+# --------------------------
 # Warmup / prewarming
 # --------------------------
 def prewarm_stream(stream_id):
@@ -92,12 +193,17 @@ def prewarm_stream(stream_id):
 
   try:
     start = time.time()
-    # 1) Intento de activar stream (equivalente a load/getstream)
+    # 1) Intento de activar stream
     try:
-      resp = requests.get(f"{ACESTREAM_BASE}/ace/getstream?id={stream_id}",
+      resp = safe_request('GET',
+                          f"{ACESTREAM_BASE}/ace/getstream?id={stream_id}",
                           timeout=90, allow_redirects=True)
-      warmup.activation_time = time.time() - start
-      logger.info(f"✓ Activation request completed in {warmup.activation_time:.2f}s (status {resp.status_code})")
+      if resp:
+        warmup.activation_time = time.time() - start
+        logger.info(
+          f"✓ Activation completed in {warmup.activation_time:.2f}s (status {resp.status_code})")
+      else:
+        logger.warning(f"⚠️ Activation request returned None")
     except Exception as e:
       logger.warning(f"⚠️ Activation request failed: {e}")
 
@@ -107,16 +213,20 @@ def prewarm_stream(stream_id):
 
     while time.time() - start_wait < WARMUP_TIMEOUT:
       try:
-        manifest_resp = requests.get(manifest_url, timeout=15, allow_redirects=True)
+        manifest_resp = safe_request('GET', manifest_url, timeout=15,
+                                     allow_redirects=True)
 
-        if manifest_resp.status_code == 200:
-          chunks = re.findall(r'(' + re.escape(ACESTREAM_BASE) + r'/ace/c/[^\s]+\.ts)', manifest_resp.text)
+        if manifest_resp and manifest_resp.status_code == 200:
+          chunks = re.findall(
+            r'(' + re.escape(ACESTREAM_BASE) + r'/ace/c/[^\s]+\.ts)',
+            manifest_resp.text)
 
           if len(chunks) >= 3:
             # Verificar primer chunk
             try:
-              chunk_resp = requests.get(chunks[0], timeout=15, stream=True)
-              if chunk_resp.status_code == 200:
+              chunk_resp = safe_request('GET', chunks[0], timeout=15,
+                                        stream=True)
+              if chunk_resp and chunk_resp.status_code == 200:
                 test_data = next(chunk_resp.iter_content(chunk_size=8192), None)
                 if test_data and len(test_data) > 0:
                   warmup.ready = True
@@ -194,9 +304,12 @@ def add_cors_headers(response):
   else:
     response.headers['Access-Control-Allow-Origin'] = '*'
 
-  response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, HEAD'
-  response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Range, Accept, Origin, X-Requested-With'
-  response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Content-Type, Accept-Ranges'
+  response.headers[
+    'Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, HEAD'
+  response.headers[
+    'Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Range, Accept, Origin, X-Requested-With'
+  response.headers[
+    'Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Content-Type, Accept-Ranges'
   response.headers['Access-Control-Max-Age'] = '3600'
 
   if 'Accept-Ranges' not in response.headers:
@@ -236,13 +349,15 @@ def is_manifest_content(content_type, url):
 
 
 # --------------------------
-# Proxy principal (mejorado)
+# Proxy principal (corregido)
 # --------------------------
 def proxy_request(path, rewrite_manifest=False,
     follow_redirects_manually=False):
-  target_url = path if path.startswith('http') else f"{ACESTREAM_BASE}/{path.lstrip('/')}"
+  target_url = path if path.startswith(
+    'http') else f"{ACESTREAM_BASE}/{path.lstrip('/')}"
   headers = {k: v for k, v in request.headers if k.lower() not in
-             ['host', 'connection', 'content-length', 'transfer-encoding', 'content-encoding']}
+             ['host', 'connection', 'content-length', 'transfer-encoding',
+              'content-encoding']}
 
   is_manifest = 'manifest' in path.lower() or rewrite_manifest
   is_chunk = '/ace/c/' in path.lower()
@@ -251,54 +366,45 @@ def proxy_request(path, rewrite_manifest=False,
   timeout = (60, 180) if is_manifest else ((30, 300) if is_chunk else (30, 600))
 
   try:
-    # Primer intento: stream=True para chunked responses
-    resp = requests.request(
+    # Usar safe_request que maneja HeaderParsingError
+    resp = safe_request(
         method=request.method,
         url=target_url,
         headers=headers,
-        data=request.get_data() if request.method in ['POST', 'PUT', 'PATCH'] else None,
+        data=request.get_data() if request.method in ['POST', 'PUT',
+                                                      'PATCH'] else None,
         allow_redirects=False,
         stream=True,
         timeout=timeout,
         verify=False
     )
 
-    # -----------------------------------------------------------------
-    # Caso especial: 500 con body pequeño o vacío -> retry automático
-    # y caso "couldn't find resource" -> 404 más útil
-    # -----------------------------------------------------------------
+    # Si safe_request devuelve None, hubo error irrecuperable
+    if resp is None:
+      logger.error(f"❌ Failed to get response from {target_url} after retries")
+      return Response("Bad Gateway: AceStream no responde correctamente",
+                      status=502, headers=[('Retry-After', '10')])
+
+    # Manejar 500 con "couldn't find resource"
     if resp.status_code == 500:
-      # Intentamos leer un poco del contenido (requests rellenará .content si es pequeño)
-      content_bytes = b''
       try:
-        # .content puede descargar entero; está bien porque suele ser pequeño en errores 500
-        content_bytes = resp.content or b''
-      except Exception:
+        # Para stream=True, necesitamos consumir el contenido primero
         content_bytes = b''
+        for chunk in resp.iter_content(chunk_size=1024):
+          content_bytes += chunk
+          if len(content_bytes) > 1024:  # Solo leer primeros KB
+            break
 
-      # Mensaje claro cuando el engine no encuentra el recurso
-      if b"couldn't find resource" in content_bytes.lower():
-        logger.warning(f"⚠️ AceStream: couldn't find resource -> {target_url}")
-        return Response("AceStream: recurso no disponible (canal offline o sin peers)", status=404)
+        if b"couldn't find resource" in content_bytes.lower():
+          logger.warning(
+            f"⚠️ AceStream: couldn't find resource -> {target_url}")
+          return Response(
+            "AceStream: recurso no disponible (canal offline o sin peers)",
+            status=404)
+      except Exception as e:
+        logger.debug(f"Error checking 500 body: {e}")
 
-      # Retry si 500 vacío o truncado
-      if not content_bytes or len(content_bytes) < 10:
-        logger.warning(f"⚠️ Upstream returned 500 empty/truncated. Retrying {target_url}")
-        time.sleep(1)
-        resp = requests.request(
-            method=request.method,
-            url=target_url,
-            headers=headers,
-            data=request.get_data() if request.method in ['POST', 'PUT', 'PATCH'] else None,
-            allow_redirects=False,
-            stream=True,
-            timeout=timeout,
-            verify=False
-        )
-
-    # -----------------------------------------------------------------
-    # Manejo de redirects (si se desea seguir manualmente)
-    # -----------------------------------------------------------------
+    # Manejo de redirects
     redirect_count = 0
     while resp.status_code in [301, 302, 303, 307, 308] and redirect_count < 10:
       location = resp.headers.get('Location', '')
@@ -315,15 +421,16 @@ def proxy_request(path, rewrite_manifest=False,
         else:
           next_url = urljoin(target_url, location)
 
-        resp = requests.get(next_url, headers=headers, allow_redirects=False,
-                            stream=True, timeout=timeout, verify=False)
+        resp = safe_request('GET', next_url, headers=headers,
+                            allow_redirects=False, stream=True,
+                            timeout=timeout, verify=False)
+        if resp is None:
+          return Response("Bad Gateway: Error siguiendo redirect", status=502)
         target_url = next_url
       else:
         return redirect(rewrite_url(location), code=resp.status_code)
 
-    # -----------------------------------------------------------------
-    # Preparar headers de respuesta al cliente (excluir ciertos headers)
-    # -----------------------------------------------------------------
+    # Preparar headers de respuesta
     excluded = ['content-encoding', 'content-length', 'transfer-encoding',
                 'connection', 'keep-alive', 'proxy-authenticate',
                 'proxy-authorization', 'te', 'trailers', 'upgrade']
@@ -337,13 +444,10 @@ def proxy_request(path, rewrite_manifest=False,
 
     content_type = resp.headers.get('Content-Type', '').lower()
 
-    # -----------------------------------------------------------------
-    # Reescribir manifests (m3u8 / mpd)
-    # -----------------------------------------------------------------
+    # Reescribir manifests
     if rewrite_manifest or is_manifest_content(content_type, target_url):
       try:
         content = resp.text
-        # Reemplazar urls internas por PUBLIC_DOMAIN
         content = re.sub(re.escape(ACESTREAM_BASE), PUBLIC_DOMAIN, content)
 
         lines = []
@@ -367,22 +471,17 @@ def proxy_request(path, rewrite_manifest=False,
       except Exception as e:
         logger.warning(f"⚠️ Error rewriting manifest: {e}")
 
-    # -----------------------------------------------------------------
-    # Streaming normal (chunks, video, etc.)
-    # -----------------------------------------------------------------
+    # Streaming normal
     def generate():
-      # Elegir tamaño de chunk según tipo
-      chunk_size = 65536 if 'video' in content_type else (8192 if is_manifest else 32768)
+      chunk_size = 65536 if 'video' in content_type else (
+        8192 if is_manifest else 32768)
       try:
         for chunk in resp.iter_content(chunk_size=chunk_size):
           if chunk:
             yield chunk
-      except HeaderParsingError:
-        # Puede saltar aquí si upstream rompió headers en mitad de stream
-        logger.warning(f"⚠️ HeaderParsingError while streaming {target_url}")
-        raise
       except Exception as e:
         logger.error(f"⚠️ Stream iteration error for {target_url}: {e}")
+        raise
 
     return Response(stream_with_context(generate()), status=resp.status_code,
                     headers=response_headers, direct_passthrough=True)
@@ -396,12 +495,8 @@ def proxy_request(path, rewrite_manifest=False,
 
   except requests.exceptions.ConnectionError:
     logger.warning(f"🚫 Cannot connect to AceStream at {ACESTREAM_BASE}")
-    return Response(f"Bad Gateway: Cannot connect to {ACESTREAM_BASE}", status=502)
-
-  except HeaderParsingError as e:
-    logger.warning(f"⚠️ Upstream header parsing error for {path}: {e}")
-    return Response("Upstream error: AceStream devolvió una respuesta inválida",
-                    status=502, headers=[('Retry-After', '5')])
+    return Response(f"Bad Gateway: Cannot connect to {ACESTREAM_BASE}",
+                    status=502)
 
   except Exception as e:
     logger.error(f"❌ Proxy unexpected error for {path}: {e}", exc_info=True)
@@ -409,12 +504,13 @@ def proxy_request(path, rewrite_manifest=False,
 
 
 # --------------------------
-# Endpoints (manteniendo tus rutas originales)
+# Endpoints
 # --------------------------
 @app.route('/health')
 def health():
   try:
-    resp = requests.get(f"{ACESTREAM_BASE}/webui/api/service?method=get_version", timeout=5)
+    resp = requests.get(
+      f"{ACESTREAM_BASE}/webui/api/service?method=get_version", timeout=5)
     acestream_status = "ok" if resp.status_code == 200 else "error"
     version = resp.json() if resp.status_code == 200 else None
   except:
@@ -450,7 +546,8 @@ def prewarm_endpoint(id_content):
       }
 
   Thread(target=prewarm_stream, args=(id_content,), daemon=True).start()
-  return {"status": "warming", "check_status": f"/ace/warmup-status/{id_content}"}
+  return {"status": "warming",
+          "check_status": f"/ace/warmup-status/{id_content}"}
 
 
 @app.route('/ace/warmup-status/<id_content>')
@@ -461,7 +558,8 @@ def warmup_status(id_content):
       return {"status": "not_started"}
 
     return {
-      "status": "ready" if warmup.ready else ("error" if warmup.error else "warming"),
+      "status": "ready" if warmup.ready else (
+        "error" if warmup.error else "warming"),
       "ready": warmup.ready,
       "error": warmup.error,
       "activation_time": warmup.activation_time,
@@ -485,7 +583,8 @@ def manifest_query():
     return Response("Missing id parameter", status=400)
 
   user_agent = request.headers.get('User-Agent', '').lower()
-  is_chromecast = any(kw in user_agent for kw in ['chromecast', 'cast', 'googlecast'])
+  is_chromecast = any(
+      kw in user_agent for kw in ['chromecast', 'cast', 'googlecast'])
 
   if is_chromecast:
     logger.info(f"🎯 Chromecast: {id_content[:16]}")
@@ -522,7 +621,8 @@ def manifest_path(format, id_content):
   path = f"ace/manifest/{format}/{id_content}"
   if request.query_string:
     path += f"?{request.query_string.decode('utf-8')}"
-  return proxy_request(path, rewrite_manifest=True, follow_redirects_manually=True)
+  return proxy_request(path, rewrite_manifest=True,
+                       follow_redirects_manually=True)
 
 
 @app.route('/ace/c/<session_id>/<path:segment>', methods=['GET', 'HEAD'])
@@ -544,8 +644,8 @@ def chunks(session_id, segment):
 
   if request.method == 'GET':
     try:
-      resp = requests.get(f"{ACESTREAM_BASE}/{path}", timeout=30)
-      if resp.status_code == 200:
+      resp = safe_request('GET', f"{ACESTREAM_BASE}/{path}", timeout=30)
+      if resp and resp.status_code == 200:
         data = resp.content
         cache_chunk(cache_key, data)
         return Response(data, status=200, headers=[
@@ -607,9 +707,8 @@ def background_cleanup():
     except Exception as e:
       logger.error(f"❌ Cleanup error: {e}")
 
+
 Thread(target=background_cleanup, daemon=True).start()
 
-
 if __name__ == '__main__':
-  # Configura host/port según tu docker-compose/traefik
   app.run(host='0.0.0.0', port=8000, threaded=True)
