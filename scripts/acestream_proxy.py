@@ -2,6 +2,7 @@ import os
 import requests
 from flask import Flask, request, Response, jsonify, redirect
 import logging
+import re
 
 app = Flask(__name__)
 
@@ -47,10 +48,13 @@ def proxy_getstream():
         # Si el redirect es relativo, convertirlo a absoluto
         if redirect_url.startswith('/'):
           redirect_url = f"{ACESTREAM_URL.rstrip('/')}{redirect_url}"
-        elif redirect_url.startswith('http://localhost'):
-          # Reemplazar localhost con el nombre del servicio Docker
-          redirect_url = redirect_url.replace('http://localhost:6878',
-                                              ACESTREAM_URL.rstrip('/'))
+        else:
+          # Reemplazar localhost/127.0.0.1 con el nombre del servicio Docker
+          redirect_url = re.sub(
+              r'http://(localhost|127\.0\.0\.1):6878',
+              ACESTREAM_URL.rstrip('/'),
+              redirect_url
+          )
 
         logger.info(f"Following redirect to: {redirect_url}")
 
