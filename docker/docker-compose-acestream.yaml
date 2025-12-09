@@ -7,14 +7,7 @@ services:
     tmpfs:
       - /dev/shm:size=4g
       - /root/.ACEStream:size=2g
-      - /tmp:size=1g
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    expose:
-      - "6878"
+      - /tmp:size=1
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
@@ -24,6 +17,8 @@ services:
       - acestream-config:/acestream.engine
     networks:
       - dokploy-network
+    ports:
+      - "6878:6878"
     deploy:
       resources:
         limits:
@@ -32,21 +27,15 @@ services:
           memory: 2G
 
   acestream-proxy:
-    image: ghcr.io/javinator9889/acexy:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile-acestream
     container_name: acestream-proxy
     restart: unless-stopped
-    expose:
-      - "8080"
     environment:
-      ACEXY_LISTEN_ADDR: ":8080"
-      ACEXY_SCHEME: "https"
-      ACEXY_HOST: "acestream"
-      ACEXY_PORT: "6878"
-      ACEXY_M3U8_STREAM_TIMEOUT: "60s"
-      ACEXY_M3U8: "false"
-      ACEXY_EMPTY_TIMEOUT: "60s"
-      ACEXY_BUFFER_SIZE: "4MB"
-      ACEXY_NO_RESPONSE_TIMEOUT: "10s"
+      - ACESTREAM_URL=http://acestream:6878
+    ports:
+      - "8000:8000"
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
@@ -69,19 +58,13 @@ services:
       - "traefik.http.routers.acestream-https.service=acestream-proxy"
 
       # Service
-      - "traefik.http.services.acestream-proxy.loadbalancer.server.port=8080"
+      - "traefik.http.services.acestream-proxy.loadbalancer.server.port=8000"
       - "traefik.http.services.acestream-proxy.loadbalancer.passhostheader=true"
 
     depends_on:
       - acestream
     networks:
       - dokploy-network
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
 
   acestream-cleaner:
     image: alpine:latest
@@ -201,3 +184,6 @@ volumes:
 networks:
   dokploy-network:
     external: true
+  aceserver:
+    name: aceserver
+    driver: bridge
