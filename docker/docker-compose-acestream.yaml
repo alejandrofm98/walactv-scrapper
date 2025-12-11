@@ -13,6 +13,8 @@ services:
       ALLOW_REMOTE_ACCESS: "yes"
       CACHE_SIZE: "1024"
       DISK_CACHE_SIZE: "1536"
+      HTTP_HOST: "acestream.walerike.com"
+      HTTP_PORT: "6878"
     volumes:
       - acestream-config:/acestream.engine
     networks:
