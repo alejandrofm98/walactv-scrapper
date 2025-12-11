@@ -13,15 +13,10 @@ services:
       ALLOW_REMOTE_ACCESS: "yes"
       CACHE_SIZE: "1024"
       DISK_CACHE_SIZE: "1536"
-      HTTP_HOST: "acestream.walerike.com"
-      HTTP_PORT: "6878"
     volumes:
       - acestream-config:/acestream.engine
     networks:
       - dokploy-network
-    # IMPORTANTE: Exponer el puerto 6878
-    ports:
-      - "6878:6878"
     deploy:
       resources:
         limits:
@@ -32,15 +27,13 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
 
-      # HTTP -> HTTPS redirect
-      - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
-      - "traefik.http.middlewares.acestream-redirect.redirectscheme.permanent=true"
-
-      # HTTP Router
-      - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
-      - "traefik.http.routers.acestream-http.entrypoints=web"
-      - "traefik.http.routers.acestream-http.middlewares=acestream-redirect"
-      - "traefik.http.routers.acestream-http.service=acestream-svc"
+      # Middleware CORS
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolallowmethods=GET,OPTIONS,HEAD,POST"
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolalloworiginlist=*"
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolexposeheaders=Content-Length,Content-Range,Accept-Ranges"
+      - "traefik.http.middlewares.acestream-cors.headers.accesscontrolmaxage=3600"
+      - "traefik.http.middlewares.acestream-cors.headers.addvaryheader=true"
 
       # HTTPS Router
       - "traefik.http.routers.acestream-https.rule=Host(`acestream.walerike.com`)"
@@ -48,6 +41,13 @@ services:
       - "traefik.http.routers.acestream-https.tls=true"
       - "traefik.http.routers.acestream-https.tls.certresolver=letsencrypt"
       - "traefik.http.routers.acestream-https.service=acestream-svc"
+      - "traefik.http.routers.acestream-https.middlewares=acestream-cors"
+
+      # HTTP Router (sin redirect a HTTPS para compatibilidad)
+      - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
+      - "traefik.http.routers.acestream-http.entrypoints=web"
+      - "traefik.http.routers.acestream-http.service=acestream-svc"
+      - "traefik.http.routers.acestream-http.middlewares=acestream-cors"
 
       # Service
       - "traefik.http.services.acestream-svc.loadbalancer.server.port=6878"
