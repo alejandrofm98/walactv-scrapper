@@ -7,7 +7,7 @@ services:
     tmpfs:
       - /dev/shm:size=4g
       - /root/.ACEStream:size=2g
-      - /tmp:size=1
+      - /tmp:size=1g
     environment:
       TZ: Europe/Madrid
       ALLOW_REMOTE_ACCESS: "yes"
@@ -17,25 +17,15 @@ services:
       - acestream-config:/acestream.engine
     networks:
       - dokploy-network
-    ports:
-      - "6878:6878"
+    # Opcional: solo si necesitas acceso directo sin Traefik
+    # ports:
+    #   - "6878:6878"
     deploy:
       resources:
         limits:
           memory: 4G
         reservations:
           memory: 2G
-
-  acestream-proxy:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile-acestream
-    container_name: acestream-proxy
-    restart: unless-stopped
-    environment:
-      - ACESTREAM_URL=http://acestream:6878
-    ports:
-      - "8000:8000"
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
@@ -57,14 +47,10 @@ services:
       - "traefik.http.routers.acestream-https.tls.certresolver=letsencrypt"
       - "traefik.http.routers.acestream-https.service=acestream-proxy"
 
-      # Service
-      - "traefik.http.services.acestream-proxy.loadbalancer.server.port=8000"
+      # Service - PUERTO CORREGIDO
+      - "traefik.http.services.acestream-proxy.loadbalancer.server.port=6878"
       - "traefik.http.services.acestream-proxy.loadbalancer.passhostheader=true"
 
-    depends_on:
-      - acestream
-    networks:
-      - dokploy-network
 
   acestream-cleaner:
     image: alpine:latest
