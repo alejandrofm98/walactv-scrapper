@@ -181,9 +181,9 @@ def extraer_stream_id(url: str):
   return match.group(1) if match else None
 
 
-@reintentar(max_intentos=2, delay=1, excepciones=(requests.RequestException,))
+@reintentar(max_intentos=2, delay=2, excepciones=(requests.RequestException,))
 def validar_stream(stream_url: str,
-    timeout: int = 10) -> bool:  # Aumentado timeout
+    timeout: int = 20) -> bool:  # Aumentado timeout
   """
   Valida un stream con reintentos en caso de timeout.
   """
@@ -193,7 +193,7 @@ def validar_stream(stream_url: str,
       print("⚠️ No se pudo extraer ID")
       return False
 
-    url = f"https://acestream.walerike.com/ace/getstream?id={stream_id}"
+    url = f"http://acestream.walerike.com:6878/ace/getstream?id={stream_id}"
     print(f"  📡 Validando {stream_id[:8]}...")
 
     resp = requests.get(url, timeout=timeout, stream=True)
