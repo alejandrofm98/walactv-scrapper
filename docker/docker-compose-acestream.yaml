@@ -17,9 +17,9 @@ services:
       - acestream-config:/acestream.engine
     networks:
       - dokploy-network
-    # Opcional: solo si necesitas acceso directo sin Traefik
-    # ports:
-    #   - "6878:6878"
+    # IMPORTANTE: Exponer el puerto 6878
+    ports:
+      - "6878:6878"
     deploy:
       resources:
         limits:
@@ -31,25 +31,25 @@ services:
       - "traefik.docker.network=dokploy-network"
 
       # HTTP -> HTTPS redirect
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+      - "traefik.http.middlewares.acestream-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.acestream-redirect.redirectscheme.permanent=true"
 
       # HTTP Router
       - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-http.entrypoints=web"
-      - "traefik.http.routers.acestream-http.middlewares=redirect-to-https"
-      - "traefik.http.routers.acestream-http.service=acestream-proxy"
+      - "traefik.http.routers.acestream-http.middlewares=acestream-redirect"
+      - "traefik.http.routers.acestream-http.service=acestream-svc"
 
       # HTTPS Router
       - "traefik.http.routers.acestream-https.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-https.entrypoints=websecure"
       - "traefik.http.routers.acestream-https.tls=true"
       - "traefik.http.routers.acestream-https.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.acestream-https.service=acestream-proxy"
+      - "traefik.http.routers.acestream-https.service=acestream-svc"
 
-      # Service - PUERTO CORREGIDO
-      - "traefik.http.services.acestream-proxy.loadbalancer.server.port=6878"
-      - "traefik.http.services.acestream-proxy.loadbalancer.passhostheader=true"
+      # Service
+      - "traefik.http.services.acestream-svc.loadbalancer.server.port=6878"
+      - "traefik.http.services.acestream-svc.loadbalancer.passhostheader=true"
 
 
   acestream-cleaner:
