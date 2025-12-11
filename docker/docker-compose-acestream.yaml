@@ -4,6 +4,9 @@ services:
     container_name: acestream
     restart: unless-stopped
     hostname: acestream
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     tmpfs:
       - /dev/shm:size=4g
       - /root/.ACEStream:size=2g
@@ -19,7 +22,6 @@ services:
       - acestream-config:/acestream.engine
     networks:
       - dokploy-network
-    # IMPORTANTE: Exponer el puerto 6878
     ports:
       - "6878:6878"
     deploy:
