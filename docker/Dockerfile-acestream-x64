@@ -1,0 +1,62 @@
+# Stage 1: Build proxy
+FROM python:3.11-alpine AS proxy-builder
+
+WORKDIR /app
+
+# Instalar dependencias de compilación necesarias
+RUN apk add --no-cache \
+    gcc \
+    musl-dev \
+    linux-headers \
+    libffi-dev \
+    openssl-dev
+
+# Copiar requirements y instalar
+COPY docker/config/requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt gunicorn
+
+# Stage 2: Imagen final
+FROM jopsis/acestream:x64
+
+# Instalar Python, curl, jq y supervisor
+USER root
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    curl \
+    jq \
+    supervisor \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copiar dependencias de Python del builder
+COPY --from=proxy-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=proxy-builder /usr/local/bin/gunicorn /usr/local/bin/gunicorn
+
+# Crear directorios necesarios
+RUN mkdir -p /proxy /var/log/supervisor
+
+# Copiar archivos del proyecto
+WORKDIR /proxy
+
+# Copiar el proxy desde scripts/
+COPY scripts/acestream_proxy.py .
+
+# Copiar requirements.txt
+COPY docker/config/requirements.txt .
+
+# Instalar dependencias en la imagen final
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt gunicorn
+
+# Copiar scripts de inicialización
+COPY docker/scripts/acestream-init.sh /usr/local/bin/
+COPY docker/scripts/start-all.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/acestream-init.sh /usr/local/bin/start-all.sh
+
+# Copiar configuración de supervisord
+COPY docker/config/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+EXPOSE 6878 3000
+
+CMD ["/usr/local/bin/start-all.sh"]
