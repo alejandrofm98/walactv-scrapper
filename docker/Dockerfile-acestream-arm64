@@ -19,16 +19,15 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Stage 2: Imagen final ARM64
 FROM jopsis/acestream:arm64-v3.2.14-update
 
-# Instalar Python, curl, jq y supervisor
+# Instalar Python, curl, jq y supervisor (usando apk para Alpine)
 USER root
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     python3 \
-    python3-pip \
+    py3-pip \
     curl \
     jq \
     supervisor \
-    netcat-openbsd \
-    && rm -rf /var/lib/apt/lists/*
+    netcat-openbsd
 
 # Copiar dependencias de Python del builder
 COPY --from=proxy-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
@@ -46,8 +45,8 @@ COPY scripts/acestream_proxy.py .
 # Copiar requirements.txt
 COPY docker/config/requirements.txt .
 
-# Instalar dependencias en la imagen final
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt gunicorn
+# Instalar dependencias en la imagen final (sin --break-system-packages para Alpine)
+RUN pip3 install --no-cache-dir -r requirements.txt gunicorn
 
 # Copiar scripts de inicialización para ARM64
 COPY docker/scripts/acestream-init-arm64.sh /usr/local/bin/acestream-init.sh

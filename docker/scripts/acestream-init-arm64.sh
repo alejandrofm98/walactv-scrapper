@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 echo "Iniciando Acestream Engine para ARM64..."
@@ -10,10 +10,18 @@ sleep 2
 export CACHE_SIZE=${CACHE_SIZE:-1024}
 export DISK_CACHE_SIZE=${DISK_CACHE_SIZE:-1536}
 
-# Iniciar Acestream con los parámetros específicos para ARM64
-cd /opt/acestream || cd /acestream
+# Buscar el directorio de Acestream
+if [ -d "/opt/acestream" ]; then
+    cd /opt/acestream
+elif [ -d "/acestream" ]; then
+    cd /acestream
+else
+    echo "Error: No se encuentra el directorio de Acestream"
+    exit 1
+fi
 
-exec python main.py \
+# Iniciar Acestream con los parámetros específicos para ARM64
+exec python3 main.py \
     --bind-all \
     --client-console \
     --live-cache-type memory \
