@@ -24,13 +24,15 @@ USER root
 RUN apk add --no-cache \
     python3 \
     py3-pip \
+    py3-virtualenv \
     curl \
     jq \
     supervisor \
     netcat-openbsd
 
-# Copiar dependencias de Python del builder
-COPY --from=proxy-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+# Copiar dependencias de Python del builder a un directorio específico
+RUN mkdir -p /usr/local/proxy-packages
+COPY --from=proxy-builder /usr/local/lib/python3.11/site-packages /usr/local/proxy-packages
 COPY --from=proxy-builder /usr/local/bin/gunicorn /usr/local/bin/gunicorn
 
 # Crear directorios necesarios
@@ -45,8 +47,10 @@ COPY scripts/acestream_proxy.py .
 # Copiar requirements.txt
 COPY docker/config/requirements.txt .
 
-# Instalar dependencias en la imagen final (sin --break-system-packages para Alpine)
-RUN pip3 install --no-cache-dir -r requirements.txt gunicorn
+# Crear virtualenv y instalar dependencias
+RUN python3 -m venv /proxy/venv && \
+    /proxy/venv/bin/pip install --no-cache-dir --upgrade pip && \
+    /proxy/venv/bin/pip install --no-cache-dir -r requirements.txt gunicorn
 
 # Copiar scripts de inicialización para ARM64
 COPY docker/scripts/acestream-init-arm64.sh /usr/local/bin/acestream-init.sh
