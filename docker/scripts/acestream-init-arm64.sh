@@ -10,18 +10,38 @@ sleep 2
 export CACHE_SIZE=${CACHE_SIZE:-1024}
 export DISK_CACHE_SIZE=${DISK_CACHE_SIZE:-1536}
 
-# Buscar el directorio de Acestream
-if [ -d "/opt/acestream" ]; then
-    cd /opt/acestream
-elif [ -d "/acestream" ]; then
-    cd /acestream
+# Buscar el directorio de Acestream y su Python
+ACESTREAM_DIR=""
+ACESTREAM_PYTHON=""
+
+if [ -d "/acestream" ]; then
+    ACESTREAM_DIR="/acestream"
+    ACESTREAM_PYTHON="/acestream/python/bin/python"
+elif [ -d "/opt/acestream" ]; then
+    ACESTREAM_DIR="/opt/acestream"
+    ACESTREAM_PYTHON="/opt/acestream/python/bin/python"
 else
     echo "Error: No se encuentra el directorio de Acestream"
     exit 1
 fi
 
-# Iniciar Acestream con los parámetros específicos para ARM64
-exec python3 main.py \
+# Verificar que existe el Python de Acestream
+if [ ! -f "$ACESTREAM_PYTHON" ]; then
+    # Intentar con python3
+    ACESTREAM_PYTHON="${ACESTREAM_DIR}/python/bin/python3"
+    if [ ! -f "$ACESTREAM_PYTHON" ]; then
+        echo "Error: No se encuentra el Python de Acestream"
+        exit 1
+    fi
+fi
+
+cd "$ACESTREAM_DIR"
+
+echo "Usando Python: $ACESTREAM_PYTHON"
+echo "Directorio: $ACESTREAM_DIR"
+
+# Iniciar Acestream con su propio Python
+exec "$ACESTREAM_PYTHON" main.py \
     --bind-all \
     --client-console \
     --live-cache-type memory \
