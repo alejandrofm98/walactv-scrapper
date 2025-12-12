@@ -22,8 +22,6 @@ services:
       ACESTREAM_PASSWORD: ${ACESTREAM_PASSWORD}
     volumes:
       - acestream-config:/acestream.engine
-    ports:
-      - "3000:3000"
     networks:
       - dokploy-network
     deploy:
@@ -45,7 +43,7 @@ services:
       - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-http.entrypoints=web"
       - "traefik.http.routers.acestream-http.service=acestream-proxy-svc"
-      # Service apunta al puerto del proxy (3000)
+      # Service apunta al puerto del proxy (3000) - usa el puerto interno del contenedor
       - "traefik.http.services.acestream-proxy-svc.loadbalancer.server.port=3000"
 
 volumes:
