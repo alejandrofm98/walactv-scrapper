@@ -1,4 +1,4 @@
-# Stage 1: Build proxy completo con su propio Python
+# Stage 1: Build proxy completo con Python independiente
 FROM python:3.11-alpine AS proxy-builder
 
 WORKDIR /app
@@ -11,34 +11,38 @@ RUN apk add --no-cache \
     libffi-dev \
     openssl-dev
 
-# Copiar requirements y instalar en un virtualenv
+# Copiar requirements y instalar
 COPY docker/config/requirements.txt .
-RUN python3 -m venv /venv && \
-    /venv/bin/pip install --no-cache-dir --upgrade pip && \
-    /venv/bin/pip install --no-cache-dir -r requirements.txt gunicorn
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt gunicorn
+
+# Copiar el proxy
+COPY scripts/acestream_proxy.py .
 
 # Stage 2: Imagen final ARM64
 FROM jopsis/acestream:arm64-v3.2.14-update
 
 USER root
 
-# Instalar solo las herramientas necesarias (NO python3 para evitar conflictos)
+# Instalar herramientas necesarias y Python standalone
 RUN apk add --no-cache \
+    python3 \
+    py3-pip \
     curl \
     jq \
     supervisor \
-    netcat-openbsd \
-    libgcc \
-    libstdc++
+    netcat-openbsd && \
+    # Remover el enlace de Python que conflictúa con Acestream
+    rm -f /usr/bin/python /usr/bin/python3 || true
 
-# Copiar Python completo desde el builder con sus librerías
-COPY --from=proxy-builder /usr/local/bin/python3.11 /usr/local/bin/python-proxy
-COPY --from=proxy-builder /usr/local/lib/python3.11 /usr/local/lib/python3.11
-COPY --from=proxy-builder /usr/local/lib/libpython3.11.so.1.0 /usr/local/lib/ 2>/dev/null || true
-COPY --from=proxy-builder /venv /proxy/venv
+# Crear un wrapper para Python del proxy que use el de Alpine
+RUN echo '#!/bin/sh' > /usr/local/bin/python-proxy && \
+    echo 'exec /usr/bin/python3.* "$@"' >> /usr/local/bin/python-proxy && \
+    chmod +x /usr/local/bin/python-proxy
 
-# Crear enlace simbólico para el virtualenv
-RUN ln -sf /usr/local/bin/python-proxy /proxy/venv/bin/python3.11
+# Instalar pip para Python de Alpine en un directorio específico
+RUN /usr/bin/python3.* -m ensurepip --default-pip && \
+    /usr/bin/python3.* -m pip install --no-cache-dir --upgrade pip
 
 # Crear directorios necesarios
 RUN mkdir -p /proxy /var/log/supervisor
@@ -46,11 +50,14 @@ RUN mkdir -p /proxy /var/log/supervisor
 # Copiar archivos del proyecto
 WORKDIR /proxy
 
-# Copiar el proxy desde scripts/
-COPY scripts/acestream_proxy.py .
+# Copiar el proxy y requirements desde el builder
+COPY --from=proxy-builder /app/acestream_proxy.py .
+COPY --from=proxy-builder /app/requirements.txt .
 
-# Copiar requirements.txt (por referencia)
-COPY docker/config/requirements.txt .
+# Instalar dependencias usando Python de Alpine en ubicación separada
+RUN /usr/bin/python3.* -m pip install --no-cache-dir \
+    --target=/proxy/packages \
+    -r requirements.txt gunicorn
 
 # Copiar scripts de inicialización para ARM64
 COPY docker/scripts/acestream-init-arm64.sh /usr/local/bin/acestream-init.sh
@@ -59,6 +66,9 @@ RUN chmod +x /usr/local/bin/acestream-init.sh /usr/local/bin/start-all.sh
 
 # Copiar configuración de supervisord para ARM64
 COPY docker/config/supervisord-arm64.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Configurar PYTHONPATH para el proxy
+ENV PYTHONPATH=/proxy/packages
 
 EXPOSE 6878 3000
 
