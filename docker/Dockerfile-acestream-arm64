@@ -20,8 +20,8 @@ FROM jopsis/acestream:arm64-v3.2.14-update
 
 USER root
 
-# SOLO herramientas básicas - NO Python
-RUN apk add --no-cache curl jq netcat-openbsd supervisor
+# SOLO herramientas básicas - NO Python, NO supervisor
+RUN apk add --no-cache curl jq netcat-openbsd
 
 # Copiar Python del proxy a ubicación aislada
 RUN mkdir -p /proxy-env

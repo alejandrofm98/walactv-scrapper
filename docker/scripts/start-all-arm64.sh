@@ -1,22 +1,18 @@
 #!/bin/sh
 set -e
 
-echo "🚀 Iniciando AceStream Engine (ARM64)..."
+echo "========================================="
+echo "🚀 Iniciando AceStream + Proxy (ARM64)"
+echo "========================================="
+
+echo ""
+echo "📡 Iniciando AceStream Engine..."
 
 cd /acestream
 
-# Variables de entorno
 CACHE_SIZE="${CACHE_SIZE:-1024}"
 CACHE_BYTES=$((CACHE_SIZE * 1000000))
 
-# La imagen base YA tiene configuradas estas variables:
-# PYTHONHOME=/acestream/python
-# PYTHONPATH=/acestream/python/lib/stdlib:/acestream/python/lib/modules:...
-# NO las modificamos
-
-echo "📡 Iniciando AceStream en background..."
-
-# Iniciar Acestream usando el comando original de la imagen
 python main.py \
     --bind-all \
     --client-console \
@@ -29,17 +25,60 @@ python main.py \
 ACESTREAM_PID=$!
 echo "✅ AceStream iniciado (PID: $ACESTREAM_PID)"
 
-# Esperar a que Acestream esté listo
-sleep 5
+echo ""
+echo "⏳ Esperando a que AceStream esté listo..."
 
-if ! kill -0 $ACESTREAM_PID 2>/dev/null; then
-    echo "❌ AceStream se detuvo"
-    cat /proxy/logs/acestream.log
-    exit 1
+MAX_WAIT=60
+COUNTER=0
+
+while ! nc -z localhost 6878 2>/dev/null; do
+    sleep 2
+    COUNTER=$((COUNTER + 2))
+
+    if [ "$COUNTER" -ge "$MAX_WAIT" ]; then
+        echo "❌ Timeout"
+        tail -50 /proxy/logs/acestream.log
+        exit 1
+    fi
+
+    if ! kill -0 $ACESTREAM_PID 2>/dev/null; then
+        echo "❌ AceStream se detuvo"
+        cat /proxy/logs/acestream.log
+        exit 1
+    fi
+
+    echo "   Esperando... (${COUNTER}/${MAX_WAIT}s)"
+done
+
+echo "✅ AceStream escuchando en puerto 6878"
+
+if [ -n "$ACESTREAM_EMAIL" ] && [ -n "$ACESTREAM_PASSWORD" ]; then
+    echo ""
+    echo "🔐 Realizando login..."
+    /usr/local/bin/acestream-init-arm64.sh &
+    echo "✅ Proceso de login iniciado en background"
 fi
 
-echo "✅ AceStream corriendo"
+echo ""
+echo "🔌 Iniciando Proxy en puerto 3000..."
 
-# Ahora iniciar supervisord que gestiona el proxy y el login
-echo "🚀 Iniciando Supervisord..."
-exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
+cd /proxy
+
+unset PYTHONHOME
+unset PYTHONPATH
+unset ANDROID_ROOT
+unset ANDROID_DATA
+unset LD_LIBRARY_PATH
+
+export PATH="/proxy-env/python/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+echo "✅ Variables limpiadas"
+echo "   Usando Python aislado: /proxy-env/python/bin/python3"
+
+exec /proxy-env/python/bin/gunicorn \
+    --workers 4 \
+    --bind 0.0.0.0:3000 \
+    --access-logfile - \
+    --error-logfile - \
+    --log-level info \
+    acestream_proxy:app
