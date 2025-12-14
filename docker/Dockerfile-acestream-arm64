@@ -5,13 +5,26 @@ FROM jopsis/acestream:arm64-v3.2.14-update
 
 USER root
 
-# Instalar Python3 de Alpine en una ubicación que NO interfiera
-# Lo instalaremos pero configuraremos el PATH para que NO se use por defecto
+# Instalar Python3 de Alpine y herramientas
 RUN apk add --no-cache python3 py3-pip curl jq netcat-openbsd && \
     rm -rf /var/cache/apk/*
 
-# Crear virtualenv en una ubicación específica para el proxy
+# CRÍTICO: Limpiar variables de Acestream antes de usar Python de Alpine
+ENV PYTHONHOME="" \
+    PYTHONPATH="" \
+    ANDROID_ROOT="" \
+    ANDROID_DATA="" \
+    LD_LIBRARY_PATH=""
+
+# Ahora crear virtualenv (con variables limpiadas)
 RUN python3 -m venv /opt/proxy-venv
+
+# Restaurar variables de Acestream para el runtime
+ENV PYTHONHOME="/acestream/python" \
+    PYTHONPATH="/acestream/python/lib/stdlib:/acestream/python/lib/modules:/acestream/data:/acestream/modules.zip:/acestream/eggs-unpacked:/acestream/lib" \
+    ANDROID_ROOT="/system" \
+    ANDROID_DATA="/data" \
+    LD_LIBRARY_PATH="/system/lib64:/system/lib:/acestream/python/lib"
 
 # Instalar dependencias del proxy en el virtualenv
 COPY docker/config/requirements.txt /tmp/requirements.txt
