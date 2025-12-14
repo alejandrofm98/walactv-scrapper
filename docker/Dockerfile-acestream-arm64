@@ -15,21 +15,20 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # ================================
 # Stage 2: Imagen final ARM64
-# NO TOCAR - La imagen ya tiene todo configurado
 # ================================
 FROM jopsis/acestream:arm64-v3.2.14-update
 
 USER root
 
-# SOLO instalar herramientas básicas - NO Python
+# SOLO herramientas básicas - NO Python
 RUN apk add --no-cache curl jq netcat-openbsd supervisor
 
-# Copiar SOLO el Python del proxy a una ubicación completamente aislada
+# Copiar Python del proxy a ubicación aislada
 RUN mkdir -p /proxy-env
 
 COPY --from=proxy-builder /usr/local /proxy-env/python
 
-# Crear directorio para el proxy
+# Crear directorios
 RUN mkdir -p /proxy/logs /var/log/supervisor
 
 WORKDIR /proxy
@@ -38,16 +37,15 @@ WORKDIR /proxy
 COPY scripts/acestream_proxy.py .
 COPY docker/config/requirements.txt .
 
-# Scripts de inicio
-COPY docker/scripts/start-acestream.sh /usr/local/bin/start-acestream.sh
-COPY docker/scripts/start-proxy.sh /usr/local/bin/start-proxy.sh
-COPY docker/scripts/acestream-login.sh /usr/local/bin/acestream-login.sh
-RUN chmod +x /usr/local/bin/start-*.sh /usr/local/bin/acestream-login.sh
+# TUS scripts con TUS nombres
+COPY docker/scripts/acestream-init-arm64.sh /usr/local/bin/acestream-init-arm64.sh
+COPY docker/scripts/start-all-arm64.sh /usr/local/bin/start-all-arm64.sh
+RUN chmod +x /usr/local/bin/acestream-init-arm64.sh /usr/local/bin/start-all-arm64.sh
 
-# Configuración de supervisord
+# TU configuración de supervisord
 COPY docker/config/supervisord-arm64.conf /etc/supervisor/conf.d/supervisord.conf
 
 EXPOSE 6878 3000
 
-# Usar supervisord como proceso principal
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# Usar TU script de inicio
+CMD ["/usr/local/bin/start-all-arm64.sh"]
