@@ -2,7 +2,7 @@
 # Compatible con sh (Alpine) y bash
 set -e
 
-ACESTREAM_HOST="${ACESTREAM_HOST:-acestream-engine}"
+ACESTREAM_HOST="${ACESTREAM_HOST:-acestream}"
 ACESTREAM_PORT="${ACESTREAM_PORT:-6878}"
 
 echo "🔐 AceStream Login Script"

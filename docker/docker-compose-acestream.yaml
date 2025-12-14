@@ -36,6 +36,8 @@ services:
     environment:
       ACESTREAM_EMAIL: ${ACESTREAM_EMAIL}
       ACESTREAM_PASSWORD: ${ACESTREAM_PASSWORD}
+      ACESTREAM_HOST: acestream
+      ACESTREAM_PORT: 6878
     networks:
       - acestream-network
     depends_on:
