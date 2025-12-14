@@ -48,7 +48,7 @@ COPY docker/config/requirements.txt .
 
 # Copiar scripts de inicialización
 COPY docker/scripts/acestream-init-arm64.sh /usr/local/bin/acestream-init.sh
-COPY docker/scripts/start-all.sh /usr/local/bin/
+COPY docker/scripts/start-all-arm64.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/acestream-init.sh /usr/local/bin/start-all.sh
 
 # Copiar configuración de supervisord
