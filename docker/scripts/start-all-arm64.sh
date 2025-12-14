@@ -71,14 +71,11 @@ unset ANDROID_ROOT
 unset ANDROID_DATA
 unset LD_LIBRARY_PATH
 
-# PATH con el Python del proxy primero
-export PATH="/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
-
 echo "✅ Variables limpiadas"
-echo "   Usando Python del proxy en /usr/local"
+echo "   Usando virtualenv del proxy: /opt/proxy-venv"
 
-# Iniciar gunicorn
-exec /usr/local/bin/gunicorn \
+# Iniciar gunicorn desde el virtualenv
+exec /opt/proxy-venv/bin/gunicorn \
     --workers 4 \
     --bind 0.0.0.0:3000 \
     --access-logfile - \

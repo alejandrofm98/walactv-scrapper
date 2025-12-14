@@ -1,35 +1,26 @@
 # ================================
-# Stage 1: Build proxy standalone
-# ================================
-FROM python:3.11-alpine AS proxy-builder
-
-WORKDIR /app
-
-RUN apk add --no-cache gcc musl-dev linux-headers libffi-dev openssl-dev
-
-COPY docker/config/requirements.txt .
-COPY scripts/acestream_proxy.py .
-
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt gunicorn
-
-# ================================
-# Stage 2: Imagen final ARM64
+# Imagen final ARM64 - Estrategia simplificada
 # ================================
 FROM jopsis/acestream:arm64-v3.2.14-update
 
 USER root
 
-# SOLO herramientas básicas - NO Python, NO supervisor
-RUN apk add --no-cache curl jq netcat-openbsd
+# Instalar Python3 de Alpine en una ubicación que NO interfiera
+# Lo instalaremos pero configuraremos el PATH para que NO se use por defecto
+RUN apk add --no-cache python3 py3-pip curl jq netcat-openbsd && \
+    rm -rf /var/cache/apk/*
 
-# Copiar Python del proxy a ubicación aislada
-RUN mkdir -p /proxy-env
+# Crear virtualenv en una ubicación específica para el proxy
+RUN python3 -m venv /opt/proxy-venv
 
-COPY --from=proxy-builder /usr/local /proxy-env/python
+# Instalar dependencias del proxy en el virtualenv
+COPY docker/config/requirements.txt /tmp/requirements.txt
+RUN /opt/proxy-venv/bin/pip install --no-cache-dir --upgrade pip && \
+    /opt/proxy-venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt gunicorn && \
+    rm /tmp/requirements.txt
 
 # Crear directorios
-RUN mkdir -p /proxy/logs /var/log/supervisor
+RUN mkdir -p /proxy/logs
 
 WORKDIR /proxy
 
@@ -37,15 +28,17 @@ WORKDIR /proxy
 COPY scripts/acestream_proxy.py .
 COPY docker/config/requirements.txt .
 
-# TUS scripts con TUS nombres
+# Scripts
 COPY docker/scripts/acestream-init-arm64.sh /usr/local/bin/acestream-init-arm64.sh
 COPY docker/scripts/start-all-arm64.sh /usr/local/bin/start-all-arm64.sh
 RUN chmod +x /usr/local/bin/acestream-init-arm64.sh /usr/local/bin/start-all-arm64.sh
 
-# TU configuración de supervisord
-COPY docker/config/supervisord-arm64.conf /etc/supervisor/conf.d/supervisord.conf
+# Verificar instalación
+RUN echo "=== Verificando instalación ===" && \
+    ls -la /opt/proxy-venv/bin/gunicorn && \
+    /opt/proxy-venv/bin/python3 --version && \
+    echo "=== Instalación correcta ==="
 
 EXPOSE 6878 3000
 
-# Usar TU script de inicio
 CMD ["/usr/local/bin/start-all-arm64.sh"]
