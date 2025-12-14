@@ -12,7 +12,7 @@ RUN apk add --no-cache \
     cp /usr/share/zoneinfo/Europe/Madrid /etc/localtime && \
     echo "Europe/Madrid" > /etc/timezone
 # copy requirements and install
-COPY scripts/requirements.txt .
+COPY docker/config/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # copy the script
