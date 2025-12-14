@@ -52,8 +52,6 @@ services:
       dockerfile: docker/Dockerfile-acestream-proxy
     container_name: acestream-proxy
     restart: unless-stopped
-    ports:
-      - "3000:3000"
     environment:
       ACESTREAM_HOST: acestream
       ACESTREAM_PORT: 6878
