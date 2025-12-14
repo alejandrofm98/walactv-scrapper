@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+"""
+Proxy para Acestream Engine
+Maneja streaming, redirects y CORS
+"""
 import asyncio
 from flask import Flask, Response, request as flask_request
 import requests
@@ -10,11 +15,13 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-ACESTREAM_HOST = os.getenv('ACESTREAM_HOST', 'http://localhost:6878')
-ACESTREAM_PORT = int(os.getenv('ACESTREAM_PORT', 6878))
-
+# Configuración desde variables de entorno
+ACESTREAM_HOST = os.getenv('ACESTREAM_HOST', 'acestream-engine')
+ACESTREAM_PORT = os.getenv('ACESTREAM_PORT', '6878')
 ACESTREAM_URL = f"http://{ACESTREAM_HOST}:{ACESTREAM_PORT}"
 MAX_REDIRECTS = 5
+
+logger.info(f"Proxy configurado para: {ACESTREAM_URL}")
 
 
 def proxy_request(url, depth=0):
@@ -33,12 +40,13 @@ def proxy_request(url, depth=0):
 
   try:
     # requests es más tolerante con headers mal formados
+    # timeout=None para streaming largo sin interrupciones
     resp = requests.get(
         target_url,
         headers=headers,
         stream=True,
         allow_redirects=False,
-        timeout=30
+        timeout=None
     )
 
     logger.info(f"Response: {resp.status_code}")
@@ -64,6 +72,8 @@ def proxy_request(url, depth=0):
         for chunk in resp.iter_content(chunk_size=8192):
           if chunk:
             yield chunk
+      except Exception as e:
+        logger.error(f"Error durante streaming: {e}")
       finally:
         resp.close()
 
@@ -124,6 +134,23 @@ def handle_request(path):
     return response
 
   return proxy_request(url)
+
+
+@app.route('/health')
+def health():
+  """Health check endpoint"""
+  try:
+    response = requests.get(
+      f"{ACESTREAM_URL}/webui/api/service?method=get_version", timeout=5)
+
+    if response.status_code == 200:
+      return {"status": "healthy", "acestream": "ok",
+              "engine": ACESTREAM_URL}, 200
+    else:
+      return {"status": "degraded", "acestream": "not responding"}, 503
+
+  except Exception as e:
+    return {"status": "unhealthy", "error": str(e)}, 503
 
 
 if __name__ == '__main__':
