@@ -8,7 +8,9 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import urllib.parse
+import os
 
+ACESTREAM_URL = os.getenv("ACESTREAM_URL", "http://localhost:6878")
 
 # ============================================================================
 #  🔥 0. DECORADOR DE REINTENTOS
