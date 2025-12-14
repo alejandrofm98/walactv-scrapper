@@ -64,18 +64,21 @@ echo "🔌 Iniciando Proxy en puerto 3000..."
 
 cd /proxy
 
+# CRÍTICO: Limpiar TODAS las variables de Python de Acestream
 unset PYTHONHOME
 unset PYTHONPATH
 unset ANDROID_ROOT
 unset ANDROID_DATA
 unset LD_LIBRARY_PATH
 
-export PATH="/proxy-env/python/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# PATH con el Python del proxy primero
+export PATH="/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 echo "✅ Variables limpiadas"
-echo "   Usando Python aislado: /proxy-env/python/bin/python3"
+echo "   Usando Python del proxy en /usr/local"
 
-exec /proxy-env/python/bin/gunicorn \
+# Iniciar gunicorn
+exec /usr/local/bin/gunicorn \
     --workers 4 \
     --bind 0.0.0.0:3000 \
     --access-logfile - \
