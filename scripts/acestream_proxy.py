@@ -3,13 +3,17 @@ from flask import Flask, Response, request as flask_request
 import requests
 from urllib.parse import urlparse
 import logging
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-ACESTREAM_HOST = "http://acestream:6878"
+ACESTREAM_HOST = os.getenv('ACESTREAM_HOST', 'http://localhost:6878')
+ACESTREAM_PORT = int(os.getenv('ACESTREAM_PORT', 6878))
+
+ACESTREAM_URL = f"http://{ACESTREAM_HOST}:{ACESTREAM_PORT}"
 MAX_REDIRECTS = 5
 
 
@@ -24,7 +28,7 @@ def proxy_request(url, depth=0):
     headers['Range'] = flask_request.headers['Range']
   headers['User-Agent'] = 'AcestreamProxy/1.0'
 
-  target_url = f"{ACESTREAM_HOST}{url}"
+  target_url = f"{ACESTREAM_URL}{url}"
   logger.info(f"Request to: {target_url}")
 
   try:

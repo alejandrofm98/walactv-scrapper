@@ -1,13 +1,10 @@
-# Dockerfile-acestream-init
-FROM alpine:latest
+FROM alpine:3.21
 
-# Instalar dependencias
-RUN apk add --no-cache curl jq bash
+# Instalar herramientas necesarias
+RUN apk add --no-cache curl jq netcat-openbsd bash
 
-# Copiar y preparar el script
-COPY acestream-init.sh /acestream-init.sh
-RUN chmod +x /acestream-init.sh && \
-    sed -i 's/\r$//' /acestream-init.sh 2>/dev/null || true
+# Copiar script de login
+COPY docker/scripts/acestream-init.sh /usr/local/bin/acestream-init.sh
+RUN chmod +x /usr/local/bin/acestream-init.sh
 
-# Establecer el comando por defecto
-CMD ["/acestream-init.sh"]
+CMD ["/usr/local/bin/acestream-init.sh"]

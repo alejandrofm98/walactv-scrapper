@@ -1,35 +1,65 @@
 services:
+  # ============================================
+  # 1. AceStream Engine (imagen según arquitectura)
+  # ============================================
   acestream:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile-acestream-${ARCH:-x64}
+    image: ${ACESTREAM_IMAGE:-jopsis/acestream:arm64-v3.2.14-update}
     container_name: acestream
     restart: unless-stopped
     hostname: acestream
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-    tmpfs:
-      - /dev/shm:size=4g
-      - /root/.ACEStream:size=2g
-      - /tmp:size=1g
     environment:
       TZ: Europe/Madrid
-      ALLOW_REMOTE_ACCESS: "yes"
-      CACHE_SIZE: "1024"
-      DISK_CACHE_SIZE: "1536"
-      ACESTREAM_EMAIL: ${ACESTREAM_EMAIL}
-      ACESTREAM_PASSWORD: ${ACESTREAM_PASSWORD}
-    volumes:
-      - acestream-config:/acestream.engine
+      CACHE_SIZE: ${CACHE_SIZE:-1024}
+    tmpfs:
+      - /dev/shm:size=2g
+      - /tmp:size=512m
     networks:
-      - dokploy-network
+      - acestream-network
+    ports:
+      - "6878:6878"
     deploy:
       resources:
         limits:
-          memory: 4G
-        reservations:
           memory: 2G
+        reservations:
+          memory: 1G
+
+  # ============================================
+  # 2. AceStream Init (login/autenticación)
+  # ============================================
+  acestream-init:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile-acestream-init
+    container_name: acestream-init
+    restart: "no"  # Se ejecuta una vez y termina
+    environment:
+      ACESTREAM_EMAIL: ${ACESTREAM_EMAIL}
+      ACESTREAM_PASSWORD: ${ACESTREAM_PASSWORD}
+    networks:
+      - acestream-network
+    depends_on:
+      - acestream
+
+  # ============================================
+  # 3. Proxy (Flask + Gunicorn)
+  # ============================================
+  acestream-proxy:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile-acestream-proxy
+    container_name: acestream-proxy
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      ACESTREAM_HOST: acestream
+      ACESTREAM_PORT: 6878
+    networks:
+      - acestream-network
+      - dokploy-network
+    depends_on:
+      - acestream
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
@@ -43,12 +73,11 @@ services:
       - "traefik.http.routers.acestream-http.rule=Host(`acestream.walerike.com`)"
       - "traefik.http.routers.acestream-http.entrypoints=web"
       - "traefik.http.routers.acestream-http.service=acestream-proxy-svc"
-      # Service apunta al puerto del proxy (3000) - usa el puerto interno del contenedor
+      # Service
       - "traefik.http.services.acestream-proxy-svc.loadbalancer.server.port=3000"
 
-volumes:
-  acestream-config:
-
 networks:
+  acestream-network:
+    driver: bridge
   dokploy-network:
     external: true

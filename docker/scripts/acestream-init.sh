@@ -1,71 +1,86 @@
-#!/bin/bash
+#!/bin/sh
+# Compatible con sh (Alpine) y bash
+set -e
 
-echo '⏳ Esperando a que Acestream esté listo...'
+ACESTREAM_HOST="${ACESTREAM_HOST:-acestream-engine}"
+ACESTREAM_PORT="${ACESTREAM_PORT:-6878}"
 
-# Esperar a que el puerto 6878 esté disponible
+echo "🔐 AceStream Login Script"
+echo "========================================="
+echo "Host: $ACESTREAM_HOST:$ACESTREAM_PORT"
+
+# Esperar a que AceStream esté disponible
+echo ""
+echo "⏳ Esperando a que AceStream esté listo..."
+
 MAX_WAIT=60
 COUNTER=0
-while ! nc -z localhost 6878; do
-  sleep 2
-  COUNTER=$((COUNTER + 2))
-  if [ $COUNTER -ge $MAX_WAIT ]; then
-    echo "❌ Timeout esperando a que Acestream arranque en el puerto 6878"
 
-    # Debug: mostrar procesos y puertos
-    echo "🔍 Procesos de Acestream:"
-    ps aux | grep acestream || echo "No se encontraron procesos"
+while ! nc -z "$ACESTREAM_HOST" "$ACESTREAM_PORT" 2>/dev/null; do
+    sleep 2
+    COUNTER=$((COUNTER + 2))
 
-    echo "🔍 Puertos abiertos:"
-    netstat -tulpn 2>/dev/null | grep LISTEN || ss -tulpn | grep LISTEN || echo "No se pudo listar puertos"
+    if [ "$COUNTER" -ge "$MAX_WAIT" ]; then
+        echo "❌ Timeout esperando a AceStream"
+        exit 1
+    fi
 
-    exit 1
-  fi
-  echo "Esperando... ($COUNTER/$MAX_WAIT segundos)"
+    echo "   Esperando... (${COUNTER}/${MAX_WAIT}s)"
 done
 
-echo '✅ Acestream está escuchando en el puerto 6878'
-sleep 5  # Dar un poco más de tiempo para que el API esté completamente lista
+echo "✅ AceStream disponible"
 
-echo '🔍 Variables:'
-echo "EMAIL: $ACESTREAM_EMAIL"
-echo "PASSWORD: ***"
+# Verificar credenciales
+if [ -z "$ACESTREAM_EMAIL" ] || [ -z "$ACESTREAM_PASSWORD" ]; then
+    echo "ℹ️  Sin credenciales, saltando login"
+    exit 0
+fi
 
-echo '🔑 Obteniendo token...'
-TOKEN=''
+echo ""
+echo "📧 Email: $ACESTREAM_EMAIL"
+
+# Esperar un poco más para que la API esté completamente lista
+sleep 5
+
+echo "🔑 Obteniendo token..."
+
 RETRIES=0
+TOKEN=""
 
-until [ -n "$TOKEN" ] && [ "$TOKEN" != 'null' ] && [ "$TOKEN" != '' ]; do
-  if [ $RETRIES -ge 30 ]; then
-    echo '❌ No se pudo obtener token después de 30 intentos'
-    echo '🔍 Verificando conectividad:'
-    curl -v http://localhost:6878/server/api 2>&1 || echo "No se pudo conectar"
-    exit 1
-  fi
+while [ "$RETRIES" -lt 30 ]; do
+    RESPONSE=$(curl -s "http://$ACESTREAM_HOST:$ACESTREAM_PORT/server/api?api_version=3&method=get_api_access_token" || echo "")
+    TOKEN=$(echo "$RESPONSE" | jq -r '.result.token' 2>/dev/null || echo "")
 
-  RESPONSE=$(curl -s 'http://localhost:6878/server/api?api_version=3&method=get_api_access_token' 2>&1)
-  TOKEN=$(echo "$RESPONSE" | jq -r '.result.token' 2>/dev/null) || TOKEN=''
+    if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+        echo "✅ Token obtenido"
+        break
+    fi
 
-  echo "Intento $((RETRIES+1)): TOKEN=$TOKEN"
-
-  if [ -z "$TOKEN" ] || [ "$TOKEN" = 'null' ]; then
-    echo "Respuesta completa: $RESPONSE"
+    RETRIES=$((RETRIES + 1))
+    echo "   Intento $RETRIES/30..."
     sleep 3
-  fi
-
-  RETRIES=$((RETRIES+1))
 done
 
-echo "✅ Token obtenido: $TOKEN"
+if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+    echo "❌ No se pudo obtener token"
+    exit 1
+fi
 
-echo '🔐 Login (1/2)...'
-RESP=$(curl -s "http://localhost:6878/server/api?api_version=3&method=sign_in&token=$TOKEN&password=$ACESTREAM_PASSWORD&email=$ACESTREAM_EMAIL")
-echo "Respuesta login:"
-echo "$RESP" | jq '.' 2>/dev/null || echo "$RESP"
+echo ""
+echo "🔓 Realizando login..."
+
+LOGIN_RESPONSE=$(curl -s "http://$ACESTREAM_HOST:$ACESTREAM_PORT/server/api?api_version=3&method=sign_in&token=$TOKEN&password=$ACESTREAM_PASSWORD&email=$ACESTREAM_EMAIL")
+
+echo "$LOGIN_RESPONSE" | jq '.' 2>/dev/null || echo "$LOGIN_RESPONSE"
 
 sleep 2
 
-echo '🔍 Verificando (2/2)...'
-USER_INFO=$(curl -s "http://localhost:6878/server/api?api_version=3&method=get_user_info&token=$TOKEN")
+echo ""
+echo "👤 Verificando usuario..."
+
+USER_INFO=$(curl -s "http://$ACESTREAM_HOST:$ACESTREAM_PORT/server/api?api_version=3&method=get_user_info&token=$TOKEN")
+
 echo "$USER_INFO" | jq '.' 2>/dev/null || echo "$USER_INFO"
 
-echo '✨ Login completado'
+echo ""
+echo "✅ Login completado exitosamente"
