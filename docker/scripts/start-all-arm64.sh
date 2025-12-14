@@ -46,13 +46,4 @@ echo "Python usado: $PYTHON"
 # PATH limpio para evitar conflictos
 export PATH="/acestream/python/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-# Ejecutar AceStream (reemplaza el proceso PID 1)
-exec "$PYTHON" main.py \
-    --bind-all \
-    --client-console \
-    --live-cache-type memory \
-    --live-mem-cache-size "${CACHE_SIZE}000000" \
-    --vod-cache-size "$DISK_CACHE_SIZE" \
-    --disable-sentry \
-    --log-stdout \
-    --disable-upnp
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf

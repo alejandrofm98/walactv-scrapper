@@ -1,52 +1,74 @@
 #!/bin/sh
 set -e
 
-echo "Iniciando Acestream Engine para ARM64..."
+echo "⏳ Esperando a que AceStream esté listo..."
 
-# Esperar un momento
+MAX_WAIT=60
+COUNTER=0
+
+# Esperar a que el puerto 6878 esté disponible
+while ! nc -z localhost 6878 >/dev/null 2>&1; do
+    sleep 2
+    COUNTER=$((COUNTER + 2))
+
+    if [ "$COUNTER" -ge "$MAX_WAIT" ]; then
+        echo "❌ Timeout esperando a AceStream en el puerto 6878"
+
+        echo "🔍 Procesos AceStream:"
+        ps aux | grep -i acestream | grep -v grep || echo "No se encontraron procesos"
+
+        echo "🔍 Puertos en escucha:"
+        ss -tulpn 2>/dev/null | grep LISTEN || netstat -tulpn 2>/dev/null | grep LISTEN || echo "No se pudo listar puertos"
+
+        exit 1
+    fi
+
+    echo "Esperando... (${COUNTER}/${MAX_WAIT} segundos)"
+done
+
+echo "✅ AceStream escuchando en el puerto 6878"
+sleep 5
+
+echo "🔍 Variables:"
+echo "EMAIL: ${ACESTREAM_EMAIL:-<no definido>}"
+echo "PASSWORD: ***"
+
+echo "🔑 Obteniendo token..."
+TOKEN=""
+RETRIES=0
+
+while :; do
+    if [ "$RETRIES" -ge 30 ]; then
+        echo "❌ No se pudo obtener token tras 30 intentos"
+        echo "🔍 Verificando conectividad API:"
+        curl -v http://localhost:6878/server/api 2>&1 || true
+        exit 1
+    fi
+
+    RESPONSE="$(curl -s 'http://localhost:6878/server/api?api_version=3&method=get_api_access_token' || true)"
+    TOKEN="$(echo "$RESPONSE" | jq -r '.result.token' 2>/dev/null || echo '')"
+
+    echo "Intento $((RETRIES + 1)): TOKEN=${TOKEN:-<vacío>}"
+
+    if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+        break
+    fi
+
+    echo "Respuesta completa: $RESPONSE"
+    sleep 3
+    RETRIES=$((RETRIES + 1))
+done
+
+echo "✅ Token obtenido"
+
+echo "🔐 Login (1/2)..."
+RESP="$(curl -s "http://localhost:6878/server/api?api_version=3&method=sign_in&token=$TOKEN&password=$ACESTREAM_PASSWORD&email=$ACESTREAM_EMAIL" || true)"
+echo "$RESP" | jq '.' 2>/dev/null || echo "$RESP"
+
 sleep 2
 
-# Variables de entorno
-export CACHE_SIZE=${CACHE_SIZE:-1024}
-export DISK_CACHE_SIZE=${DISK_CACHE_SIZE:-1536}
+echo "🔍 Verificando usuario (2/2)..."
+USER_INFO="$(curl -s "http://localhost:6878/server/api?api_version=3&method=get_user_info&token=$TOKEN" || true)"
+echo "$USER_INFO" | jq '.' 2>/dev/null || echo "$USER_INFO"
 
-# Buscar Acestream
-if [ -d "/acestream" ]; then
-    ACESTREAM_DIR="/acestream"
-elif [ -d "/opt/acestream" ]; then
-    ACESTREAM_DIR="/opt/acestream"
-else
-    echo "Error: No se encuentra Acestream"
-    exit 1
-fi
-
-cd "$ACESTREAM_DIR"
-
-# Buscar el Python de Acestream
-if [ -f "/acestream/python/bin/python" ]; then
-    PYTHON="/acestream/python/bin/python"
-elif [ -f "/acestream/python/bin/python3" ]; then
-    PYTHON="/acestream/python/bin/python3"
-elif [ -f "$ACESTREAM_DIR/python/bin/python" ]; then
-    PYTHON="$ACESTREAM_DIR/python/bin/python"
-else
-    echo "Advertencia: No se encuentra Python de Acestream, usando python del PATH"
-    PYTHON="python"
-fi
-
-echo "Acestream dir: $ACESTREAM_DIR"
-echo "Python: $PYTHON"
-
-# Limpiar el PATH para evitar conflictos, dejando solo lo básico
-export PATH="/acestream/python/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
-# Iniciar Acestream
-exec "$PYTHON" main.py \
-    --bind-all \
-    --client-console \
-    --live-cache-type memory \
-    --live-mem-cache-size ${CACHE_SIZE}000000 \
-    --vod-cache-size ${DISK_CACHE_SIZE} \
-    --disable-sentry \
-    --log-stdout \
-    --disable-upnp
+echo "✨ Login completado correctamente"
