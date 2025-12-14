@@ -8,9 +8,9 @@ RUN apk add --no-cache gcc musl-dev linux-headers libffi-dev openssl-dev
 # Copiar requirements
 COPY docker/config/requirements.txt .
 
-# Instalar paquetes Python
+# Instalar paquetes Python + gevent para workers asíncronos
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt gunicorn
+    pip install --no-cache-dir -r requirements.txt gunicorn gevent
 
 # Copiar el proxy
 COPY scripts/acestream_proxy.py .
@@ -21,6 +21,14 @@ ENV ACESTREAM_HOST=acestream-engine \
 
 EXPOSE 3000
 
-CMD ["gunicorn", "--workers", "4", "--bind", "0.0.0.0:3000", \
-     "--access-logfile", "-", "--error-logfile", "-", \
-     "--log-level", "info", "acestream_proxy:app"]
+# Workers gevent con timeout infinito para streaming
+CMD ["gunicorn", \
+     "--workers", "4", \
+     "--worker-class", "gevent", \
+     "--worker-connections", "1000", \
+     "--timeout", "0", \
+     "--bind", "0.0.0.0:3000", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-", \
+     "--log-level", "info", \
+     "acestream_proxy:app"]
