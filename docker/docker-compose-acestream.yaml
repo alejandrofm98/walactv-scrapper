@@ -13,6 +13,9 @@ services:
     tmpfs:
       - /dev/shm:size=2g
       - /tmp:size=512m
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     networks:
       - acestream-network
     ports:
