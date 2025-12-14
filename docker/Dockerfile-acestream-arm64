@@ -1,9 +1,11 @@
-# Stage 1: Build proxy standalone completo
+# ================================
+# Stage 1: Build proxy
+# ================================
 FROM python:3.11-alpine AS proxy-builder
 
 WORKDIR /app
 
-# Instalar dependencias de compilación
+# Dependencias de compilación
 RUN apk add --no-cache \
     gcc \
     musl-dev \
@@ -11,20 +13,22 @@ RUN apk add --no-cache \
     libffi-dev \
     openssl-dev
 
-# Copiar requirements y crear un ejecutable standalone
+# Copiar código del proxy
 COPY docker/config/requirements.txt .
 COPY scripts/acestream_proxy.py .
 
-# Instalar dependencias globalmente en el builder
+# Instalar dependencias
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt gunicorn
 
-# Stage 2: Imagen final ARM64 - SIN Python adicional
+# ================================
+# Stage 2: Imagen final ARM64
+# ================================
 FROM jopsis/acestream:arm64-v3.2.14-update
 
 USER root
 
-# Instalar SOLO herramientas básicas - NO PYTHON
+# Utilidades básicas (NO python)
 RUN apk add --no-cache \
     curl \
     jq \
@@ -34,24 +38,28 @@ RUN apk add --no-cache \
     libstdc++ \
     && rm -rf /var/cache/apk/*
 
-# Copiar TODO el árbol de Python desde el builder a una ubicación separada
+# Python del proxy en ubicación aislada
 COPY --from=proxy-builder /usr/local /opt/proxy-python
 
-# Crear directorios
+# Directorios necesarios
 RUN mkdir -p /proxy /var/log/supervisor
 
 WORKDIR /proxy
 
-# Copiar el proxy
+# Copiar proxy
 COPY scripts/acestream_proxy.py .
 COPY docker/config/requirements.txt .
 
-# Copiar scripts de inicialización
+# Copiar scripts de arranque (ARM64)
 COPY docker/scripts/acestream-init-arm64.sh /usr/local/bin/acestream-init.sh
-COPY docker/scripts/start-all-arm64.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/acestream-init.sh /usr/local/bin/start-all.sh
+COPY docker/scripts/start-all-arm64.sh /usr/local/bin/start-all.sh
 
-# Copiar configuración de supervisord
+# Asegurar compatibilidad Alpine
+RUN chmod +x /usr/local/bin/acestream-init.sh /usr/local/bin/start-all.sh && \
+    sed -i '1s|.*|#!/bin/sh|' /usr/local/bin/start-all.sh && \
+    sed -i '1s|.*|#!/bin/sh|' /usr/local/bin/acestream-init.sh
+
+# Configuración de supervisord
 COPY docker/config/supervisord-arm64.conf /etc/supervisor/conf.d/supervisord.conf
 
 EXPOSE 6878 3000
