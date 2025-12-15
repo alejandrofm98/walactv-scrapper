@@ -78,6 +78,25 @@ services:
       - "traefik.http.routers.acestream-http.service=acestream-proxy-svc"
       # Service
       - "traefik.http.services.acestream-proxy-svc.loadbalancer.server.port=3000"
+      -
+  acestream-cleaner:
+    image: alpine:latest
+    container_name: acestream-cleaner
+    restart: unless-stopped
+    volumes:
+      - acestream-cache:/cache
+      - ./scripts/cleaner.sh:/cleaner.sh:ro
+    environment:
+      TZ: Europe/Madrid
+      # Tiempo en horas entre limpiezas (default: 6 horas)
+      CLEANUP_INTERVAL: ${CLEANUP_INTERVAL:-6}
+      # Edad máxima de archivos en días (default: 2 días)
+      MAX_AGE_DAYS: ${MAX_AGE_DAYS:-1}
+      # Tamaño máximo de caché en MB (default: 5GB = 5120MB)
+      MAX_CACHE_SIZE_MB: ${MAX_CACHE_SIZE_MB:-3000}
+    command: sh /cleaner.sh
+    networks:
+      - acestream-network
 
 networks:
   acestream-network:
