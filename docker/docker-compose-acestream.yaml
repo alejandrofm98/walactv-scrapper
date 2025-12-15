@@ -13,6 +13,8 @@ services:
     tmpfs:
       - /dev/shm:size=2g
       - /tmp:size=512m
+    volumes:
+      - acestream-cache:/root/.ACEStream
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -35,7 +37,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile-acestream-init
     container_name: acestream-init
-    restart: "no"  # Se ejecuta una vez y termina
+    restart: "no"
     environment:
       ACESTREAM_EMAIL: ${ACESTREAM_EMAIL}
       ACESTREAM_PASSWORD: ${ACESTREAM_PASSWORD}
@@ -79,6 +81,9 @@ services:
       # Service
       - "traefik.http.services.acestream-proxy-svc.loadbalancer.server.port=3000"
 
+  # ============================================
+  # 4. AceStream Cleaner (limpieza automática)
+  # ============================================
   acestream-cleaner:
     image: alpine:latest
     container_name: acestream-cleaner
@@ -91,9 +96,9 @@ services:
       # Tiempo en horas entre limpiezas (default: 6 horas)
       CLEANUP_INTERVAL: ${CLEANUP_INTERVAL:-6}
       # Edad máxima de archivos en días (default: 2 días)
-      MAX_AGE_DAYS: ${MAX_AGE_DAYS:-1}
+      MAX_AGE_DAYS: ${MAX_AGE_DAYS:-2}
       # Tamaño máximo de caché en MB (default: 5GB = 5120MB)
-      MAX_CACHE_SIZE_MB: ${MAX_CACHE_SIZE_MB:-3000}
+      MAX_CACHE_SIZE_MB: ${MAX_CACHE_SIZE_MB:-5120}
     command: sh /cleaner.sh
     networks:
       - acestream-network
@@ -103,3 +108,7 @@ networks:
     driver: bridge
   dokploy-network:
     external: true
+
+volumes:
+  acestream-cache:
+    driver: local
