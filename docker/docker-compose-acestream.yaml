@@ -85,21 +85,21 @@ services:
   # 4. AceStream Cleaner (limpieza automática)
   # ============================================
   acestream-cleaner:
-    image: alpine:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile-acestream-cleaner
     container_name: acestream-cleaner
     restart: unless-stopped
     volumes:
       - acestream-cache:/cache
-      - ./scripts/cleaner.sh:/cleaner.sh:ro
     environment:
       TZ: Europe/Madrid
       # Tiempo en horas entre limpiezas (default: 6 horas)
       CLEANUP_INTERVAL: ${CLEANUP_INTERVAL:-6}
-      # Edad máxima de archivos en días (default: 2 días)
-      MAX_AGE_DAYS: ${MAX_AGE_DAYS:-2}
-      # Tamaño máximo de caché en MB (default: 5GB = 5120MB)
-      MAX_CACHE_SIZE_MB: ${MAX_CACHE_SIZE_MB:-5120}
-    command: sh /cleaner.sh
+      # Edad máxima de archivos en días (default: 1 días)
+      MAX_AGE_DAYS: ${MAX_AGE_DAYS:-1}
+      # Tamaño máximo de caché en MB (default: 3GB)
+      MAX_CACHE_SIZE_MB: ${MAX_CACHE_SIZE_MB:-3000}
     networks:
       - acestream-network
 

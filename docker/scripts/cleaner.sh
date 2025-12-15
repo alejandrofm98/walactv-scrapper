@@ -5,6 +5,12 @@
 
 set -e
 
+# Verificar que el directorio existe
+if [ ! -d "/cache" ]; then
+    echo "Error: /cache no existe. Esperando..."
+    sleep 10
+fi
+
 CACHE_DIR="/cache"
 INTERVAL_HOURS=${CLEANUP_INTERVAL:-6}
 MAX_AGE_DAYS=${MAX_AGE_DAYS:-2}
