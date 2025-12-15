@@ -78,7 +78,7 @@ services:
       - "traefik.http.routers.acestream-http.service=acestream-proxy-svc"
       # Service
       - "traefik.http.services.acestream-proxy-svc.loadbalancer.server.port=3000"
-      -
+
   acestream-cleaner:
     image: alpine:latest
     container_name: acestream-cleaner
