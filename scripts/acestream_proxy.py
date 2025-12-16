@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Configuración desde variables de entorno
-ACESTREAM_HOST = os.getenv('ACESTREAM_HOST', 'acestream-engine')
+ACESTREAM_HOST = os.getenv('ACESTREAM_HOST', 'acestream')
 ACESTREAM_PORT = os.getenv('ACESTREAM_PORT', '6878')
 ACESTREAM_URL = f"http://{ACESTREAM_HOST}:{ACESTREAM_PORT}"
 MAX_REDIRECTS = 5
