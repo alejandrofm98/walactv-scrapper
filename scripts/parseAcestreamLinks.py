@@ -10,7 +10,8 @@ import time
 import urllib.parse
 import os
 
-ACESTREAM_URL = os.getenv("ACESTREAM_URL", "http://localhost:6878")
+ACESTREAM_URL = os.getenv("ACESTREAM_URL", "http://acestream.walerike.com:6878")
+
 
 # ============================================================================
 #  🔥 0. DECORADOR DE REINTENTOS
@@ -54,7 +55,7 @@ def obtener_datos_pagina(url: str):
   """
   try:
     print(f"🔍 Descargando página: {url}")
-    resp = requests.get(url, timeout=30)  # Aumentado timeout
+    resp = requests.get(url, timeout=30)
     resp.raise_for_status()
     html = resp.text
     soup = BeautifulSoup(html, "html.parser")
@@ -93,7 +94,7 @@ def obtener_datos_pagina(url: str):
 
   except Exception as e:
     print(f"❌ Error al obtener datos de la página: {e}")
-    return None
+    raise  # ⚠️ IMPORTANTE: Lanzar excepción para que el decorador reintente
 
 
 # ============================================================================
@@ -141,6 +142,10 @@ def guardar_fecha_actualizacion(db: Database, fecha: datetime):
 # ============================================================================
 
 def parse_m3u_blocks(text):
+  """
+  Parsea el contenido M3U y devuelve lista de canales.
+  Lanza excepción si no se pueden parsear canales.
+  """
   blocks = re.split(r'(?=^#EXTINF:)', text, flags=re.M)
   channels = []
 
@@ -164,6 +169,11 @@ def parse_m3u_blocks(text):
         "canal": canal,
         "m3u8": clear_text(url_m.group(0))
       })
+
+  # ⚠️ VALIDACIÓN: Si no se parsearon canales, algo salió mal
+  if not channels:
+    raise ValueError("No se pudieron parsear canales del contenido M3U")
+
   return channels
 
 
@@ -184,8 +194,7 @@ def extraer_stream_id(url: str):
 
 
 @reintentar(max_intentos=2, delay=2, excepciones=(requests.RequestException,))
-def validar_stream(stream_url: str,
-    timeout: int = 20) -> bool:  # Aumentado timeout
+def validar_stream(stream_url: str, timeout: int = 20) -> bool:
   """
   Valida un stream con reintentos en caso de timeout.
   """
@@ -195,7 +204,7 @@ def validar_stream(stream_url: str,
       print("⚠️ No se pudo extraer ID")
       return False
 
-    url = f"http://acestream.walerike.com:6878/ace/getstream?id={stream_id}"
+    url = f"{ACESTREAM_URL}/ace/getstream?id={stream_id}"
     print(f"  📡 Validando {stream_id[:8]}...")
 
     resp = requests.get(url, timeout=timeout, stream=True)
@@ -225,7 +234,7 @@ def validar_stream(stream_url: str,
 
   except Exception as e:
     print(f"  ⚠️ Error validando stream: {e}")
-    raise  # Esto activará el decorador de reintentos
+    raise
 
 
 def validar_canal(canal: dict):
@@ -245,7 +254,7 @@ def validar_canal(canal: dict):
         validos.append(url)
     except Exception as e:
       print(f"  ❌ Stream {i} falló después de reintentos: {e}")
-    time.sleep(1)  # Pequeña pausa entre streams
+    time.sleep(1)
 
   if not validos:
     print(f"❌ Canal '{nombre}' eliminado (sin streams válidos)")
@@ -271,7 +280,7 @@ def validar_todos_canales(canales: List[dict]) -> List[dict]:
         resultado.append(val)
     except Exception as e:
       print(f"❌ Error procesando canal {canal['canal']}: {e}")
-      continue  # Continuar con el siguiente canal
+      continue
 
   return resultado
 
@@ -281,6 +290,12 @@ def validar_todos_canales(canales: List[dict]) -> List[dict]:
 # ============================================================================
 
 def finish_parse(canales: list):
+  """
+  Agrupa canales y valida que haya datos antes de devolver.
+  """
+  if not canales:
+    raise ValueError("No hay canales para procesar")
+
   grouped = defaultdict(lambda: {"logo": "", "m3u8": []})
 
   for ch in canales:
@@ -288,94 +303,161 @@ def finish_parse(canales: list):
     grouped[k]["logo"] = ch["logo"] or grouped[k]["logo"]
     grouped[k]["m3u8"].append(ch["m3u8"])
 
-  return {
+  resultado = {
     "canales": [
       {"canal": k, "logo": v["logo"], "m3u8": v["m3u8"]}
       for k, v in grouped.items()
     ]
   }
 
+  # ⚠️ VALIDACIÓN: Asegurar que hay canales en el resultado
+  if not resultado["canales"]:
+    raise ValueError("No se generaron canales en el resultado final")
+
+  return resultado
+
 
 # ============================================================================
 #  🔥 6. FUNCIÓN PRINCIPAL DE ACTUALIZACIÓN CON REINTENTOS
 # ============================================================================
 
-@reintentar(max_intentos=3, delay=5, excepciones=(Exception,))
 def ejecutar_actualizacion(validar=True, forzar=False):
   """
-  Ejecuta la actualización completa con reintentos en caso de fallo general.
+  Ejecuta la actualización completa con validaciones de seguridad.
   """
   print("\n" + "=" * 80)
   print("🚀 INICIANDO PROCESO")
   print("=" * 80 + "\n")
 
-  dbconf = Database("configNewScrapper", "ipfs", None)
-  config = dbconf.get_doc_firebase().to_dict()
-  url_actualizaciones = config.get("url_actualizaciones")
+  try:
+    # --- Cargar configuración ---
+    dbconf = Database("configNewScrapper", "ipfs", None)
+    config = dbconf.get_doc_firebase().to_dict()
+    url_actualizaciones = config.get("url_actualizaciones")
 
-  datos = obtener_datos_pagina(url_actualizaciones)
-  if not datos:
-    print("❌ No se pueden obtener datos de página")
-    return False
+    if not url_actualizaciones:
+      print("❌ No se encontró URL de actualizaciones en la configuración")
+      return False
 
-  fecha_web = datos["fecha"]
-  contenido = datos["m3u"]
+    # --- Obtener datos de la página (con reintentos) ---
+    try:
+      datos = obtener_datos_pagina(url_actualizaciones)
+    except Exception as e:
+      print(f"❌ No se pudieron obtener datos después de reintentos: {e}")
+      print("⚠️ ABORTANDO: No se modificarán los datos existentes")
+      return False
 
-  if not contenido:
-    print("❌ No se pudo obtener M3U")
-    return False
+    if not datos:
+      print("❌ No se pueden obtener datos de página")
+      print("⚠️ ABORTANDO: No se modificarán los datos existentes")
+      return False
 
-  # --- Verificación sin descargar de nuevo ---
-  if not forzar and not necesita_actualizar(dbconf, fecha_web):
-    print("✔ Ya está actualizado, no se hace nada.")
+    fecha_web = datos["fecha"]
+    contenido = datos["m3u"]
+
+    # --- Validar contenido M3U ---
+    if not contenido:
+      print("❌ No se pudo obtener contenido M3U")
+      print("⚠️ ABORTANDO: No se modificarán los datos existentes")
+      return False
+
+    if len(contenido) < 100:  # Validación básica de tamaño
+      print(f"❌ Contenido M3U sospechosamente pequeño ({len(contenido)} bytes)")
+      print("⚠️ ABORTANDO: No se modificarán los datos existentes")
+      return False
+
+    # --- Verificación de necesidad de actualización ---
+    if not forzar and not necesita_actualizar(dbconf, fecha_web):
+      print("✔ Ya está actualizado, no se hace nada.")
+      return True
+
+    # --- Parseo con validación ---
+    try:
+      canales = parse_m3u_blocks(contenido)
+      print(f"✅ Se parsearon {len(canales)} canales")
+    except Exception as e:
+      print(f"❌ Error al parsear canales: {e}")
+      print("⚠️ ABORTANDO: No se modificarán los datos existentes")
+      return False
+
+    # --- Validar que haya canales ---
+    if not canales:
+      print("❌ No se parsearon canales")
+      print("⚠️ ABORTANDO: No se modificarán los datos existentes")
+      return False
+
+    # --- Construcción del payload ---
+    try:
+      payload = finish_parse(canales)
+      print(f"✅ Payload generado con {len(payload['canales'])} canales")
+    except Exception as e:
+      print(f"❌ Error al construir payload: {e}")
+      print("⚠️ ABORTANDO: No se modificarán los datos existentes")
+      return False
+
+    # --- Validación de streams ---
+    if validar:
+      print("\n🔍 Validando streams...")
+      try:
+        payload["canales"] = validar_todos_canales(payload["canales"])
+        if not payload["canales"]:
+          print("❌ No quedaron canales válidos después de la validación")
+          print("⚠️ ABORTANDO: No se modificarán los datos existentes")
+          return False
+        print(f"✅ {len(payload['canales'])} canales validados")
+      except Exception as e:
+        print(f"❌ Error durante validación: {e}")
+        print("⚠️ ABORTANDO: No se modificarán los datos existentes")
+        return False
+
+    # --- Guardar JSON local ---
+    try:
+      json_str = json.dumps(payload, indent=2, ensure_ascii=False)
+      with open("canales_validados.json", "w", encoding="utf8") as f:
+        f.write(json_str)
+      print("💾 Guardado en canales_validados.json")
+    except Exception as e:
+      print(f"❌ Error guardando JSON local: {e}")
+      print("⚠️ ABORTANDO: No se modificarán datos en Firebase")
+      return False
+
+    # --- Guardar en Firebase ---
+    try:
+      db = Database("canales", "canales_2.0", json_str)
+      db.add_data_firebase()
+      print("☁️ Guardado en Firebase")
+    except Exception as e:
+      print(f"❌ Error guardando en Firebase: {e}")
+      print("⚠️ Los datos locales se guardaron pero Firebase falló")
+      return False
+
+    # --- Guardar fecha procesada ---
+    if fecha_web:
+      try:
+        guardar_fecha_actualizacion(dbconf, fecha_web)
+      except Exception as e:
+        print(f"⚠️ Error guardando fecha: {e}")
+
+    print("\n" + "=" * 80)
+    print("✅ PROCESO COMPLETO")
+    print("=" * 80)
     return True
 
-  # --- Parseo ---
-  canales = parse_m3u_blocks(contenido)
-  payload = finish_parse(canales)
-
-  # --- Validación de streams ---
-  if validar:
-    print("\n🔍 Validando streams...")
-    payload["canales"] = validar_todos_canales(payload["canales"])
-
-  # --- Guardar JSON local ---
-  json_str = json.dumps(payload, indent=2, ensure_ascii=False)
-  with open("canales_validados.json", "w", encoding="utf8") as f:
-    f.write(json_str)
-
-  print("💾 Guardado en canales_validados.json")
-
-  # --- Guardar en Firebase ---
-  try:
-    db = Database("canales", "canales_2.0", json_str)
-    db.add_data_firebase()
-    print("☁️ Guardado en Firebase")
   except Exception as e:
-    print(f"⚠️ Error guardando en Firebase: {e}")
-    # No reintentamos aquí porque ya guardamos localmente
-
-  # --- Guardar fecha procesada ---
-  if fecha_web:
-    try:
-      guardar_fecha_actualizacion(dbconf, fecha_web)
-    except Exception as e:
-      print(f"⚠️ Error guardando fecha: {e}")
-
-  print("\n" + "=" * 80)
-  print("✅ PROCESO COMPLETO")
-  print("=" * 80)
-  return True
+    print(f"❌ Error inesperado en el proceso: {e}")
+    print("⚠️ ABORTANDO: No se modificarán los datos existentes")
+    return False
 
 
 def actualiza_canales(validar=True, forzar=False):
   """
-  Función principal que maneja reintentos a nivel de proceso completo.
+  Función principal que ejecuta la actualización de forma segura.
   """
   try:
     return ejecutar_actualizacion(validar=validar, forzar=forzar)
   except Exception as e:
-    print(f"❌ Proceso falló completamente después de reintentos: {e}")
+    print(f"❌ Error fatal en actualización: {e}")
+    print("⚠️ Los datos existentes NO fueron modificados")
     return False
 
 
@@ -384,10 +466,12 @@ def actualiza_canales(validar=True, forzar=False):
 # ============================================================================
 
 if __name__ == "__main__":
-  # Ejecutar con reintentos
   exito = actualiza_canales(validar=True, forzar=False)
 
   if not exito:
-    print(
-      "❌ No se pudo completar la actualización después de todos los intentos")
+    print("\n⚠️ IMPORTANTE: La actualización falló pero los datos anteriores")
+    print("   permanecen intactos. No se eliminó ningún canal.")
     exit(1)
+
+  print("\n✅ Actualización completada exitosamente")
+  exit(0)
