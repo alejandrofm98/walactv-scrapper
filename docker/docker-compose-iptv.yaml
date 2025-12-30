@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-iptv-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - IPTV_USER=${IPTV_USER}
+      - IPTV_PASS=${IPTV_PASS}
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      - iptv-network
+
+networks:
+  iptv-network:
+    driver: bridge

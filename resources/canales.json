@@ -1,0 +1,412 @@
+{
+  "DAZN 1": [
+    {
+      "nombre": "ES| DAZN 1 FHD"
+    },
+    {
+      "nombre": "ES| DAZN 1 FHD ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| DAZN 1 HD"
+    },
+    {
+      "nombre": "ES| DAZN 1 ᴴᴰ"
+    },
+    {
+      "nombre": "ES| DAZN 1 ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| DAZN 1 SD"
+    }
+  ],
+  "DAZN 2": [
+    {
+      "nombre": "ES| DAZN 2 FHD"
+    },
+    {
+      "nombre": "ES| DAZN 2 FHD ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| DAZN 2 HD"
+    },
+    {
+      "nombre": "ES| DAZN 2 ᴴᴰ"
+    },
+    {
+      "nombre": "ES| DAZN 2 ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| DAZN 2 SD"
+    }
+  ],
+  "DAZN 3": [
+    {
+      "nombre": "ES| DAZN 3 FHD"
+    },
+    {
+      "nombre": "ES| DAZN 3 FHD ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| DAZN 3 SD"
+    }
+  ],
+  "DAZN 4": [
+    {
+      "nombre": "ES| DAZN 4 FHD"
+    },
+    {
+      "nombre": "ES| DAZN 4 HD ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| DAZN 4 SD"
+    }
+  ],
+  "DAZN 5": [
+    {
+      "nombre": "ES| DAZN 5"
+    }
+  ],
+  "DAZN 6": [
+    {
+      "nombre": "ES| DAZN 6"
+    }
+  ],
+  "DAZN 7": [
+    {
+      "nombre": "ES| DAZN 7"
+    }
+  ],
+  "DAZN 8": [
+    {
+      "nombre": "ES| DAZN 8"
+    }
+  ],
+  "DAZN 1 Bar": [
+    {
+      "nombre": "ES| DAZN BAR 1 FHD"
+    },
+    {
+      "nombre": "ES| DAZN BAR 1 HD"
+    },
+    {
+      "nombre": "ES| DAZN BAR 1 SD"
+    }
+  ],
+  "DAZN 2 Bar": [
+    {
+      "nombre": "ES| DAZN BAR 2 FHD"
+    },
+    {
+      "nombre": "ES| DAZN BAR 2 HD"
+    },
+    {
+      "nombre": "ES| DAZN BAR 2 SD"
+    }
+  ],
+  "DAZN LaLiga": [
+    {
+      "nombre": "ES| DAZN LALIGA 4K"
+    },
+    {
+      "nombre": "ES| DAZN LALIGA HD"
+    },
+    {
+      "nombre": "ES| DAZN LALIGA ᴴᴰ"
+    },
+    {
+      "nombre": "ES| DAZN LALIGA ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| DAZN LALIGA HEVC"
+    },
+    {
+      "nombre": "ES| DAZN LALIGA SD"
+    }
+  ],
+  "DAZN LaLiga 2": [
+    {
+      "nombre": "ES| DAZN LALIGA 2 FHD"
+    },
+    {
+      "nombre": "ES| DAZN LALIGA 2 HD"
+    },
+    {
+      "nombre": "ES| DAZN LALIGA 2 SD"
+    }
+  ],
+  "DAZN LaLiga 3": [
+    {
+      "nombre": "ES| DAZN LALIGA 3 SD"
+    }
+  ],
+  "DAZN LaLiga 4": [
+    {
+      "nombre": "ES| DAZN LALIGA 4K"
+    },
+    {
+      "nombre": "ES| DAZN LALIGA 4 SD"
+    }
+  ],
+  "DAZN LaLiga 5": [
+    {
+      "nombre": "ES| DAZN LALIGA 5 SD"
+    }
+  ],
+  "LA 1 TVE": [
+    {
+      "nombre": "ES| LA 1 4K/UHD"
+    },
+    {
+      "nombre": "ES| LA 1 FHD ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| LA 1 FHD"
+    },
+    {
+      "nombre": "ES| LA 1 HD"
+    },
+    {
+      "nombre": "ES| LA 1 HEVC"
+    },
+    {
+      "nombre": "ES| LA 1 SD"
+    }
+  ],
+  "LaLiga TV Bar": [
+    {
+      "nombre": "ES| LALIGA TV BAR FHD"
+    },
+    {
+      "nombre": "ES| LALIGA TV BAR HD"
+    }
+  ],
+  "LALIGA TV Hypermotion": [
+    {
+      "nombre": "ES| LALIGA TV HYPERMOTION FHD"
+    },
+    {
+      "nombre": "ES| LALIGA TV HYPERMOTION HD"
+    },
+    {
+      "nombre": "PRIME| LALIGA HYPERMOTION TV ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| LALIGA TV HYPERMOTION SD"
+    }
+  ],
+  "LaLiga TV M2": [
+    {
+      "nombre": "ES| LALIGA TV HYPERMOTION 2 FHD"
+    },
+    {
+      "nombre": "PRIME| LALIGA HYPERMOTION TV 2 ᴿᴬᵂ"
+    }
+  ],
+  "LaLiga TV M3": [
+    {
+      "nombre": "ES| LALIGA TV HYPERMOTION 3 FHD"
+    },
+    {
+      "nombre": "ES| LALIGA TV HYPERMOTION 3 HD"
+    },
+    {
+      "nombre": "PRIME| LALIGA HYPERMOTION TV 3 ᴿᴬᵂ"
+    }
+  ],
+  "LaLiga TV M4": [
+    {
+      "nombre": "ES| LALIGA TV HYPERMOTION 4 FHD"
+    }
+  ],
+  "LaLiga TV M5": [
+    {
+      "nombre": "ES| LALIGA TV HYPERMOTION 5 FHD"
+    }
+  ],
+  "LaLiga TV M6": [
+    {
+      "nombre": "ES| LALIGA TV HYPERMOTION 6 FHD"
+    }
+  ],
+  "LaLiga TV M7": [
+    {
+      "nombre": "ES| LALIGA TV HYPERMOTION 7 FHD"
+    }
+  ],
+  "M+ Vamos": [
+    {
+      "nombre": "ES| M+ VAMOS FHD"
+    },
+    {
+      "nombre": "ES| M+ VAMOS HD"
+    },
+    {
+      "nombre": "ES| #VAMOS HEVC"
+    },
+    {
+      "nombre": "ES| M+ VAMOS SD"
+    }
+  ],
+  "M+ LALIGA": [
+    {
+      "nombre": "ES| M.LALIGA 1 FHD"
+    },
+    {
+      "nombre": "ES| M.LALIGA 1 HD"
+    },
+    {
+      "nombre": "ES| M.LALIGA HEVC"
+    },
+    {
+      "nombre": "ES| M.LALIGA SD"
+    }
+  ],
+  "M+ LALIGA 2": [
+    {
+      "nombre": "ES| M.LALIGA 2 FHD"
+    },
+    {
+      "nombre": "ES| M.LALIGA 2 HD"
+    }
+  ],
+  "M+ Liga de Campeones": [
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 1 ᵁᴴᴰ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 1 ᴴᴰ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 1 ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 1 ʰᵉᵛᶜ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 1 ᴸᴼᵂ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 1 SD"
+    }
+  ],
+  "M+ Liga de Campeones 2": [
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 2 ᴴᴰ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 2 ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 2 ᴸᴼᵂ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 2 SD"
+    }
+  ],
+  "M+ Liga de Campeones 3": [
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 3 ᴴᴰ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 3 ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 3 SD"
+    }
+  ],
+  "M+ Liga de Campeones 4": [
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 4 ᴴᴰ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 4 ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 4 SD"
+    }
+  ],
+  "M+ Liga de Campeones 5": [
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 5 ᴴᴰ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 5 ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 5 SD"
+    }
+  ],
+  "M+ Liga de Campeones 6": [
+    {
+      "nombre": "ES| M+ LALIGA DE CAMPEONES 6 HD ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 5 ᴴᴰ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 5 ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| M. LIGA DE CAMPEONES 5 SD"
+    }
+  ],
+  "M+ Deportes": [
+    {
+      "nombre": "ES| M.DEPORTES FHD"
+    },
+    {
+      "nombre": "ES| M.DEPORTES HD"
+    },
+    {
+      "nombre": "ES| M.DEPORTES HEVC"
+    },
+    {
+      "nombre": "ES| M.DEPORTES SD"
+    },
+    {
+      "nombre": "ES| M.DEPORTES 1 HD"
+    },
+    {
+      "nombre": "ES| M.DEPORTES 1 FHD"
+    },
+    {
+      "nombre": "ES| M.DEPORTES 1 HEVC"
+    }
+  ],
+  "M+ Deportes 2": [
+    {
+      "nombre": "ES| M.DEPORTES 2 FHD"
+    },
+    {
+      "nombre": "ES| M.DEPORTES 2 HD"
+    },
+    {
+      "nombre": "ES| M.DEPORTES 2 SD"
+    }
+  ],
+  "M+ Deportes 3": [
+    {
+      "nombre": "ES| M.DEPORTES 3 FHD [LIVEEVENT]"
+    },
+    {
+      "nombre": "ES| M.DEPORTES 3 HD [LIVEEVENT]"
+    },
+    {
+      "nombre": "ES| M.DEPORTES 3 SD [LIVEEVENT]"
+    }
+  ],
+  "M+ Deportes 4": [
+    {
+      "nombre": "ES| M.DEPORTES 4 FHD [LIVEEVENT]"
+    },
+    {
+      "nombre": "ES| M.DEPORTES 4 HD [LIVEEVENT]"
+    },
+    {
+      "nombre": "ES| M+ DEPORTES 4 HD ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| M.DEPORTES 4 SD [LIVEEVENT]"
+    }
+  ]
+}

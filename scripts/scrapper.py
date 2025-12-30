@@ -111,7 +111,7 @@ class ScrapperFutbolenlatv:
     self.url = "https://www.futbolenlatv.es/deporte"
     self.soup = BeautifulSoup(requests.get(self.url).text, "html.parser")
     self.canales = []
-    db  = Database("mapeo_canales", "mapeoCanalesFutbolEnLaTv", None)
+    db  = Database("mapeo_canales", "mapeo_canales_iptv", None)
     self.mapeo_canales = db.get_doc_firebase().to_dict()
 
 
@@ -152,7 +152,7 @@ class ScrapperFutbolenlatv:
       # Encontrar la key donde el value contiene canal_title
       key_encontrada = next(
           (key for key, value in self.mapeo_canales.items()
-           if canal_title in str(value).lower()),
+           if canal_title in str(key).lower()),
           None
       )
 

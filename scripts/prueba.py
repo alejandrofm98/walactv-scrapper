@@ -1,85 +1,89 @@
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from seleniumwire import webdriver
-from database import Database
-import platform
 import requests
+import time
+import sys
+from urllib.parse import urljoin
 
-def is_arm():
-  return platform.machine().startswith(
-    "aarch") or "arm" in platform.machine().lower()
+# IDs para testear - añade los que quieras aquí
+STREAM_IDS = [
+  "911ad127726234b97658498a8b790fdd7516541d",
+  "6e1b5fd8753352486aa932f802534a17556e1f60",
+  "ad42faa399df66dcd62a1cbc9d1c99ed4512d3b8"
+]
 
-class Prueba:
-  def __init__(self):
-    self.guarda_eventos = None
-    self.url = "https://tvlibreonline.org"
-    self.url_agenda = "/agenda/"
-    db = Database("configNewScrapper", 'proxy', None)
-    proxy = db.get_doc_firebase().to_dict()
-
-    proxy_ip = proxy.get("proxy_ip")
-    proxy_port = proxy.get("proxy_port")
-    proxy_user = proxy.get("proxy_user")
-    proxy_pass = proxy.get("proxy_pass")
-
-    self.seleniumwire_options = {
-      "proxy": {
-        'http': 'http://' + proxy_user + ':' + proxy_pass + '@' + proxy_ip + ':' + proxy_port
-      }
-    }
+BASE_URL = "https://acestream.walerike.com"
 
 
-  def get_driver(self):
-    options = Options()
-    options.add_argument('--headless')  # Optional for no GUI
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-blink-features=AutomationControlled')
-    options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36')
+def check_engine():
+  try:
+    response = requests.get(f"{BASE_URL}/webui/api/service", timeout=5)
+    if response.status_code == 200:
+      print("✓ Acestream Engine corriendo\n")
+      return True
+  except:
+    pass
+  print("✗ Acestream Engine no está corriendo")
+  sys.exit(1)
 
-    if is_arm():
-      # VPS or ARM system
-      options.binary_location = "/usr/bin/chromium-browser"
-      return webdriver.Chrome(
-          service=Service("/usr/bin/chromedriver"),
-          # options=options,
-          seleniumwire_options=self.seleniumwire_options
-      )
+
+def test_stream(stream_id):
+  print(f"{'=' * 60}")
+  print(f"ID: {stream_id}")
+  stream_url = f"{BASE_URL}/ace/getstream?id={stream_id}"
+
+  try:
+    response = requests.get(stream_url, timeout=15, stream=True)
+
+    if response.status_code == 200:
+      bytes_received = 0
+      for i, chunk in enumerate(response.iter_content(chunk_size=8192)):
+        if chunk:
+          bytes_received += len(chunk)
+        if i >= 5:
+          break
+
+      response.close()
+
+      if bytes_received > 0:
+        print(f"✓ VÁLIDO - {bytes_received} bytes recibidos")
+        return True
+      else:
+        print("✗ INVÁLIDO - Sin datos")
+        return False
     else:
-      # Desktop or x86 (assuming Chrome is installed and in PATH)
-      return webdriver.Chrome(options=options, seleniumwire_options=self.seleniumwire_options)
-  def prueba(self):
-    print("hola")
-    driver = self.get_driver()
-    driver.get("https://8895.crackstreamslivehd.com/espn2/index.m3u8?token=39e9027c6428fa7da60551e18ae4ecddbf309162-7d-1752468092-1752414092&ip=38.170.104.180")
-    print(driver.page_source)
+      print(f"✗ INVÁLIDO - Status {response.status_code}")
+      return False
 
-  def prueba2(self):
-    try:
-      m3u8_url = "https://madrid.crackstreamslivehd.com/tycsports/index.m3u8?token=c5d3be1709dd2e4779ecbb4c8501bd1c6aa22e30-88-1752392173-1752338173&ip=91.245.207.171"
-      headers = {
-        'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18',
-        'Accept': '*/*',
-        'Connection': 'keep-alive',
-        'Accept-Encoding': 'identity'
-      }
+  except requests.exceptions.Timeout:
+    print("✗ INVÁLIDO - Timeout")
+    return False
+  except Exception as e:
+    print(f"✗ ERROR - {e}")
+    return False
 
-      # Descargar el .m3u8 desde la fuente
-      r = requests.get(m3u8_url, headers=headers, proxies=self.seleniumwire_options["proxy"])
-      r.raise_for_status()
-    except Exception as e:
-      print(f"Error extrayendo M3U8: {e}")
 
-  def prueba3(self):
-    headers = {
-      'Referer': 'https://latinlucha.upns.online/'
-    }
-    r = requests.get("https://sipt.presentationexpansion.sbs/v4/xy/mi16rd/m3u8", headers=headers, stream=True)
-    with open("downloaded.bin", "wb") as f:
-      # If the payload is small you can do it in one shot:
-      # f.write(r.content)
-      # Recommended for large payloads:
-      for chunk in r.iter_content(chunk_size=8192):
-        if chunk:  # filter out keep-alive chunks
-          f.write(chunk)
-    print(r.status_code)
+def main():
+  print("ACESTREAM ID TESTER")
+  print("=" * 60)
+  check_engine()
+
+  results = {}
+  total = len(STREAM_IDS)
+
+  for i, stream_id in enumerate(STREAM_IDS, 1):
+    print(f"[{i}/{total}]")
+    results[stream_id] = test_stream(stream_id)
+    if i < total:
+      time.sleep(1)
+
+  print(f"\n{'=' * 60}")
+  print("RESUMEN")
+  print("=" * 60)
+  valid = sum(results.values())
+  print(f"Total: {total} | Válidos: {valid} | Inválidos: {total - valid}\n")
+
+  for stream_id, is_valid in results.items():
+    print(f"{'✓' if is_valid else '✗'} {stream_id}")
+
+
+if __name__ == "__main__":
+  main()
