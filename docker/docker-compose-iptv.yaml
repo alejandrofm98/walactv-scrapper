@@ -5,7 +5,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile-iptv
-    container_name: iptv-nginx-proxy
+    container_name: iptv-python-proxy
 
     ports:
       - "4000:3000"
@@ -13,6 +13,7 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
+
     restart: unless-stopped
 
     networks:
@@ -22,23 +23,23 @@ services:
       - "traefik.enable=true"
 
       # Router HTTP
-      - "traefik.http.routers.iptv-nginx-http.rule=Host(`iptv.walerike.com`)"
-      - "traefik.http.routers.iptv-nginx-http.entrypoints=web"
-      - "traefik.http.routers.iptv-nginx-http.middlewares=redirect-to-https"
+      - "traefik.http.routers.iptv-python-http.rule=Host(`iptv.walerike.com`)"
+      - "traefik.http.routers.iptv-python-http.entrypoints=web"
+      - "traefik.http.routers.iptv-python-http.middlewares=redirect-to-https"
 
       # Router HTTPS
-      - "traefik.http.routers.iptv-nginx-https.rule=Host(`iptv.walerike.com`)"
-      - "traefik.http.routers.iptv-nginx-https.entrypoints=websecure"
-      - "traefik.http.routers.iptv-nginx-https.tls=true"
-      - "traefik.http.routers.iptv-nginx-https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.iptv-python-https.rule=Host(`iptv.walerike.com`)"
+      - "traefik.http.routers.iptv-python-https.entrypoints=websecure"
+      - "traefik.http.routers.iptv-python-https.tls=true"
+      - "traefik.http.routers.iptv-python-https.tls.certresolver=letsencrypt"
 
       # Middleware
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
 
       # Servicio
-      - "traefik.http.routers.iptv-nginx-https.service=iptv-nginx-service"
-      - "traefik.http.services.iptv-nginx-service.loadbalancer.server.port=3000"
+      - "traefik.http.routers.iptv-python-https.service=iptv-python-service"
+      - "traefik.http.services.iptv-python-service.loadbalancer.server.port=3000"
 
 networks:
   dokploy-network:
