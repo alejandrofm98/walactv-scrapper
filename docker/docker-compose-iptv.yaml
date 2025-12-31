@@ -21,22 +21,22 @@ services:
     labels:
       - "traefik.enable=true"
 
-      # Router HTTP (con nombre único)
+      # Router HTTP
       - "traefik.http.routers.iptv-nginx-http.rule=Host(`iptv.walerike.com`)"
       - "traefik.http.routers.iptv-nginx-http.entrypoints=web"
       - "traefik.http.routers.iptv-nginx-http.middlewares=redirect-to-https"
 
-      # Router HTTPS (con nombre único)
+      # Router HTTPS
       - "traefik.http.routers.iptv-nginx-https.rule=Host(`iptv.walerike.com`)"
       - "traefik.http.routers.iptv-nginx-https.entrypoints=websecure"
       - "traefik.http.routers.iptv-nginx-https.tls=true"
       - "traefik.http.routers.iptv-nginx-https.tls.certresolver=letsencrypt"
 
-      # Middleware de redirección
+      # Middleware
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
 
-      # Servicio (con nombre único y explícito)
+      # Servicio
       - "traefik.http.routers.iptv-nginx-https.service=iptv-nginx-service"
       - "traefik.http.services.iptv-nginx-service.loadbalancer.server.port=3000"
 
