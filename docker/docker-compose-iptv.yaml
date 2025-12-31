@@ -12,13 +12,6 @@ services:
       - 8.8.8.8
       - 8.8.4.4
     restart: unless-stopped
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.iptv-proxy.rule=Host(`iptv.walerike.com`)"
-      - "traefik.http.routers.iptv-proxy.entrypoints=websecure"
-      - "traefik.http.routers.iptv-proxy.tls.certresolver=letsencrypt"
-      - "traefik.http.services.iptv-proxy.loadbalancer.server.port=3000"
-      - "traefik.http.services.iptv-proxy.loadbalancer.server.scheme=http"
     networks:
       - dokploy-network
 
