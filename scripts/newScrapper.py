@@ -1,6 +1,7 @@
 """
 Web scraper optimizado para eventos deportivos con extracción de streams M3U8.
 Incluye manejo robusto de drivers, timeouts y procesamiento concurrente.
+Actualizado para nueva estructura de Firebase.
 """
 
 from datetime import datetime, timedelta
@@ -78,7 +79,13 @@ def is_after_today_6am(dia_agenda):
 
 def get_today_agenda_text():
   # Set Spanish locale for month names
-  locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
+  try:
+      locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
+  except locale.Error:
+      try:
+          locale.setlocale(locale.LC_TIME, 'Spanish_Spain.1252')
+      except locale.Error:
+          pass # Fallback si no hay locale español
 
   # Get current date
   today = datetime.now()
@@ -144,14 +151,15 @@ class DataManager:
   @staticmethod
   def obtener_mapeo_canales() -> Dict:
     """Obtiene el mapeo de canales desde Firebase."""
-    db = Database("mapeo_canales", "mapeoCanalesFutbolEnLaTv", None)
+    db = Database("mapeo_canales", "mapeo_canales_iptv", None)
     return db.get_doc_firebase().to_dict()
 
   @staticmethod
   def obtener_enlaces_canales() -> Dict:
     """Obtiene los enlaces de canales desde Firebase."""
-    db = Database("canales", "canales_2.0", None)
-    return db.get_doc_firebase().to_dict()
+    db = Database("canales", "canales_iptv", None)
+    doc_data = db.get_doc_firebase().to_dict()
+    return doc_data.get("items", {})
 
 
 
@@ -163,21 +171,29 @@ class EventProcessor:
   def __init__(self):
     self.mapeo_canales = DataManager.obtener_mapeo_canales()
     self.enlaces_canales = DataManager.obtener_enlaces_canales()
-    # Índice rápido: nombre_canal.lower() -> m3u8
+    # Índice rápido: nombre_canal.lower() -> url
     self._indice_canales: Dict[str, Optional[str]] = {}
     self._indexar_canales()
+    
+    # Mapeo normalizado a minúsculas para búsquedas insensibles a mayúsculas
+    self.mapeo_canales_lower = {k.lower(): v for k, v in self.mapeo_canales.items()}
 
   def _indexar_canales(self) -> None:
     """Construye un índice en memoria para búsquedas rápidas de canales."""
     self._indice_canales = {}
-    for canal in self.enlaces_canales.get("canales", []):
-      nombre = canal.get("canal")
+
+    # Iterar sobre todos los canales en items
+    for canal_id, canal_data in self.enlaces_canales.items():
+      nombre = canal_data.get("nombre")
+      url = canal_data.get("url")
+
       if not nombre:
         continue
+
       clave = nombre.strip().lower()
       # Si hay duplicados, preferimos el primero no vacío
       if clave not in self._indice_canales or not self._indice_canales[clave]:
-        self._indice_canales[clave] = canal.get("m3u8")
+        self._indice_canales[clave] = url
 
   def unificar_eventos(self, dic1: Dict, dic2: Dict,
       umbral: float = 0.6) -> None:
@@ -254,11 +270,12 @@ class EventProcessor:
       pos2 = coincidencia['posicion_2']
       canales_nombre = self._obtener_canal_por_posicion(dic2, pos2)  # Lista normalizada
       for canal in canales_nombre:
-        canal_link = self._buscar_enlace_canal(canal)
-        if canal_link:
-          enlace = {"canal": canal, "link": "acestream",
-                    "m3u8": canal_link}
-          dic1["eventos"][coincidencia['posicion_1']]['enlaces'].append(enlace)
+        # Buscar TODOS los enlaces para este canal (todas las calidades)
+        enlaces_encontrados = self._buscar_todos_enlaces_canal(canal)
+        if enlaces_encontrados:
+          # Agrupar por canal base
+          enlace_agrupado = self._agrupar_enlaces_por_calidad(enlaces_encontrados)
+          dic1["eventos"][coincidencia['posicion_1']]['enlaces'].append(enlace_agrupado)
 
   def _agregar_eventos_restantes(self, dic1: Dict, dic2: Dict) -> None:
     """Agrega eventos que no tuvieron coincidencias."""
@@ -272,13 +289,14 @@ class EventProcessor:
         "enlaces": []
       }
 
-      # Intentar obtener el primer enlace válido entre la lista de canales
+      # Buscar TODOS los enlaces disponibles para TODOS los canales
       if canales_nombres:
-        canal_link = self._buscar_enlace_canal(canales_nombres)
-        if canal_link:
-          enlace = {"canal": canales_nombres[0], "link": "acestream",
-                    "m3u8": canal_link}
-          nuevo_evento['enlaces'].append(enlace)
+        for canal in canales_nombres:
+          enlaces_encontrados = self._buscar_todos_enlaces_canal(canal)
+          if enlaces_encontrados:
+            # Agrupar por canal base
+            enlace_agrupado = self._agrupar_enlaces_por_calidad(enlaces_encontrados)
+            nuevo_evento['enlaces'].append(enlace_agrupado)
 
       dic1["eventos"].append(nuevo_evento)
 
@@ -298,61 +316,160 @@ class EventProcessor:
     return []
 
   def _buscar_enlace_canal(self, nombre_canal: Union[str, List[str]]) -> Optional[str]:
-    """Busca el enlace M3U8 de un canal por su nombre o por una lista de nombres.
-       - Usa índice O(1) para coincidencia exacta.
-       - Normaliza cadenas (strip, lower).
-       - Intenta coincidencia simple (antes del '-', '(' etc).
-       - Como fallback, usa comparación difusa y devuelve la mejor coincidencia si supera 0.8.
+    """Busca el enlace de un canal por su nombre o por una lista de nombres.
+    DEPRECADO: Usar _buscar_todos_enlaces_canal para obtener todas las variaciones.
+    """
+    resultados = self._buscar_todos_enlaces_canal(nombre_canal)
+    if resultados:
+      return resultados[0][1]  # Retorna solo la URL del primer resultado
+    return None
+
+  def _buscar_todos_enlaces_canal(self, nombre_canal: Union[str, List[str]]) -> List[tuple]:
+    """Busca TODOS los enlaces de un canal usando el mapeo normalizado.
+    
+    Lógica:
+    1. Obtiene el nombre base buscado (ej. 'M+ VAMOS').
+    2. Busca este nombre en self.mapeo_canales_lower (claves en minúsculas).
+    3. Si encuentra, obtiene la lista de variaciones (ej. 'ES| M+ VAMOS FHD').
+    4. Busca cada variación en self._indice_canales para obtener la URL.
+    
+    Retorna una lista de tuplas: [(nombre_canal, url), ...]
     """
     # Asegurar índice
     if not hasattr(self, "_indice_canales") or not self._indice_canales:
       self._indexar_canales()
 
     if not nombre_canal:
-      return None
+      return []
 
-    # Si viene una lista, iterar y devolver el primer match válido
+    # Si viene una lista, procesar cada uno y combinar resultados
     if isinstance(nombre_canal, list):
+      resultados_totales = []
       for nc in nombre_canal:
-        enlace = self._buscar_enlace_canal(nc)
-        if enlace:
-          return enlace
-      return None
+        resultados_totales.extend(self._buscar_todos_enlaces_canal(nc))
+      # Eliminar duplicados manteniendo el orden
+      vistos = set()
+      resultados_unicos = []
+      for nombre, url in resultados_totales:
+        if url not in vistos:
+          vistos.add(url)
+          resultados_unicos.append((nombre, url))
+      return resultados_unicos
 
-    # Normalizar nombre
-    nombre = str(nombre_canal).strip().lower()
-    if not nombre:
-      return None
+    # Normalizar nombre de búsqueda
+    nombre_buscado = str(nombre_canal).strip().lower()
+    if not nombre_buscado:
+      return []
 
-    # 1) Coincidencia exacta
-    if enlace := self._indice_canales.get(nombre):
-      return enlace
+    resultados = []
 
-    # 2) Intentar versión simplificada (antes de '-' o '(' o '[')
-    nombre_simple = re.split(r'[-–—\(|\[]', nombre)[0].strip()
-    if nombre_simple and (enlace := self._indice_canales.get(nombre_simple)):
-      return enlace
+    # 1) Buscar en el MAPEO de canales normalizado a minúsculas
+    # El mapeo_lower tiene estructura: { "m+ vamos": [ { "nombre": "ES| M+ VAMOS FHD" }, ... ] }
+    
+    clave_mapeo = None
+    
+    # A. Coincidencia exacta
+    if nombre_buscado in self.mapeo_canales_lower:
+        clave_mapeo = nombre_buscado
+    
+    if clave_mapeo:
+        # Obtener la lista de variaciones para esta clave del mapeo
+        variaciones = self.mapeo_canales_lower[clave_mapeo]
+        
+        if isinstance(variaciones, list):
+            for var in variaciones:
+                if isinstance(var, dict) and "nombre" in var:
+                    nombre_variacion = var["nombre"]
+                    nombre_var_lower = nombre_variacion.strip().lower()
+                    
+                    # Buscar esta variación específica en el índice de canales para obtener la URL
+                    if enlace := self._indice_canales.get(nombre_var_lower):
+                        # Usar el nombre real de la variación (ej: ES| M+ VAMOS FHD)
+                        resultados.append((nombre_variacion, enlace))
 
-    # 3) Buscar por substring (por si en índice están como 'canal x' y buscamos 'canal')
-    for key, val in self._indice_canales.items():
-      if nombre in key or key in nombre:
-        if val:
-          return val
+    # 2) Fallback: Búsqueda directa en índice si no se encontró en el mapeo
+    # (Útil si el nombre buscado YA es el nombre completo de un canal, ej: "ES| M+ VAMOS")
+    if not resultados:
+        if enlace := self._indice_canales.get(nombre_buscado):
+            # Necesitamos recuperar el nombre original formateado
+            nombre_original = self._buscar_nombre_original_por_url(enlace)
+            nombre_final = nombre_original if nombre_original else nombre_canal
+            resultados.append((nombre_final, enlace))
 
-    # 4) Fallback difuso (mejor puntuación)
-    best = None
-    best_score = 0.0
-    for key in self._indice_canales.keys():
-      score = similar(key, nombre)
-      if score > best_score:
-        best_score = score
-        best = key
+    # Eliminar duplicados manteniendo orden (por si acaso)
+    vistos = set()
+    resultados_unicos = []
+    for nombre_result, url in resultados:
+        if url not in vistos:
+            vistos.add(url)
+            resultados_unicos.append((nombre_result, url))
 
-    if best_score >= 0.8:
-      return self._indice_canales.get(best)
+    return resultados_unicos
 
-    # No encontrado
+  def _buscar_nombre_original_por_url(self, url: str) -> Optional[str]:
+    """Busca el nombre original del canal dado su URL."""
+    for canal_id, canal_data in self.enlaces_canales.items():
+      if canal_data.get("url") == url:
+        return canal_data.get("nombre")
     return None
+
+  def _agrupar_enlaces_por_calidad(self, enlaces_encontrados: List[tuple]) -> Dict:
+    """Agrupa múltiples enlaces del mismo canal por calidad."""
+    if not enlaces_encontrados:
+      return {"canal": "", "link": "acestream", "calidades": []}
+
+    # Extraer el nombre base del canal (sin prefijos ni calidad)
+    primer_nombre = enlaces_encontrados[0][0]
+    canal_base = self._extraer_nombre_base_canal(primer_nombre)
+
+    # Definir orden de prioridad para las calidades
+    orden_calidades = {
+      'uhd': 0, '4k': 1, 'fhd': 2, 'full hd': 3,
+      'hd': 4, 'raw': 5, 'low': 6, 'sd': 7, 'hvec': 8
+    }
+
+    calidades = []
+    for nombre_completo, url in enlaces_encontrados:
+      calidad = self._extraer_calidad(nombre_completo)
+      calidades.append({
+        "calidad": calidad,
+        "m3u8": url
+      })
+
+    # Ordenar calidades según prioridad
+    calidades.sort(key=lambda x: orden_calidades.get(x['calidad'].lower(), 99))
+
+    return {
+      "canal": canal_base,
+      "link": "acestream",
+      "calidades": calidades
+    }
+
+  def _extraer_nombre_base_canal(self, nombre_completo: str) -> str:
+    """Extrae el nombre base del canal eliminando prefijos y calidades."""
+    # Eliminar prefijos como "ES|", "UK|", etc.
+    nombre = re.sub(r'^[A-Z]{2}\|\s*', '', nombre_completo)
+
+    # Eliminar calidades al final (FHD, HD, SD, RAW, LOW, UHD, 4K, HVEC)
+    calidades_pattern = r'\s*(FHD|HD|SD|RAW|LOW|UHD|4K|HVEC|ᴴᴰ|ᴿᴬᵂ|ᶠᵘˡˡ ᴴᴰ)\s*$'
+    nombre = re.sub(calidades_pattern, '', nombre, flags=re.IGNORECASE)
+
+    return nombre.strip()
+
+  def _extraer_calidad(self, nombre_completo: str) -> str:
+    """Extrae la calidad del nombre completo del canal."""
+    # Normalizar caracteres unicode de calidad
+    nombre = nombre_completo.replace('ᴴᴰ', 'HD').replace('ᴿᴬᵂ', 'RAW').replace('ᶠᵘˡˡ ᴴᴰ', 'FULL HD')
+
+    # Buscar calidades comunes
+    calidades = ['UHD', '4K', 'FHD', 'FULL HD', 'HD', 'RAW', 'LOW', 'SD', 'HVEC']
+    for calidad in calidades:
+      pattern = r'\b' + calidad + r'\b'
+      if re.search(pattern, nombre, re.IGNORECASE):
+        return calidad.upper()
+
+    # Si no encuentra calidad, asumir HD por defecto
+    return "HD"
 
   def _ordenar_eventos_por_hora(self, dic1: Dict) -> None:
     """Ordena los eventos por hora considerando el origen de cada evento."""
@@ -955,3 +1072,7 @@ def main():
     DataManager.guardar_eventos(eventos)
   else:
     print("❌ No se pudieron extraer eventos")
+
+
+if __name__ == "__main__":
+  main()

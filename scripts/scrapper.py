@@ -152,7 +152,7 @@ class ScrapperFutbolenlatv:
       # Encontrar la key donde el value contiene canal_title
       key_encontrada = next(
           (key for key, value in self.mapeo_canales.items()
-           if canal_title in str(key).lower()),
+           if canal_title == str(key).lower()),
           None
       )
 
