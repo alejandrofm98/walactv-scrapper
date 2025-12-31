@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     gunicorn --version
 
 # Copiar aplicación
-COPY iptv_proxy.py .
+COPY scripts/iptv_proxy.py .
 
 EXPOSE 3000
 
