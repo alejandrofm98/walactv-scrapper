@@ -6,14 +6,42 @@ services:
       context: .
       dockerfile: Dockerfile-iptv
     container_name: iptv-nginx-proxy
+
+    # Dejo el puerto 4000 abierto por si quieres hacer pruebas directas (http://IP:4000)
     ports:
       - "4000:3000"
+
     dns:
       - 8.8.8.8
       - 8.8.4.4
     restart: unless-stopped
+
+    # IMPORTANTE: Esta red permite que Traefik hable con este contenedor
     networks:
       - dokploy-network
+
+    # IMPORTANTE: Estas etiquetas le dicen a Traefik cómo manejar el HTTPS
+    labels:
+      - "traefik.enable=true"
+
+      # Define la regla: cuando entre iptv.walerike.com, mandar aquí
+      - "traefik.http.routers.iptv-proxy.rule=Host(`iptv.walerike.com`)"
+
+      # Define el punto de entrada seguro (HTTPS)
+      - "traefik.http.routers.iptv-proxy.entrypoints=websecure"
+
+      # Activa el certificado SSL
+      - "traefik.http.routers.iptv-proxy.tls=true"
+      - "traefik.http.routers.iptv-proxy.tls.certresolver=letsencrypt"
+
+      # Opcional: Redirigir HTTP a HTTPS automáticamente
+      - "traefik.http.routers.iptv-proxy-http.rule=Host(`iptv.walerike.com`)"
+      - "traefik.http.routers.iptv-proxy-http.entrypoints=web"
+      - "traefik.http.routers.iptv-proxy-http.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+
+      # Define que este contenedor escucha en el puerto 3000 internamente
+      - "traefik.http.services.iptv-proxy.loadbalancer.server.port=3000"
 
 networks:
   dokploy-network:
