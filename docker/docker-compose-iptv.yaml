@@ -3,8 +3,8 @@ version: '3.8'
 services:
   iptv-proxy:
     build:
-      context: .
-      dockerfile: Dockerfile-iptv
+      context: ..
+      dockerfile: docker/Dockerfile-iptv
     container_name: iptv-proxy
 
     ports:
