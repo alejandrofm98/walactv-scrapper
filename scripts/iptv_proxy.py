@@ -24,7 +24,7 @@ def list_proxy(subpath):
     headers = BASE_HEADERS.copy()
     headers['Host'] = 'line.ultra-8k.xyz'
 
-    resp = requests.get(target_url, headers=headers, stream=True, timeout=30)
+    resp = requests.get(target_url, headers=headers, stream=True, timeout=60)
 
     # Crear respuesta con streaming
     def generate():
