@@ -3,9 +3,9 @@ version: '3.8'
 services:
   iptv-proxy:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile-iptv
-    container_name: iptv-python-proxy
+      context: .
+      dockerfile: Dockerfile-iptv
+    container_name: iptv-proxy
 
     ports:
       - "4000:3000"
@@ -18,6 +18,28 @@ services:
 
     networks:
       - dokploy-network
+
+    labels:
+      - "traefik.enable=true"
+
+      # Router HTTP (redirige a HTTPS)
+      - "traefik.http.routers.iptv-nginx-http.rule=Host(`iptv.walerike.com`)"
+      - "traefik.http.routers.iptv-nginx-http.entrypoints=web"
+      - "traefik.http.routers.iptv-nginx-http.middlewares=redirect-to-https"
+
+      # Router HTTPS
+      - "traefik.http.routers.iptv-nginx-https.rule=Host(`iptv.walerike.com`)"
+      - "traefik.http.routers.iptv-nginx-https.entrypoints=websecure"
+      - "traefik.http.routers.iptv-nginx-https.tls=true"
+      - "traefik.http.routers.iptv-nginx-https.tls.certresolver=letsencrypt"
+
+      # Middleware de redirección
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+
+      # Servicio
+      - "traefik.http.routers.iptv-nginx-https.service=iptv-nginx-service"
+      - "traefik.http.services.iptv-nginx-service.loadbalancer.server.port=3000"
 
 networks:
   dokploy-network:
