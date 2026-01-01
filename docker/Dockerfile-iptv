@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 
 # Copiar aplicación
 COPY scripts/iptv_proxy.py .
+COPY scripts/database.py .
 
 EXPOSE 4000
 
