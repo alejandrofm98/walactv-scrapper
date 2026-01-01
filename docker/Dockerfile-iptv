@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 # Copiar aplicación
 COPY scripts/iptv_proxy.py .
 
-EXPOSE 3000
+EXPOSE 4000
 
 # Usar gunicorn para producción
-CMD ["gunicorn", "--bind", "0.0.0.0:3000", "--workers", "4", "--threads", "2", "--timeout", "300", "--access-logfile", "-", "--error-logfile", "-", "iptv_proxy:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:4000", "--workers", "4", "--threads", "2", "--timeout", "300", "--access-logfile", "-", "--error-logfile", "-", "iptv_proxy:app"]

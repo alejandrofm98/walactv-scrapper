@@ -8,7 +8,7 @@ services:
     container_name: proxy-iptv
 
     ports:
-      - "4000:3000"
+      - "4000:4000"
 
     dns:
       - 8.8.8.8
@@ -21,13 +21,23 @@ services:
 
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.iptv-v2-https.rule=Host(`iptv.walerike.com`)"
-      - "traefik.http.routers.iptv-v2-https.entrypoints=websecure"
-      - "traefik.http.routers.iptv-v2-https.tls=true"
-      - "traefik.http.routers.iptv-v2-https.tls.certresolver=letsencrypt"
+
+      # --- HTTPS Router (Entrada segura) ---
+      - "traefik.http.routers.iptv-v2.rule=Host(`iptv.walerike.com`)"
+      - "traefik.http.routers.iptv-v2.entrypoints=websecure"
+      - "traefik.http.routers.iptv-v2.tls=true"
+      - "traefik.http.routers.iptv-v2.tls.certresolver=letsencrypt"
+
+      # --- SERVICE IMPORTANTE (Obligatorio para resolver el conflicto) ---
+      # Esto fuerza a Traefik a usar este contenedor en el puerto 4000
+      - "traefik.http.services.iptv-v2.loadbalancer.server.port=4000"
+
+      # --- HTTP Router (Redirección) ---
       - "traefik.http.routers.iptv-v2-http.rule=Host(`iptv.walerike.com`)"
       - "traefik.http.routers.iptv-v2-http.entrypoints=web"
-      - "traefik.http.routers.iptv-v2-http.middlewares=redirect-https@docker"
+      - "traefik.http.routers.iptv-v2-http.middlewares=redirect-https"
+
+      # --- Middleware (Definido localmente) ---
       - "traefik.http.middlewares.redirect-https.redirectscheme.scheme=https"
 
 networks:
