@@ -4,7 +4,41 @@ import re
 
 app = Flask(__name__)
 
-# Headers base para imitar un cliente legítimo
+# =========================
+# CONFIGURACIÓN DEL PROXY
+# =========================
+# Intentamos cargar desde la base de datos como en tu script Quart
+try:
+  from database import Database
+
+  db = Database("configNewScrapper", 'proxy', None)
+  proxy_config = db.get_doc_firebase().to_dict()
+
+  proxy_ip = proxy_config.get("proxy_ip")
+  proxy_port = proxy_config.get("proxy_port")
+  proxy_user = proxy_config.get("proxy_user")
+  proxy_pass = proxy_config.get("proxy_pass")
+
+except Exception as e:
+  print(
+    f"Advertencia: No se pudo cargar config de DB ({str(e)}). Usando valores por defecto.")
+  # COLOCA AQUÍ TUS DATOS DIRECTAMENTE SI FALLA LA BD
+  proxy_ip = "TU_IP"
+  proxy_port = "TU_PUERTO"
+  proxy_user = "TU_USER"
+  proxy_pass = "TU_PASS"
+
+# Construcción de la URL del proxy (Formato: http://user:pass@ip:port)
+HTTP_PROXY = f"http://{proxy_user}:{proxy_pass}@{proxy_ip}:{proxy_port}"
+
+PROXIES = {
+  'http': HTTP_PROXY,
+  'https': HTTP_PROXY
+}
+
+# =========================
+# HEADERS BASE
+# =========================
 BASE_HEADERS = {
   'User-Agent': 'VLC/3.0.16 LibVLC/3.0.16',
   'Accept': '*/*',
@@ -24,7 +58,15 @@ def list_proxy(subpath):
     headers = BASE_HEADERS.copy()
     headers['Host'] = 'line.ultra-8k.xyz'
 
-    resp = requests.get(target_url, headers=headers, stream=True, timeout=60)
+    # AÑADIDO: proxies=PROXIES y verify=False (para ignorar errores SSL como en el script Quart)
+    resp = requests.get(
+        target_url,
+        headers=headers,
+        stream=True,
+        timeout=60,
+        proxies=PROXIES,
+        verify=False
+    )
 
     # Crear respuesta con streaming
     def generate():
@@ -68,12 +110,14 @@ def stream_proxy(fullpath):
     headers = BASE_HEADERS.copy()
     headers['Host'] = host
 
-    # Streaming de video con chunks grandes
+    # AÑADIDO: proxies=PROXIES y verify=False
     resp = requests.get(
         target_url,
         headers=headers,
         stream=True,
-        timeout=60
+        timeout=60,
+        proxies=PROXIES,
+        verify=False
     )
 
     def generate():
@@ -108,4 +152,5 @@ def health():
 
 
 if __name__ == '__main__':
+  # En desarrollo threaded=True es útil, pero en Docker usamos Gunicorn
   app.run(host='0.0.0.0', port=4000, threaded=True)
