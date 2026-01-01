@@ -6,7 +6,8 @@ services:
       context: ..
       dockerfile: docker/Dockerfile-iptv
     container_name: proxy-iptv
-
+    env_file:
+      - .env
     ports:
       - "4000:4000"
 
