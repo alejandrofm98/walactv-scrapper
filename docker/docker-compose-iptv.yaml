@@ -19,28 +19,6 @@ services:
     networks:
       - dokploy-network
 
-    labels:
-      - "traefik.enable=true"
-
-      # Router HTTP
-      - "traefik.http.routers.iptv-python-http.rule=Host(`iptv.walerike.com`)"
-      - "traefik.http.routers.iptv-python-http.entrypoints=web"
-      - "traefik.http.routers.iptv-python-http.middlewares=redirect-to-https"
-
-      # Router HTTPS
-      - "traefik.http.routers.iptv-python-https.rule=Host(`iptv.walerike.com`)"
-      - "traefik.http.routers.iptv-python-https.entrypoints=websecure"
-      - "traefik.http.routers.iptv-python-https.tls=true"
-      - "traefik.http.routers.iptv-python-https.tls.certresolver=letsencrypt"
-
-      # Middleware
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
-
-      # Servicio
-      - "traefik.http.routers.iptv-python-https.service=iptv-python-service"
-      - "traefik.http.services.iptv-python-service.loadbalancer.server.port=3000"
-
 networks:
   dokploy-network:
     external: true
