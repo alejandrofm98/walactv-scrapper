@@ -1,8 +1,15 @@
 from flask import Flask, request, Response, stream_with_context
+from flask_cors import CORS  # <--- NUEVA IMPORTACIÓN
 import requests
 import re
 
 app = Flask(__name__)
+
+# =========================
+# CONFIGURACIÓN DE CORS
+# =========================
+# Habilitamos CORS solo para tu dominio específico en todas las rutas (/*)
+cors = CORS(app, resources={r"/*": {"origins": "https://walactvweb.walerike.com"}})
 
 # =========================
 # CONFIGURACIÓN DEL PROXY

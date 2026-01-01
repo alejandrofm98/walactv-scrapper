@@ -12,3 +12,4 @@ selenium==4.34.2
 selenium_wire==5.1.0
 schedule==1.2.2
 quart-cors==0.8.0
+flask-cors==6.0.2
