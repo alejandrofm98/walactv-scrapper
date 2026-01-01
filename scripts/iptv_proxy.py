@@ -8,8 +8,8 @@ app = Flask(__name__)
 # =========================
 # CONFIGURACIÓN DE CORS
 # =========================
-# Habilitamos CORS solo para tu dominio específico en todas las rutas (/*)
-cors = CORS(app, resources={r"/*": {"origins": "https://walactvweb.walerike.com"}})
+# Habilitamos CORS para tu dominio de producción Y para localhost
+cors = CORS(app, resources={r"/*": {"origins": ["https://walactvweb.walerike.com", "http://localhost:4200"]}})
 
 # =========================
 # CONFIGURACIÓN DEL PROXY
