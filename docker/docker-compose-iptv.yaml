@@ -45,17 +45,12 @@ services:
     image: nginx:alpine
     container_name: nginx-images
     restart: always
-
     labels:
       - "traefik.enable=true"
-
-      # Router HTTP
       - "traefik.http.routers.images.rule=Host(`static.walerike.com`)"
       - "traefik.http.routers.images.entrypoints=websecure"
       - "traefik.http.routers.images.tls=true"
       - "traefik.http.routers.images.tls.certresolver=letsencrypt"
-
-      # Servicio
       - "traefik.http.services.images.loadbalancer.server.port=80"
 
 networks:
