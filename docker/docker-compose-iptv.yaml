@@ -40,7 +40,8 @@ services:
 
       # --- Middleware (Definido localmente) ---
       - "traefik.http.middlewares.redirect-https.redirectscheme.scheme=https"
-      -
+
+
   nginx-images:
     image: nginx:alpine
     container_name: nginx-images
