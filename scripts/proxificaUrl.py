@@ -7,7 +7,7 @@ import ssl
 from database import Database
 
 app = Quart(__name__)
-app = cors(app, allow_origin="https://walactvweb.walerike.com")
+app = cors(app, allow_origin=["https://walactvweb.walerike.com", "http://localhost:4200"])
 
 # Configuración del proxy
 db = Database("configNewScrapper", 'proxy', None)
