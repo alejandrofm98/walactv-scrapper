@@ -78,24 +78,38 @@ def is_after_today_6am(dia_agenda):
 
 
 def get_today_agenda_text():
-  # Set Spanish locale for month names
-  try:
-      locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
-  except locale.Error:
-      try:
-          locale.setlocale(locale.LC_TIME, 'Spanish_Spain.1252')
-      except locale.Error:
-          pass # Fallback si no hay locale español
+  dias = {
+    0: "Lunes",
+    1: "Martes",
+    2: "Miércoles",
+    3: "Jueves",
+    4: "Viernes",
+    5: "Sábado",
+    6: "Domingo",
+  }
 
-  # Get current date
+  meses = {
+    1: "enero",
+    2: "febrero",
+    3: "marzo",
+    4: "abril",
+    5: "mayo",
+    6: "junio",
+    7: "julio",
+    8: "agosto",
+    9: "septiembre",
+    10: "octubre",
+    11: "noviembre",
+    12: "diciembre",
+  }
+
   today = datetime.now()
+  dia = dias[today.weekday()]
+  mes = meses[today.month]
 
-  # Format the date in Spanish
-  # %A: Full weekday name, %d: Day of the month, %B: Full month name, %Y: Year
-  formatted_date = today.strftime("%A %d de %B de %Y")
-
-  # Return in the required format
+  formatted_date = f"{dia} {today.day:02d} de {mes} de {today.year}"
   return f"Agenda - {formatted_date}"
+
 
 # ==================== MANEJO DE TOKENS ====================
 
