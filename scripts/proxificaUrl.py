@@ -19,6 +19,9 @@ proxy_pass = proxy.get("proxy_pass")
 
 HTTP_PROXY = f"http://{proxy_user}:{proxy_pass}@{proxy_ip}:{proxy_port}"
 
+# Dominio base para URLs absolutas de Android TV
+ANDROID_BASE_URL = "https://walactv.walerike.com"
+
 connector = None
 session = None
 
@@ -90,6 +93,32 @@ async def apiwalactv_proxy():
 
 
 # =========================
+# NUEVO: Endpoint Android TV (/android/proxy)
+# =========================
+@app.route('/android/proxy')
+async def android_proxy():
+  """
+  Endpoint para Android TV con URLs absolutas.
+  Reescribe todas las URLs relativas a URLs absolutas completas.
+  """
+  full_url = str(request.url)
+  if "url=" not in full_url:
+    return "URL parameter required", 400
+  target_url = full_url.split("url=")[-1]
+
+  try:
+    if '.m3u8' in target_url:
+      return await handle_m3u8_android(target_url)
+    else:
+      return await handle_segment(target_url)
+  except asyncio.TimeoutError:
+    return "Request timeout", 504
+  except Exception as e:
+    print(f"Error: {str(e)}")
+    return "Internal server error", 500
+
+
+# =========================
 # Función m3u8 unificada
 # =========================
 async def handle_m3u8(target_url: str, rewrite_urls: bool):
@@ -131,6 +160,49 @@ async def handle_m3u8(target_url: str, rewrite_urls: bool):
 
 
 # =========================
+# NUEVO: Función m3u8 para Android con URLs absolutas
+# =========================
+async def handle_m3u8_android(target_url: str):
+  """
+  Maneja archivos M3U8 para Android TV.
+  Reescribe todas las URLs a URLs absolutas completas.
+  """
+  try:
+    async with session.get(target_url, proxy=HTTP_PROXY,
+                           allow_redirects=True) as response:
+      if response.status != 200:
+        print(f"M3U8 Error (Android): {response.status}")
+        return f"Failed to fetch m3u8: {response.status}", 502
+
+      content = await response.text()
+      base_url = target_url.rsplit('/', 1)[0] + '/'
+      lines = content.splitlines()
+      new_lines = []
+
+      for line in lines:
+        if not line or line.startswith('#'):
+          new_lines.append(line)
+        else:
+          # Convertir a URL absoluta
+          abs_url = urljoin(base_url, line.strip())
+          # Crear URL completa con el dominio
+          proxied_url = f"{ANDROID_BASE_URL}/android/proxy?url={abs_url}"
+          new_lines.append(proxied_url)
+
+      proxied_content = "\n".join(new_lines)
+      return Response(proxied_content,
+                      content_type='application/vnd.apple.mpegurl',
+                      headers={
+                        'Access-Control-Allow-Origin': '*',
+                        'Cache-Control': 'no-cache'
+                      })
+
+  except Exception as e:
+    print(f"M3U8 Android handling error: {str(e)}")
+    return "Failed to process m3u8", 502
+
+
+# =========================
 # Segments comunes
 # =========================
 async def handle_segment(target_url: str):
@@ -149,7 +221,11 @@ async def handle_segment(target_url: str):
     return Response(
         stream_data(),
         content_type='video/MP2T',
-        headers={'Cache-Control': 'no-cache', 'Connection': 'keep-alive'}
+        headers={
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*'
+        }
     )
   except Exception as e:
     print(f"Segment handling error: {str(e)}")
