@@ -1,35 +1,32 @@
 import os
 import requests
 import hashlib
-import firebase_admin
-from firebase_admin import credentials, firestore, storage
 from dotenv import load_dotenv
+import pathlib
+import json
+
+from database import login_firebase, Database
 
 # --- 1. Cargar variables de entorno ---
-dotenv_path = os.path.join(os.path.dirname(__file__), '..', 'docker', '.env')
-if os.path.exists(dotenv_path):
-    load_dotenv(dotenv_path)
-    print(f"Modo Local: Cargando credenciales desde {dotenv_path}")
-else:
-    print("Modo Servidor: Usando variables de entorno del sistema")
+try:
+    from dotenv import load_dotenv
+    env_path = pathlib.Path(__file__).parent.parent / 'docker' / '.env'
+    if env_path.exists():
+        load_dotenv(env_path)
+        print(f"Modo Local: Cargando credenciales desde {env_path}")
+    else:
+        print("Modo Servidor: Usando variables de entorno del sistema")
+except ImportError:
+    print("⚠️ python-dotenv no instalado, usando solo variables de entorno del sistema")
 
 IPTV_USER = os.getenv("IPTV_USER")
 IPTV_PASS = os.getenv("IPTV_PASS")
 
-# --- 2. Configuración Firebase ---
-cred_path = os.path.join(os.path.dirname(__file__), "..", "resources", "walactv_clave_privada.json")
-cred = credentials.Certificate(cred_path)
-firebase_admin.initialize_app(cred, {
-    'storageBucket': 'tu-proyecto.appspot.com'  # Reemplaza con tu bucket
-})
-db = firestore.client()
-bucket = storage.bucket()
-
-# --- 3. Directorio local de logos ---
-LOGOS_DIR = os.path.join(os.path.dirname(__file__), '..', 'resources', 'images')
+# --- 2. Directorio local de logos ---
+LOGOS_DIR = "/app/resources/images"
 os.makedirs(LOGOS_DIR, exist_ok=True)
 
-# --- 4. Dominio público de imágenes ---
+# --- 3. Dominio público de imágenes ---
 MEDIA_DOMAIN = "https://static.walerike.com"
 
 
@@ -199,11 +196,13 @@ def sync_to_single_document():
     print(f"  - Total canales funcionales: {len(canales_filtrados)}")
 
     if canales_filtrados:
-        doc_ref = db.collection("canales").document("canales_iptv")
-        doc_ref.set({
-            "ultima_actualizacion": firestore.SERVER_TIMESTAMP,
+        login_firebase()
+        data = {
+            "ultima_actualizacion": "timestamp",
             "items": canales_filtrados
-        }, merge=False)
+        }
+        db = Database("canales", "canales_iptv", json.dumps(data))
+        db.add_data_firebase()
         print(f"\n✓ Sincronizados {len(canales_filtrados)} canales españoles funcionales con éxito.")
     else:
         print("No se encontraron canales españoles funcionales para sincronizar.")
