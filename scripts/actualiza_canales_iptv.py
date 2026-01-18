@@ -30,7 +30,7 @@ LOGOS_DIR = os.path.join(os.path.dirname(__file__), '..', 'resources', 'images')
 os.makedirs(LOGOS_DIR, exist_ok=True)
 
 # --- 4. Dominio público de imágenes ---
-MEDIA_DOMAIN = "https://static.walerike.com/media"
+MEDIA_DOMAIN = "https://static.walerike.com"
 
 
 def probar_canal(url, nombre):

@@ -35,12 +35,27 @@ services:
       - dokploy-network
     command: ["sh", "-c", "while true; do sleep 3600; done"]
 
+  walactv-iptv-images:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: walactv-iptv-images
+    restart: no
+    command: ["python", "actualiza_canales_iptv.py"]
+    volumes:
+      - walactv-logos:/app/resources/images
+    env_file:
+      - .env
+    networks:
+      - dokploy-network
+
   ofelia:
     image: mcuadros/ofelia:latest
     container_name: ofelia-scheduler
     restart: unless-stopped
     depends_on:
       - walactv-futboltv
+      - walactv-iptv-images
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./ofelia-config.ini:/ofelia.config.ini:ro  # Cambiado a raíz
@@ -50,4 +65,8 @@ services:
 
 networks:
   dokploy-network:
+    external: true
+
+volumes:
+  walactv-logos:
     external: true
