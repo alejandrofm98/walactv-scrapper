@@ -1,6 +1,7 @@
 import os
 import requests
 import hashlib
+import shutil
 from dotenv import load_dotenv
 import pathlib
 import json
@@ -22,12 +23,35 @@ except ImportError:
 IPTV_USER = os.getenv("IPTV_USER")
 IPTV_PASS = os.getenv("IPTV_PASS")
 
-# --- 2. Directorio local de logos ---
+# --- 2. Directorio de logos ---
+REPO_IMAGES_DIR = "/repo-images"
 LOGOS_DIR = "/app/resources/images"
+
 os.makedirs(LOGOS_DIR, exist_ok=True)
+
+
+def sincronizar_imagenes_repo():
+    """Copia las imágenes del repo al volumen si no existen."""
+    if not os.path.exists(REPO_IMAGES_DIR):
+        return 0
+
+    copied = 0
+    for filename in os.listdir(REPO_IMAGES_DIR):
+        src = os.path.join(REPO_IMAGES_DIR, filename)
+        dst = os.path.join(LOGOS_DIR, filename)
+
+        if os.path.isfile(src) and not os.path.exists(dst):
+            shutil.copy2(src, dst)
+            copied += 1
+
+    if copied > 0:
+        print(f"📁 Copiadas {copied} imágenes del repo al volumen")
+    return copied
+
 
 # --- 3. Dominio público de imágenes ---
 MEDIA_DOMAIN = "https://static.walerike.com"
+DEFAULT_LOGO = "https://static.walerike.com/default.png"
 
 
 def probar_canal(url, nombre):
@@ -98,6 +122,9 @@ def sync_to_single_document():
     if not IPTV_USER or not IPTV_PASS:
         print("Error: No se han encontrado IPTV_USER o IPTV_PASS")
         return
+
+    print("🚀 Iniciando actualización de canales IPTV...")
+    sincronizar_imagenes_repo()
 
     url = f"http://line.ultra-8k.xyz/get.php?username={IPTV_USER}&password={IPTV_PASS}&type=m3u_plus&output=ts"
 
@@ -177,6 +204,9 @@ def sync_to_single_document():
                 print(f"    - Logo en caché: {os.path.basename(logo_url_final)}")
             else:
                 logos_fallidos += 1
+                logo_url_final = DEFAULT_LOGO
+        else:
+            logo_url_final = DEFAULT_LOGO
 
         canales_filtrados[channel_id] = {
             "numero": numero,

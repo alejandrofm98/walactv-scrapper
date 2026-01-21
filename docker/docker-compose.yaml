@@ -44,6 +44,7 @@ services:
     command: ["python", "actualiza_canales_iptv.py"]
     volumes:
       - walactv-logos:/app/resources/images
+      - ../resources/images:/repo-images:ro
     env_file:
       - .env
     networks:
