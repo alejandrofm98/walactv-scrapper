@@ -44,7 +44,7 @@ services:
     command: ["python", "actualiza_canales_iptv.py"]
     volumes:
       - walactv-logos:/app/resources/images
-      - ../resources/images:/repo-images:ro
+      - ${IMAGES_PATH:-../resources/images}:/repo-images:ro  # 👈 USA VARIABLE
     env_file:
       - .env
     networks:
@@ -59,7 +59,7 @@ services:
       - walactv-iptv-images
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./ofelia-config.ini:/ofelia.config.ini:ro  # Cambiado a raíz
+      - ./ofelia-config.ini:/ofelia.config.ini:ro
     command: daemon --config /ofelia.config.ini
     networks:
       - dokploy-network
@@ -70,4 +70,4 @@ networks:
 
 volumes:
   walactv-logos:
-    external: true
+    external: true  # 👈 MANTÉN external: true
