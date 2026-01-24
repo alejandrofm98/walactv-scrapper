@@ -84,8 +84,14 @@ def sincronizar_imagenes_repo():
 MEDIA_DOMAIN = "https://static.walerike.com"
 DEFAULT_LOGO = "https://static.walerike.com/default.png"
 
+# --- 4. Configuración de Rate Limiting ---
+MAX_CANALES_POR_MINUTO = 15  # Límite conservador
+DELAY_ENTRE_CANALES = 4  # Segundos entre cada prueba de canal
+DELAY_CADA_LOTE = 10  # Pausa extra cada X canales
+CANALES_POR_LOTE = 5  # Número de canales antes de pausa larga
 
-def probar_canal(url, nombre, max_reintentos=3, delay_base=2):
+
+def probar_canal(url, nombre, max_reintentos=2, delay_base=3):
   """
     Prueba si la URL del canal responde correctamente con reintentos.
     Retorna True si funciona, False si no.
@@ -98,9 +104,9 @@ def probar_canal(url, nombre, max_reintentos=3, delay_base=2):
     try:
       response = requests.get(
           url,
-          timeout=10,
+          timeout=8,  # Reducido para fallar más rápido
           stream=True,
-          allow_redirects=True,  # Seguir redirecciones 302
+          allow_redirects=True,
           headers={'User-Agent': 'Mozilla/5.0'}
       )
 
@@ -111,12 +117,20 @@ def probar_canal(url, nombre, max_reintentos=3, delay_base=2):
           print(f"    [OK] {nombre}: {url}")
         return True
 
+      # Error 458 = IP baneada temporalmente
+      elif response.status_code == 458:
+        print(f"    [⛔ IP BANEADA] {nombre}: Esperando 120 segundos...")
+        time.sleep(120)  # Espera 2 minutos si hay baneo
+        if intento < max_reintentos - 1:
+          continue
+        return False
+
       # Errores que merecen reintento
       elif response.status_code in [511, 429, 503, 504]:
         if intento < max_reintentos - 1:
-          delay = delay_base * (intento + 1)  # Delay progresivo: 2s, 4s, 6s
+          delay = delay_base * (intento + 1)
           print(
-            f"    [RETRY {intento + 1}/{max_reintentos}] {nombre}: HTTP {response.status_code}, reintentando en {delay}s...")
+            f"    [RETRY {intento + 1}/{max_reintentos}] {nombre}: HTTP {response.status_code}, esperando {delay}s...")
           time.sleep(delay)
           continue
         else:
@@ -124,7 +138,7 @@ def probar_canal(url, nombre, max_reintentos=3, delay_base=2):
             f"    [FAIL] {nombre}: HTTP {response.status_code} (tras {max_reintentos} intentos)")
           return False
 
-      # Errores definitivos (no reintentar)
+      # Errores definitivos
       else:
         print(f"    [FAIL] {nombre}: HTTP {response.status_code}")
         return False
@@ -213,10 +227,18 @@ def sync_to_single_document():
   lines = response.text.split('\n')
   current_channel = {}
 
-  print("\n🔍 Probando canales españoles...")
+  print("\n🔍 Probando canales españoles con rate limiting...")
+  print("=" * 50)
+  print(f"⚙️  Configuración:")
+  print(f"   - Delay entre canales: {DELAY_ENTRE_CANALES}s")
+  print(f"   - Pausa cada {CANALES_POR_LOTE} canales: {DELAY_CADA_LOTE}s")
+  print(f"   - Máximo {MAX_CANALES_POR_MINUTO} canales por minuto")
   print("=" * 50)
 
   canal_count = 0
+  inicio_bloque = time.time()
+  canales_en_bloque = 0
+
   for line in lines:
     line = line.strip()
 
@@ -242,14 +264,26 @@ def sync_to_single_document():
     elif line and not line.startswith('#') and current_channel:
       channel_url = line
       canal_count += 1
+      canales_en_bloque += 1
 
-      # Pausa cada 10 canales para evitar sobrecarga del servidor
-      if canal_count > 0 and canal_count % 10 == 0:
+      # Control de rate limiting por minuto
+      tiempo_transcurrido = time.time() - inicio_bloque
+      if canales_en_bloque >= MAX_CANALES_POR_MINUTO and tiempo_transcurrido < 60:
+        espera = 60 - tiempo_transcurrido
         print(
-          f"\n⏸️  Pausa de 3 segundos (procesados {canal_count} canales)...\n")
-        time.sleep(3)
+          f"\n⏳ Límite de {MAX_CANALES_POR_MINUTO} canales/minuto alcanzado. Esperando {espera:.1f}s...\n")
+        time.sleep(espera)
+        inicio_bloque = time.time()
+        canales_en_bloque = 0
+
+      # Pausa cada lote de canales
+      if canal_count > 0 and canal_count % CANALES_POR_LOTE == 0:
+        print(
+          f"\n⏸️  Pausa de {DELAY_CADA_LOTE}s (procesados {canal_count} canales)...\n")
+        time.sleep(DELAY_CADA_LOTE)
 
       # --- Filtrar solo canales que funcionan ---
+      print(f"\n[Canal {canal_count}]")
       if probar_canal(channel_url, current_channel['name']):
         canales_temp.append({
           'name': current_channel['name'],
@@ -263,6 +297,10 @@ def sync_to_single_document():
           'group': current_channel['group'],
           'url': channel_url
         })
+
+      # Delay obligatorio entre cada canal
+      if canal_count % CANALES_POR_LOTE != 0:  # No duplicar delay si ya hubo pausa de lote
+        time.sleep(DELAY_ENTRE_CANALES)
 
       current_channel = {}
 
