@@ -33,20 +33,34 @@ os.makedirs(LOGOS_DIR, exist_ok=True)
 def sincronizar_imagenes_repo():
     """Copia las imágenes del repo al volumen si no existen."""
     if not os.path.exists(REPO_IMAGES_DIR):
+        print(f"⚠️ No existe {REPO_IMAGES_DIR}")
         return 0
 
     copied = 0
+    updated = 0
+
     for filename in os.listdir(REPO_IMAGES_DIR):
         src = os.path.join(REPO_IMAGES_DIR, filename)
         dst = os.path.join(LOGOS_DIR, filename)
 
-        if os.path.isfile(src) and not os.path.exists(dst):
-            shutil.copy2(src, dst)
-            copied += 1
+        if os.path.isfile(src):
+            # Copiar siempre archivos especiales como default.png
+            if filename in ['default.png', 'default.svg']:
+                shutil.copy2(src, dst)
+                if os.path.exists(dst):
+                    updated += 1
+                    print(f"    ✓ Actualizado: {filename}")
+                else:
+                    copied += 1
+                    print(f"    ✓ Copiado: {filename}")
+            # Para el resto, solo copiar si no existe
+            elif not os.path.exists(dst):
+                shutil.copy2(src, dst)
+                copied += 1
 
-    if copied > 0:
-        print(f"📁 Copiadas {copied} imágenes del repo al volumen")
-    return copied
+    if copied > 0 or updated > 0:
+        print(f"📁 Copiadas {copied} imágenes nuevas, {updated} actualizadas")
+    return copied + updated
 
 
 # --- 3. Dominio público de imágenes ---
