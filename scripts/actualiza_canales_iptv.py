@@ -33,33 +33,47 @@ os.makedirs(LOGOS_DIR, exist_ok=True)
 def sincronizar_imagenes_repo():
     """Copia las imágenes del repo al volumen si no existen."""
     if not os.path.exists(REPO_IMAGES_DIR):
-        print(f"⚠️ No existe {REPO_IMAGES_DIR}")
+        print(f"⚠️ Directorio {REPO_IMAGES_DIR} no existe")
         return 0
+
+    print(f"📂 Sincronizando desde {REPO_IMAGES_DIR} hacia {LOGOS_DIR}")
 
     copied = 0
     updated = 0
+
+    # Lista de archivos que siempre deben copiarse/actualizarse
+    always_copy = ['default.png', 'default.svg', 'default.jpg']
 
     for filename in os.listdir(REPO_IMAGES_DIR):
         src = os.path.join(REPO_IMAGES_DIR, filename)
         dst = os.path.join(LOGOS_DIR, filename)
 
-        if os.path.isfile(src):
-            # Copiar siempre archivos especiales como default.png
-            if filename in ['default.png', 'default.svg']:
+        if not os.path.isfile(src):
+            continue
+
+        # Copiar siempre archivos especiales
+        if filename in always_copy:
+            try:
                 shutil.copy2(src, dst)
                 if os.path.exists(dst):
+                    print(f"    ✓ Copiado/Actualizado: {filename}")
                     updated += 1
-                    print(f"    ✓ Actualizado: {filename}")
                 else:
-                    copied += 1
-                    print(f"    ✓ Copiado: {filename}")
-            # Para el resto, solo copiar si no existe
-            elif not os.path.exists(dst):
+                    print(f"    ✗ Error copiando: {filename}")
+            except Exception as e:
+                print(f"    ✗ Excepción copiando {filename}: {e}")
+        # Para el resto, solo copiar si no existe
+        elif not os.path.exists(dst):
+            try:
                 shutil.copy2(src, dst)
                 copied += 1
+            except Exception as e:
+                print(f"    ✗ Error copiando {filename}: {e}")
 
-    if copied > 0 or updated > 0:
-        print(f"📁 Copiadas {copied} imágenes nuevas, {updated} actualizadas")
+    print(f"📁 Sincronización completada:")
+    print(f"   - Nuevas: {copied}")
+    print(f"   - Actualizadas: {updated}")
+
     return copied + updated
 
 
