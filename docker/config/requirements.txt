@@ -13,3 +13,6 @@ selenium_wire==5.1.0
 schedule==1.2.2
 quart-cors==0.8.0
 flask-cors==6.0.2
+Flask==3.0.0
+bcrypt==4.1.2
+supabase==2.27.2
