@@ -55,8 +55,6 @@ services:
   nginx-proxy:
     build: ./nginx
     container_name: nginx-proxy
-    ports:
-      - "8080:80"
     volumes:
       - walactv-m3u:/app/data/m3u:ro  # 👈 Volumen compartido solo lectura
       - walactv-logos:/app/data/logos:ro  # 👈 Para servir logos también
