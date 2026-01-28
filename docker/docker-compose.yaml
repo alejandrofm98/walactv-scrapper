@@ -54,7 +54,7 @@ services:
 
   nginx-proxy:
     build: ./nginx
-    container_name: iptv-proxy
+    container_name: nginx-proxy
     ports:
       - "8080:80"
     volumes:
