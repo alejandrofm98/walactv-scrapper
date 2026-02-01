@@ -1,0 +1,267 @@
+{
+  "info": {
+    "name": "IPTV API WALACTV (JWT)",
+    "_postman_id": "iptv-api-full-004",
+    "description": "Colección completa de IPTV API con autenticación JWT",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "{{base_url}}" },
+    { "key": "base_url_host", "value": "{{base_url_host}}" },
+    { "key": "user_id", "value": "{{user_id}}" },
+    { "key": "device_id", "value": "{{device_id}}" },
+    { "key": "username", "value": "{{username}}" },
+    { "key": "password", "value": "{{password}}" },
+    { "key": "stream_id", "value": "{{stream_id}}" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.environment.set(\"access_token\", jsonData.access_token);",
+                  "console.log('Token guardado: ' + jsonData.access_token);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "username", "value": "{{username}}", "type": "text" },
+                { "key": "password", "value": "{{password}}", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "protocol": "http",
+              "host": ["{{base_url_host}}"],
+              "port": "3001",
+              "path": ["api","auth","login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Root",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/",
+              "protocol": "http",
+              "host": ["{{base_url_host}}"],
+              "port": "3001",
+              "path": [""]
+            }
+          }
+        },
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/health",
+              "protocol": "http",
+              "host": ["{{base_url_host}}"],
+              "port": "3001",
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "{{token_type}} {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/users", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["api","users"] },
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"nuevo_usuario\",\n  \"password\": \"password123\",\n  \"max_connections\": 2,\n  \"role\": \"user\"\n}" }
+          }
+        },
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "{{token_type}} {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/users", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["api","users"] }
+          }
+        },
+        {
+          "name": "Get User",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "{{token_type}} {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/users/{{user_id}}", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["api","users","{{user_id}}"] }
+          }
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "{{token_type}} {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/users/{{user_id}}", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["api","users","{{user_id}}"] },
+            "body": { "mode": "raw", "raw": "{\n  \"password\": \"newpass\",\n  \"role\": \"admin\"\n}" }
+          }
+        },
+        {
+          "name": "Delete User",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "{{token_type}} {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/users/{{user_id}}", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["api","users","{{user_id}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Devices",
+      "item": [
+        {
+          "name": "Get User Devices",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "{{token_type}} {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/users/{{user_id}}/devices", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["api","users","{{user_id}}","devices"] }
+          }
+        },
+        {
+          "name": "Disconnect Device",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "{{token_type}} {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/users/{{user_id}}/devices/{{device_id}}", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["api","users","{{user_id}}","devices","{{device_id}}"] }
+          }
+        },
+        {
+          "name": "Disconnect All Devices",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "{{token_type}} {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/users/{{user_id}}/devices", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["api","users","{{user_id}}","devices"] }
+          }
+        },
+        {
+          "name": "Get All Sessions",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "{{token_type}} {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/sessions?limit=100", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["api","sessions"] }
+          }
+        },
+        {
+          "name": "Cleanup Sessions",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "{{token_type}} {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/sessions/cleanup?timeout_minutes=30", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["api","sessions","cleanup"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stats",
+      "item": [
+        {
+          "name": "Get System Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "{{token_type}} {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/stats", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["api","stats"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Content",
+      "item": [
+        {
+          "name": "Get Groups",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "{{token_type}} {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/content/groups", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["api","content","groups"] }
+          }
+        },
+        {
+          "name": "Get Countries",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "{{token_type}} {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/content/countries", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["api","content","countries"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Playlist",
+      "item": [
+        {
+          "name": "Get Playlist",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/playlist/{{username}}/{{password}}.m3u", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["playlist","{{username}}","{{password}}.m3u"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stream",
+      "item": [
+        {
+          "name": "Proxy Stream (Live/Movie/Series)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/live/{{username}}/{{password}}/{{stream_id}}", "protocol": "http", "host": ["{{base_url_host}}"], "port": "3001", "path": ["live","{{username}}","{{password}}","{{stream_id}}"] }
+          }
+        }
+      ]
+    }
+  ]
+}

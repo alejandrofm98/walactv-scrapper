@@ -1,0 +1,12 @@
+# ============================================
+# IPTV API - Dependencies
+# ============================================
+fastapi==0.128.0
+uvicorn[standard]==0.40.0
+pydantic==2.12.5
+supabase==2.27.2
+bcrypt==5.0.0
+httpx==0.28.1
+python-multipart==0.0.22
+python-jose
+passlib

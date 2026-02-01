@@ -1,0 +1,113 @@
+# ============================================
+# IPTV System - Docker Compose
+# ============================================
+version: '3.8'
+
+services:
+  # ============================================
+  # API Backend (FastAPI)
+  # ============================================
+  iptv-api:
+    build:
+      context: ..  # Contexto desde la raíz del proyecto
+      dockerfile: docker/Dockerfile
+    container_name: iptv-api
+    restart: unless-stopped
+#    ports:
+#      - "3001:3001"
+    env_file:
+      - .env
+    environment:
+      # Docker flag
+      - DOCKER_CONTAINER=true
+
+      # M3U
+      - M3U_DIR=/app/data/m3u
+
+      # Public domain (para generar URLs en M3U)
+      - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-http://localhost}
+    volumes:
+      # Montar directorio local de datos (incluye playlist.m3u)
+      - ../data:/app/data
+      # Opcional: montar código para desarrollo (comentar en producción)
+      # - ../services:/app/services
+      # - ../utils:/app/utils
+      # - ../scripts:/app/scripts
+    networks:
+      - iptv-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ============================================
+  # Nginx Reverse Proxy (con optimizaciones de streaming)
+  # ============================================
+  nginx:
+    image: nginx:alpine
+    container_name: iptv-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../nginx/ssl:/etc/nginx/ssl:ro  # Para HTTPS (opcional)
+      - ../data:/app/data:ro  # Acceso de solo lectura a archivos M3U
+    depends_on:
+      iptv-api:
+        condition: service_healthy
+    networks:
+      - iptv-network
+    # Para Dokploy + Traefik, descomenta y configura las labels:
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.iptv.rule=Host(\`tu-dominio.com\`)"
+    #   - "traefik.http.routers.iptv.entrypoints=websecure"
+    #   - "traefik.http.routers.iptv.tls.certresolver=letsencrypt"
+    #   - "traefik.http.services.iptv.loadbalancer.server.port=80"
+
+  # ============================================
+  # Sync Scheduler (Supercronic)
+  # Ejecuta sync_iptv.py automáticamente cada 2 horas
+  # ============================================
+  sync-scheduler:
+    build:
+      context: ..  # Contexto desde la raíz del proyecto
+      dockerfile: docker/Dockerfile.sync
+    container_name: iptv-sync-scheduler
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Docker flag
+      - DOCKER_CONTAINER=true
+      # M3U
+      - M3U_DIR=/app/data/m3u
+      # Public domain (para URLs en M3U)
+      - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-http://localhost}
+    volumes:
+      # Compartir datos con la API (lectura/escritura)
+      - ../data:/app/data
+    networks:
+      - iptv-network
+    depends_on:
+      - iptv-api
+    # No expone puertos, solo ejecuta cron internamente
+    # Logs: docker logs -f iptv-sync-scheduler
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  iptv-data:
+    driver: local
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  iptv-network:
+    driver: bridge
