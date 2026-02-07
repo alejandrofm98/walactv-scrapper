@@ -41,7 +41,6 @@ services:
     restart: unless-stopped
     depends_on:
       - walactv-futboltv
-      - walactv-iptv-sync
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./ofelia-config.ini:/ofelia.config.ini:ro
