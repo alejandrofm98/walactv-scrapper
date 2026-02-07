@@ -1,3 +1,4 @@
 /resources/walactv_clave_privada.json
 /resources/.env
 *.m3u
+/db/insert.sql

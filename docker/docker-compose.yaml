@@ -35,38 +35,6 @@ services:
       - dokploy-network
     command: ["sh", "-c", "while true; do sleep 3600; done"]
 
-  walactv-iptv-sync:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    container_name: walactv-iptv-sync
-    restart: no
-    command: ["python", "sync_iptv.py"]
-    volumes:
-      - walactv-m3u:/app/data/m3u
-      - walactv-logos:/app/data/logos
-      - ${IMAGES_PATH:-../resources/images}:/repo-images:ro
-    env_file:
-      - .env
-    networks:
-      - dokploy-network
-      - iptv-network
-
-  nginx-proxy:
-    build: ./nginx
-    container_name: nginx-proxy
-    volumes:
-      - walactv-m3u:/app/data/m3u:ro  # 👈 Volumen compartido solo lectura
-      - walactv-logos:/app/data/logos:ro  # 👈 Para servir logos también
-    environment:
-      - M3U_ACCESS_TOKEN=${M3U_ACCESS_TOKEN:-}
-    depends_on:
-      - walactv-proxificaurl
-    networks:
-      - dokploy-network
-      - iptv-network
-    restart: unless-stopped
-
   ofelia:
     image: mcuadros/ofelia:latest
     container_name: ofelia-scheduler

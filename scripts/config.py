@@ -1,288 +1,248 @@
 """
-Módulo de configuración común para scripts IPTV
-Centraliza la carga de variables de entorno y configuración de clientes
+Configuración centralizada para IPTV
+Carga configuración IPTV desde Supabase y variables de entorno locales
 """
-
 import os
 import warnings
 from pathlib import Path
-from dotenv import load_dotenv
+from functools import lru_cache
 from typing import Optional
+from dotenv import load_dotenv
 from supabase import create_client, Client
 
-# Suprimir warning específico de storage endpoint
-# Este warning es inofensivo pero molesto en versiones específicas de supabase-py
-warnings.filterwarnings('ignore', message='.*Storage endpoint URL.*trailing slash.*')
+# Suprimir warnings de storage endpoint
+warnings.filterwarnings('ignore',
+                        message='.*Storage endpoint URL.*trailing slash.*')
 
 
-def load_environment() -> bool:
-  """
-  Carga variables de entorno intentando múltiples ubicaciones
-
-  Returns:
-      bool: True si se cargó desde archivo, False si usa variables del sistema
-  """
-  # Ubicaciones a intentar (en orden de prioridad)
+def _load_environment() -> None:
+  """Carga variables de entorno desde múltiples ubicaciones"""
   env_paths = [
-    Path(__file__).parent / '.env',  # Directorio actual
-    Path(__file__).parent.parent / 'docker' / '.env',  # ../docker/.env (local)
-    Path(__file__).parent.parent / '.env',  # Directorio padre
+    Path(__file__).parent / '.env',
+    Path(__file__).parent.parent / 'docker' / '.env',
+    Path(__file__).parent.parent / '.env',
   ]
 
-  loaded = False
   for env_path in env_paths:
     if env_path.exists():
-      print(f"✓ Cargando variables de entorno desde: {env_path}")
       load_dotenv(env_path)
-      loaded = True
-      break
-
-  if not loaded:
-    print(
-      "⚠ No se encontró archivo .env, usando variables de entorno del sistema")
-
-  return loaded
+      return
 
 
-def get_iptv_credentials() -> tuple[Optional[str], Optional[str]]:
+# Cargar .env al importar el módulo
+_load_environment()
+
+
+class Settings:
   """
-  Obtiene las credenciales IPTV desde variables de entorno
+  Configuración centralizada de la aplicación
 
-  Returns:
-      tuple: (username, password) o (None, None) si no están configuradas
+  - Variables de entorno locales (de .env)
+  - Configuración dinámica (desde Supabase tabla config)
   """
-  username = os.getenv("IPTV_USER")
-  password = os.getenv("IPTV_PASS")
 
-  if not username or not password:
-    print("❌ Error: No se encontraron IPTV_USER o IPTV_PASS")
-    return None, None
+  # ===== Supabase (desde .env) =====
+  supabase_url: str = os.getenv("SUPABASE_URL", "")
+  supabase_key: str = os.getenv("SUPABASE_KEY", "")
 
-  return username, password
+  # ===== API (desde .env) =====
+  api_secret_key: str = os.getenv("API_SECRET_KEY",
+                                  "your-secret-key-change-in-production")
 
+  # ===== Configuración dinámica (desde Supabase - cargado dinámicamente) =====
+  # IPTV
+  iptv_user: Optional[str] = None
+  iptv_pass: Optional[str] = None
+  iptv_base_url: Optional[str] = None
+  iptv_source_url: Optional[str] = None  # URL completa generada
 
-def get_supabase_client() -> Optional[Client]:
-  """
-  Crea y retorna un cliente de Supabase configurado
+  # Servidor
+  session_timeout_minutes: int = 30  # Default, se sobrescribe desde BD
+  cleanup_interval_minutes: int = 5  # Default, se sobrescribe desde BD
 
-  Returns:
-      Client: Cliente de Supabase o None si falta configuración
-  """
-  url = os.getenv("SUPABASE_URL")
-  key = os.getenv("SUPABASE_KEY")
-
-  if not url or not key:
-    print("❌ Error: No se encontraron SUPABASE_URL o SUPABASE_KEY")
-    return None
-
-  # Asegurar que la URL termine con /
-  if not url.endswith('/'):
-    url = url + '/'
-
-  try:
-    # Construir storage URL explícitamente
-    base_url = url.rstrip('/')
-    storage_url = f"{base_url}/storage/v1/"
-
-    # Intentar usar ClientOptions para configurar storage
-    try:
-      from supabase import ClientOptions
-
-      options = ClientOptions(
-        storage={"url": storage_url}
-      )
-
-      client = create_client(url, key, options)
-      print(f"✓ Cliente Supabase con storage URL: {storage_url}")
-
-    except (ImportError, TypeError):
-      # Fallback a cliente normal
-      client = create_client(url, key)
-      print("✓ Cliente Supabase inicializado correctamente")
-
-    return client
-
-  except Exception as e:
-    print(f"❌ Error al crear cliente Supabase: {e}")
-    return None
-
-
-def get_iptv_playlist_url() -> Optional[str]:
-  """
-  Construye la URL de la playlist IPTV
-
-  Returns:
-      str: URL de la playlist o None si faltan credenciales
-  """
-  username, password = get_iptv_credentials()
-
-  if not username or not password:
-    return None
-
-  # URL base del servidor IPTV
-  base_url = os.getenv("IPTV_BASE_URL", "http://line.ultra-8k.xyz")
-
-  return f"{base_url}/get.php?username={username}&password={password}&type=m3u_plus&output=ts"
-
-
-class Config:
-  """
-  Clase de configuración centralizada
-  Permite acceso fácil a todas las configuraciones del sistema
-  """
+  # ===== Estado interno =====
+  _config_loaded: bool = False
+  _client_cache: Optional[Client] = None
 
   def __init__(self):
-    """Inicializa la configuración cargando variables de entorno"""
-    load_environment()
+    """Inicializa y carga configuración desde Supabase"""
+    self._ensure_supabase_url()
+    self._load_config()
 
-    # Credenciales IPTV
-    self.iptv_user, self.iptv_pass = get_iptv_credentials()
-    self.iptv_url = get_iptv_playlist_url()
-
-    # Credenciales Supabase
-    self.supabase_url = os.getenv("SUPABASE_URL")
-    self.supabase_key = os.getenv("SUPABASE_KEY")
-
-    # Asegurar que la URL termine con /
+  def _ensure_supabase_url(self) -> None:
+    """Asegura que la URL de Supabase termine con /"""
     if self.supabase_url and not self.supabase_url.endswith('/'):
       self.supabase_url = self.supabase_url + '/'
 
-    # Configuración de directorios
-    # Detectar si estamos en Docker o local
-    is_docker = os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER") == "true"
-
-    if is_docker:
-      # Rutas para Docker
-      default_repo_images = "/repo-images"
-      default_logos_dir = "/app/resources/images"
-    else:
-      # Rutas para desarrollo local
-      project_root = Path(__file__).parent.parent
-      default_repo_images = str(project_root / "repo-images")
-      default_logos_dir = str(project_root / "resources" / "images")
-
-    self.repo_images_dir = os.getenv("REPO_IMAGES_DIR", default_repo_images)
-    self.logos_dir = os.getenv("LOGOS_DIR", default_logos_dir)
-
-    # Configuración de medios
-    self.media_domain = os.getenv("MEDIA_DOMAIN", "https://static.walerike.com")
-    self.default_logo = os.getenv("DEFAULT_LOGO",
-                                  f"{self.media_domain}/default.png")
-
-    # Configuración de bucket (se carga desde Supabase)
-    self.bucket_name = None
-    self._load_bucket_name()
-
-    # Validar configuración crítica
-    self._validate()
-
-  def _validate(self):
-    """Valida que las configuraciones críticas estén presentes"""
-    errors = []
-
-    if not self.iptv_user or not self.iptv_pass:
-      errors.append("Faltan credenciales IPTV (IPTV_USER, IPTV_PASS)")
-
-    if not self.supabase_url or not self.supabase_key:
-      errors.append("Faltan credenciales Supabase (SUPABASE_URL, SUPABASE_KEY)")
-
-    if errors:
-      print("\n⚠️  Advertencias de configuración:")
-      for error in errors:
-        print(f"   - {error}")
-      print()
-
-  def get_supabase_client(self) -> Optional[Client]:
-    """Retorna un cliente de Supabase con storage URL configurada correctamente"""
-    if not self.supabase_url or not self.supabase_key:
-      print("❌ Error: No se encontraron credenciales Supabase")
-      return None
+  def _load_config(self) -> None:
+    """Carga configuración dinámica desde tabla config en Supabase"""
+    if not self.is_supabase_configured():
+      return
 
     try:
-      # Construir storage URL explícitamente para evitar el error del trailing slash
+      client = self.get_supabase_client()
+      response = client.table('config').select('key, value').execute()
+
+      if not response.data:
+        return
+
+      # Crear diccionario de configuración
+      config = {item['key']: item['value'] for item in response.data}
+
+      # Cargar valores IPTV
+      self.iptv_user = config.get('IPTV_USER')
+      self.iptv_pass = config.get('IPTV_PASS')
+      self.iptv_base_url = config.get('IPTV_BASE_URL')
+
+      # Cargar configuración de servidor
+      if 'SESSION_TIMEOUT_MINUTES' in config:
+        self.session_timeout_minutes = int(config['SESSION_TIMEOUT_MINUTES'])
+
+      if 'CLEANUP_INTERVAL_MINUTES' in config:
+        self.cleanup_interval_minutes = int(config['CLEANUP_INTERVAL_MINUTES'])
+
+      # Generar URL de playlist
+      if self.iptv_user and self.iptv_pass:
+        self.iptv_source_url = (
+          f"{self.iptv_base_url}/get.php?"
+          f"username={self.iptv_user}&"
+          f"password={self.iptv_pass}&"
+          f"type=m3u_plus&output=ts"
+        )
+        self._config_loaded = True
+
+    except Exception as e:
+      # Silencioso por defecto, usar validate() para diagnóstico
+      pass
+
+  def reload_config(self) -> bool:
+    """
+    Recarga configuración desde Supabase
+
+    Returns:
+        bool: True si se cargó correctamente
+    """
+    self._config_loaded = False
+    self._load_config()
+    return self._config_loaded
+
+  def is_supabase_configured(self) -> bool:
+    """Verifica si Supabase está configurado"""
+    return bool(self.supabase_url and self.supabase_key)
+
+  def is_iptv_configured(self) -> bool:
+    """Verifica si IPTV está configurado"""
+    return bool(self.iptv_user and self.iptv_pass and self.iptv_base_url)
+
+  def is_valid(self) -> bool:
+    """Verifica que toda la configuración sea válida"""
+    return self.is_supabase_configured() and self.is_iptv_configured()
+
+  def get_supabase_client(self) -> Client:
+    """
+    Obtiene cliente de Supabase (cacheado)
+
+    Returns:
+        Client: Cliente de Supabase configurado
+    """
+    if self._client_cache is not None:
+      return self._client_cache
+
+    if not self.is_supabase_configured():
+      raise ValueError(
+        "Supabase no está configurado. Revisa SUPABASE_URL y SUPABASE_KEY")
+
+    try:
+      # Construir storage URL explícitamente
       base_url = self.supabase_url.rstrip('/')
       storage_url = f"{base_url}/storage/v1/"
 
-      # Importar ClientOptions si está disponible
       try:
         from supabase import ClientOptions
-
-        options = ClientOptions(
-          storage={"url": storage_url}
-        )
-
+        options = ClientOptions(storage={"url": storage_url})
         client = create_client(self.supabase_url, self.supabase_key, options)
-        print(f"✓ Cliente Supabase con storage URL explícita: {storage_url}")
-
       except (ImportError, TypeError):
-        # Si ClientOptions no está disponible o falla, usar cliente normal
         client = create_client(self.supabase_url, self.supabase_key)
-        print("✓ Cliente Supabase inicializado (sin opciones)")
 
+      self._client_cache = client
       return client
 
     except Exception as e:
-      print(f"❌ Error al crear cliente Supabase: {e}")
-      import traceback
-      traceback.print_exc()
-      return None
+      raise RuntimeError(f"Error al crear cliente Supabase: {e}")
 
-  def is_valid(self) -> bool:
-    """Verifica si la configuración es válida"""
-    return all([
-      self.iptv_user,
-      self.iptv_pass,
-      self.supabase_url,
-      self.supabase_key
-    ])
+  def validate(self, verbose: bool = True) -> bool:
+    """
+    Valida la configuración y muestra errores
 
-  def __repr__(self):
-    """Representación de la configuración (sin mostrar contraseñas)"""
-    is_docker = os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER") == "true"
-    mode = "Docker" if is_docker else "Local"
+    Args:
+        verbose: Si True, imprime información de diagnóstico
+
+    Returns:
+        bool: True si la configuración es válida
+    """
+    errors = []
+    warnings_list = []
+
+    # Validar Supabase
+    if not self.supabase_url:
+      errors.append("SUPABASE_URL no configurada")
+    if not self.supabase_key:
+      errors.append("SUPABASE_KEY no configurada")
+
+    # Validar IPTV
+    if not self.iptv_user:
+      errors.append("IPTV_USER no encontrado en tabla config")
+    if not self.iptv_pass:
+      errors.append("IPTV_PASS no encontrado en tabla config")
+    if not self.iptv_base_url:
+      warnings_list.append("IPTV_BASE_URL no configurado")
+
+    # Validaciones adicionales
+    if self.api_secret_key == "your-secret-key-change-in-production":
+      warnings_list.append(
+        "API_SECRET_KEY usando valor por defecto (cámbialo en producción)")
+
+    if verbose:
+      if errors:
+        print("\n❌ Errores de configuración:")
+        for error in errors:
+          print(f"   - {error}")
+
+      if warnings_list:
+        print("\n⚠️  Advertencias:")
+        for warning in warnings_list:
+          print(f"   - {warning}")
+
+      if not errors and not warnings_list:
+        print("\n✅ Configuración válida")
+
+    return len(errors) == 0
+
+  def __repr__(self) -> str:
+    """Representación de la configuración"""
+    is_docker = os.path.exists("/.dockerenv") or os.getenv(
+      "DOCKER_CONTAINER") == "true"
+    mode = "🐳 Docker" if is_docker else "💻 Local"
 
     return (
-      f"Config(\n"
+      f"Settings(\n"
       f"  Modo: {mode}\n"
-      f"  IPTV: {'✓' if self.iptv_user else '✗'}\n"
-      f"  Supabase: {'✓' if self.supabase_url else '✗'}\n"
-      f"  Logos Dir: {self.logos_dir}\n"
-      f"  Bucket: {self.bucket_name}\n"
+      f"  Supabase: {'✓' if self.is_supabase_configured() else '✗'}\n"
+      f"  IPTV User: {self.iptv_user or '✗'}\n"
+      f"  IPTV Config: {'✓' if self.is_iptv_configured() else '✗'}\n"
+      f"  Session Timeout: {self.session_timeout_minutes}min\n"
+      f"  Cleanup Interval: {self.cleanup_interval_minutes}min\n"
       f")"
     )
 
 
-# Instancia global de configuración (singleton pattern)
-_config_instance = None
-
-
-def get_config() -> Config:
+@lru_cache()
+def get_settings() -> Settings:
   """
-  Obtiene la instancia global de configuración (singleton)
+  Obtiene configuración cacheada (singleton)
 
   Returns:
-      Config: Instancia de configuración
+      Settings: Instancia única de configuración
   """
-  global _config_instance
-  if _config_instance is None:
-    _config_instance = Config()
-  return _config_instance
+  return Settings()
 
-
-# Funciones de conveniencia para acceso rápido
-def get_iptv_config() -> tuple[Optional[str], Optional[str], Optional[str]]:
-  """Retorna (user, pass, url) de IPTV"""
-  config = get_config()
-  return config.iptv_user, config.iptv_pass, config.iptv_url
-
-
-def get_directories() -> tuple[str, str]:
-  """Retorna (repo_images_dir, logos_dir)"""
-  config = get_config()
-  return config.repo_images_dir, config.logos_dir
-
-
-def get_media_config() -> tuple[str, str]:
-  """Retorna (media_domain, default_logo)"""
-  config = get_config()
-  return config.media_domain, config.default_logo
