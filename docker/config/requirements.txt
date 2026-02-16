@@ -1,5 +1,4 @@
 blinker==1.7.0
-setuptools
 aiohttp==3.12.14
 beautifulsoup4==4.13.4
 supabase==2.28.0
