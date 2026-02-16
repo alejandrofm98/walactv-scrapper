@@ -103,9 +103,7 @@ DROP TABLE IF EXISTS mapeo_futbolenlatv_canales CASCADE;
 DROP TABLE IF EXISTS canales_calidades CASCADE;
 DROP TABLE IF EXISTS mapeo_futbolenlatv CASCADE;
 DROP TABLE IF EXISTS canales_walactv CASCADE;
-DROP TABLE IF EXISTS enlaces_evento CASCADE;
-DROP TABLE IF EXISTS eventos CASCADE;
-DROP TABLE IF EXISTS calendario_acestream CASCADE;
+DROP TABLE IF EXISTS calendario CASCADE;
 
 -- ==========================================
 -- Tabla: canales_walactv
@@ -178,59 +176,23 @@ CREATE INDEX IF NOT EXISTS idx_mapeo_futboltv_canales_mapeo ON mapeo_futbolenlat
 CREATE INDEX IF NOT EXISTS idx_mapeo_futboltv_canales_canal ON mapeo_futbolenlatv_canales(canal_walactv_id);
 
 -- ==========================================
--- Tabla: eventos
--- Eventos deportivos (partidos, carreras, etc.)
--- ==========================================
-CREATE TABLE IF NOT EXISTS eventos (
-    id BIGSERIAL PRIMARY KEY,
-    fecha DATE NOT NULL,  -- Fecha del evento
-    hora TEXT NOT NULL,   -- Hora en formato HH:MM
-    titulo TEXT NOT NULL, -- Título del evento
-    competicion TEXT,     -- Liga, torneo, etc.
-    categoria TEXT,       -- Fútbol, baloncesto, F1, etc.
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_eventos_fecha ON eventos(fecha);
-CREATE INDEX IF NOT EXISTS idx_eventos_categoria ON eventos(categoria);
-CREATE INDEX IF NOT EXISTS idx_eventos_titulo ON eventos USING gin(to_tsvector('spanish', titulo));
-
--- ==========================================
--- Tabla: enlaces_evento
--- Relación entre eventos y sus canales de transmisión
--- NOTA: Usa channel_id VARCHAR(50) que referencia a channels(id)
--- ==========================================
-CREATE TABLE IF NOT EXISTS enlaces_evento (
-    id BIGSERIAL PRIMARY KEY,
-    evento_id BIGINT NOT NULL REFERENCES eventos(id) ON DELETE CASCADE,
-    channel_id VARCHAR(50) NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
-    tipo TEXT DEFAULT 'acestream',  -- acestream, directo, etc.
-    orden INTEGER DEFAULT 0,        -- Orden de preferencia
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_enlaces_evento_id ON enlaces_evento(evento_id);
-CREATE INDEX IF NOT EXISTS idx_enlaces_channel_id ON enlaces_evento(channel_id);
-
--- ==========================================
--- Tabla: calendario_acestream
+-- Tabla: calendario
 -- Partidos con enlaces acestream (scraping de futbolenlatv)
 -- ==========================================
-CREATE TABLE IF NOT EXISTS calendario_acestream (
-    id BIGSERIAL PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS calendario (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     fecha DATE NOT NULL,
     hora TEXT NOT NULL,
     competicion TEXT,
     equipos TEXT NOT NULL,  -- "Real Madrid vs Barcelona"
     canales TEXT[],         -- Array de nombres de canales
-    acestream_ids TEXT[],   -- Array de IDs acestream
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(fecha, hora, equipos)
 );
 
-CREATE INDEX IF NOT EXISTS idx_calendario_fecha ON calendario_acestream(fecha);
-CREATE INDEX IF NOT EXISTS idx_calendario_equipos ON calendario_acestream USING gin(to_tsvector('spanish', equipos));
+CREATE INDEX IF NOT EXISTS idx_calendario_fecha ON calendario(fecha);
+CREATE INDEX IF NOT EXISTS idx_calendario_equipos ON calendario USING gin(to_tsvector('spanish', equipos));
 
 -- ==========================================
 -- Habilitar RLS (Row Level Security)
@@ -240,27 +202,21 @@ ALTER TABLE canales_walactv ENABLE ROW LEVEL SECURITY;
 ALTER TABLE canales_calidades ENABLE ROW LEVEL SECURITY;
 ALTER TABLE mapeo_futbolenlatv ENABLE ROW LEVEL SECURITY;
 ALTER TABLE mapeo_futbolenlatv_canales ENABLE ROW LEVEL SECURITY;
-ALTER TABLE eventos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE enlaces_evento ENABLE ROW LEVEL SECURITY;
-ALTER TABLE calendario_acestream ENABLE ROW LEVEL SECURITY;
+ALTER TABLE calendario ENABLE ROW LEVEL SECURITY;
 
 -- Políticas de lectura pública
 CREATE POLICY "Allow public read walactv" ON canales_walactv FOR SELECT USING (true);
 CREATE POLICY "Allow public read calidades" ON canales_calidades FOR SELECT USING (true);
 CREATE POLICY "Allow public read mapeo_futbolenlatv" ON mapeo_futbolenlatv FOR SELECT USING (true);
 CREATE POLICY "Allow public read mapeo_futbolenlatv_canales" ON mapeo_futbolenlatv_canales FOR SELECT USING (true);
-CREATE POLICY "Allow public read eventos" ON eventos FOR SELECT USING (true);
-CREATE POLICY "Allow public read enlaces" ON enlaces_evento FOR SELECT USING (true);
-CREATE POLICY "Allow public read calendario" ON calendario_acestream FOR SELECT USING (true);
+CREATE POLICY "Allow public read calendario" ON calendario FOR SELECT USING (true);
 
 -- Políticas de escritura para usuarios autenticados
 CREATE POLICY "Allow authenticated write walactv" ON canales_walactv FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow authenticated write calidades" ON canales_calidades FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow authenticated write mapeo_futbolenlatv" ON mapeo_futbolenlatv FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow authenticated write mapeo_futbolenlatv_canales" ON mapeo_futbolenlatv_canales FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated write eventos" ON eventos FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated write enlaces" ON enlaces_evento FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated write calendario" ON calendario_acestream FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow authenticated write calendario" ON calendario FOR ALL USING (true) WITH CHECK (true);
 
 -- ==========================================
 -- Triggers para actualizar updated_at
@@ -285,10 +241,7 @@ CREATE TRIGGER update_mapeo_futbolenlatv_updated_at BEFORE UPDATE ON mapeo_futbo
 CREATE TRIGGER update_mapeo_futbolenlatv_canales_updated_at BEFORE UPDATE ON mapeo_futbolenlatv_canales
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_eventos_updated_at BEFORE UPDATE ON eventos
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_calendario_updated_at BEFORE UPDATE ON calendario_acestream
+CREATE TRIGGER update_calendario_updated_at BEFORE UPDATE ON calendario
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ==========================================
@@ -363,43 +316,5 @@ BEGIN
     JOIN canales_walactv cw ON mfc.canal_walactv_id = cw.id
     WHERE mf.nombre_futboltv = nombre_futboltv
     ORDER BY mfc.orden;
-END;
-$$ LANGUAGE plpgsql;
-
--- Obtener eventos de una fecha con sus canales (usando tabla channels existente)
-CREATE OR REPLACE FUNCTION get_eventos_con_canales(fecha_consulta DATE)
-RETURNS TABLE (
-    evento_id BIGINT,
-    hora TEXT,
-    titulo TEXT,
-    competicion TEXT,
-    categoria TEXT,
-    canales JSONB
-) AS $$
-BEGIN
-    RETURN QUERY
-    SELECT 
-        e.id,
-        e.hora,
-        e.titulo,
-        e.competicion,
-        e.categoria,
-        COALESCE(
-            jsonb_agg(
-                jsonb_build_object(
-                    'canal', c.nombre,
-                    'url', c.url,
-                    'grupo', c.grupo,
-                    'tipo', ee.tipo
-                ) ORDER BY ee.orden
-            ) FILTER (WHERE c.id IS NOT NULL),
-            '[]'::jsonb
-        ) as canales
-    FROM eventos e
-    LEFT JOIN enlaces_evento ee ON e.id = ee.evento_id
-    LEFT JOIN channels c ON ee.channel_id = c.id
-    WHERE e.fecha = fecha_consulta
-    GROUP BY e.id, e.hora, e.titulo, e.competicion, e.categoria
-    ORDER BY e.hora;
 END;
 $$ LANGUAGE plpgsql;

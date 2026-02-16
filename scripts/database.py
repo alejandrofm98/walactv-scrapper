@@ -638,124 +638,6 @@ class MapeoCanalesManager:
             return False
 
 
-class EventoManager:
-    """
-    Gestor de eventos deportivos
-    """
-
-    @staticmethod
-    def upsert_evento(fecha: date, hora: str, titulo: str, competicion: str = None, 
-                      categoria: str = None) -> Optional[str]:
-        """Inserta o actualiza un evento"""
-        try:
-            supabase = SupabaseDB.get_client()
-            data = {
-                'fecha': fecha.isoformat(),
-                'hora': hora,
-                'titulo': titulo,
-                'competicion': competicion,
-                'categoria': categoria
-            }
-            # Buscar si existe por fecha+hora+titulo
-            existing = supabase.table('eventos').select('id').eq('fecha', fecha.isoformat()).eq('hora', hora).eq('titulo', titulo).execute()
-            
-            if existing.data and len(existing.data) > 0:
-                # Actualizar
-                evento_id = existing.data[0]['id']
-                result = supabase.table('eventos').update(data).eq('id', evento_id).execute()
-                return evento_id
-            else:
-                # Insertar
-                result = supabase.table('eventos').insert(data).execute()
-                if result.data:
-                    return result.data[0]['id']
-            return None
-        except Exception as e:
-            print(f"❌ Error guardando evento '{titulo}': {e}")
-            return None
-
-    @staticmethod
-    def add_enlace_evento(evento_id: UUID, channel_id: str, tipo: str = 'acestream', orden: int = 0) -> bool:
-        """
-        Añade un enlace entre un evento y un canal
-        
-        Args:
-            evento_id: UUID del evento
-            channel_id: ID del canal (VARCHAR) de la tabla channels
-            tipo: Tipo de enlace (acestream, directo, etc.)
-            orden: Orden de preferencia
-        """
-        try:
-            supabase = SupabaseDB.get_client()
-            data = {
-                'evento_id': str(evento_id),
-                'channel_id': channel_id,  # VARCHAR, no UUID
-                'tipo': tipo,
-                'orden': orden
-            }
-            result = supabase.table('enlaces_evento').upsert(data).execute()
-            return bool(result.data)
-        except Exception as e:
-            print(f"❌ Error añadiendo enlace: {e}")
-            return False
-
-    @staticmethod
-    def get_eventos_by_fecha(fecha: date) -> List[Dict]:
-        """Obtiene eventos de una fecha específica"""
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('eventos').select('*').eq('fecha', fecha.isoformat()).order('hora').execute()
-            return result.data or []
-        except Exception as e:
-            print(f"❌ Error obteniendo eventos de {fecha}: {e}")
-            return []
-
-    @staticmethod
-    def get_eventos_con_canales(fecha: date) -> List[Dict]:
-        """Obtiene eventos con sus canales usando la función de PostgreSQL"""
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.rpc('get_eventos_con_canales', {'fecha_consulta': fecha.isoformat()}).execute()
-            return result.data or []
-        except Exception as e:
-            print(f"❌ Error obteniendo eventos con canales: {e}")
-            return []
-
-    @staticmethod
-    def guardar_eventos_completos(eventos_data: Dict, fecha: date = None) -> bool:
-        """
-        Guarda eventos completos desde el formato antiguo (para compatibilidad)
-        eventos_data = {'dia': '...', 'fecha': '...', 'eventos': [{...}]}
-        """
-        try:
-            if fecha is None:
-                fecha = date.today()
-            
-            eventos = eventos_data.get('eventos', [])
-            
-            for evento in eventos:
-                titulo = evento.get('titulo', evento.get('equipos', 'Sin título'))
-                hora = evento.get('hora', '00:00')
-                competicion = evento.get('competicion', '')
-                categoria = evento.get('categoria', '')
-                
-                # Crear evento
-                evento_id = EventoManager.upsert_evento(fecha, hora, titulo, competicion, categoria)
-                
-                if evento_id:
-                    # Añadir enlaces de canales
-                    canales = evento.get('canales', [])
-                    for idx, canal_nombre in enumerate(canales):
-                        canal = CanalManager.get_canal_by_nombre(canal_nombre)
-                        if canal:
-                            EventoManager.add_enlace_evento(evento_id, canal['id'], orden=idx)
-            
-            return True
-        except Exception as e:
-            print(f"❌ Error guardando eventos completos: {e}")
-            return False
-
-
 class CalendarioAcestreamManager:
     """
     Gestor de calendario de acestream (scraping de futbolenlatv)
@@ -777,15 +659,15 @@ class CalendarioAcestreamManager:
             }
             
             # Buscar si existe
-            existing = supabase.table('calendario_acestream').select('id').eq('fecha', fecha.isoformat()).eq('hora', hora).eq('equipos', equipos).execute()
+            existing = supabase.table('calendario').select('id').eq('fecha', fecha.isoformat()).eq('hora', hora).eq('equipos', equipos).execute()
             
             if existing.data and len(existing.data) > 0:
                 # Actualizar
                 partido_id = existing.data[0]['id']
-                result = supabase.table('calendario_acestream').update(data).eq('id', partido_id).execute()
+                result = supabase.table('calendario').update(data).eq('id', partido_id).execute()
             else:
                 # Insertar
-                result = supabase.table('calendario_acestream').insert(data).execute()
+                result = supabase.table('calendario').insert(data).execute()
             
             return bool(result.data)
         except Exception as e:
@@ -797,7 +679,7 @@ class CalendarioAcestreamManager:
         """Obtiene partidos de una fecha específica"""
         try:
             supabase = SupabaseDB.get_client()
-            result = supabase.table('calendario_acestream').select('*').eq('fecha', fecha.isoformat()).order('hora').execute()
+            result = supabase.table('calendario').select('*').eq('fecha', fecha.isoformat()).order('hora').execute()
             return result.data or []
         except Exception as e:
             print(f"❌ Error obteniendo partidos de {fecha}: {e}")
@@ -808,7 +690,7 @@ class CalendarioAcestreamManager:
         """Busca partidos por nombre de equipo"""
         try:
             supabase = SupabaseDB.get_client()
-            query = supabase.table('calendario_acestream').select('*')
+            query = supabase.table('calendario').select('*')
             
             if fecha:
                 query = query.eq('fecha', fecha.isoformat())
@@ -866,15 +748,6 @@ class Database:
                     if isinstance(variaciones, list):
                         MapeoCanalesManager.upsert_mapeo(nombre_comercial, variaciones)
                 return True
-
-            elif self.table_name == 'eventos_tv':
-                # Guardar eventos completos
-                fecha_str = data.get('fecha', '')
-                try:
-                    fecha = datetime.strptime(fecha_str, '%d/%m/%Y').date()
-                except:
-                    fecha = date.today()
-                return EventoManager.guardar_eventos_completos(data, fecha)
 
             elif self.table_name == 'calendario':
                 # Guardar calendario acestream
@@ -980,16 +853,6 @@ class DataManagerSupabase:
         return f"{prefix}_" + DataManagerSupabase.obtener_fechas().replace("/", ".")
 
     @staticmethod
-    def guardar_eventos(eventos: Dict) -> bool:
-        """Guarda eventos en el nuevo esquema relacional"""
-        fecha_str = eventos.get('fecha', '')
-        try:
-            fecha = datetime.strptime(fecha_str, '%d/%m/%Y').date()
-        except:
-            fecha = date.today()
-        return EventoManager.guardar_eventos_completos(eventos, fecha)
-
-    @staticmethod
     def obtener_mapeo_canales() -> Dict[str, List[Dict]]:
         """Obtiene mapeo de canales IPTV: {nombre_comercial: [{"nombre": "..."}, ...]}"""
         return MapeoCanalesManager.get_all_mapeos_futboltv()
@@ -1053,7 +916,6 @@ __all__ = [
     'ConfigManager',
     'CanalManager',
     'MapeoCanalesManager',
-    'EventoManager',
     'CalendarioAcestreamManager',
     'Database',
     'DataManagerSupabase',

@@ -17,7 +17,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     restart: unless-stopped
-    command: ["python", "main2.py"]
+    command: ["python", "main.py"]
     env_file:
       - .env
     networks:
