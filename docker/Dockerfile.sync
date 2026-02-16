@@ -6,7 +6,8 @@ WORKDIR /app
 RUN apk add --no-cache \
     build-base \
     curl \
-    tzdata && \
+    tzdata \
+    linux-headers && \
     cp /usr/share/zoneinfo/Europe/Madrid /etc/localtime && \
     echo "Europe/Madrid" > /etc/timezone
 
