@@ -172,6 +172,30 @@
       "nombre": "ES| LA 1 SD"
     }
   ],
+  "LaLiga TV": [
+    {
+      "nombre":"ES| M+ LALIGA TV 4K UHD ᴿᴬᵂ"
+    },
+    {
+      "nombre":"ES| M+ LALIGA TV FHD ᴿᴬᵂ"
+    }
+  ],
+  "LaLiga TV 2": [
+    {
+      "nombre":"ES| M+ LALIGA TV 2 FHD ᴿᴬᵂ"
+    }
+  ],
+  "LaLiga TV 3": [
+
+    {
+      "nombre":"ES| M+ LALIGA TV 3 FHD ᴿᴬᵂ"
+    }
+  ],
+  "LaLiga TV 4": [
+    {
+      "nombre":"ES| M+ LALIGA TV 4 FHD ᴿᴬᵂ"
+    }
+  ],
   "LaLiga TV Bar": [
     {
       "nombre": "ES| LALIGA TV BAR FHD"

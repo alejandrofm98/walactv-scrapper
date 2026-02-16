@@ -93,8 +93,8 @@ class ScrapperFutbolenlatv:
       # Ej: "DAZN 1 HD" -> "DAZN 1"
       nombre_comercial = None
       for web_name, comercial_name in self.mapeo_web.items():
-        if canal_title == web_name.lower():
-          nombre_comercial = comercial_name
+        if canal_title == comercial_name.lower():
+          nombre_comercial = web_name
           break
       
       # Si no se encuentra en mapeo_web, usar el nombre original

@@ -2,3 +2,4 @@
 /resources/.env
 *.m3u
 /db/insert.sql
+/database/insert.sql
