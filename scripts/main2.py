@@ -1,7 +1,7 @@
 import schedule
 import time
 import traceback
-from database import Database
+from database import Database, DataManagerSupabase
 from scrapper import ScrapperFutbolenlatv
 import openRouter
 from newScrapper import StreamScraper, DataManager, EventProcessor
@@ -9,11 +9,8 @@ from newScrapper import StreamScraper, DataManager, EventProcessor
 
 def unificar_con_acestream(eventos):
   try:
-    document_name = ScrapperFutbolenlatv.generate_document_name(
-        ScrapperFutbolenlatv.obtener_fechas()[0]
-    )
-    db = Database("calendario", document_name, None)
-    eventos_acestream = db.get_doc_firebase().to_dict()
+    fecha = ScrapperFutbolenlatv.obtener_fechas()[0]
+    eventos_acestream = DataManagerSupabase.obtener_calendario(fecha)
 
     if eventos_acestream:
       processor = EventProcessor()

@@ -1,15 +1,12 @@
-from faulthandler import cancel_dump_traceback_later
+import re
+from datetime import datetime, timedelta
 from pydoc import replace
 
 import requests
 from bs4 import BeautifulSoup
 from lxml.doctestcompare import strip
-from lxml.html import fromstring
-import re
-from database import Database
-from _datetime import datetime, timedelta
-import json
 
+from database import Database
 
 
 def limpia_html(html_canal):
@@ -20,64 +17,6 @@ def limpia_html(html_canal):
   html_canal = re.sub(r'\(.+', "", html_canal)
 
   return html_canal
-
-
-class ScrapperElPlanDeportes:
-  def __init__(self):
-    self.lista_canales = None
-    self.html = None
-    self.url = "https://sites.google.com/view/elplandeportes/inicio"
-
-  def get_html(self):
-    self.html = requests.get(self.url).text
-
-  def get_canales(self):
-    titulos = r"&gt;&lt;br /&gt;\n.+&lt;strong&gt;.+&lt;/strong\n.+\n.+href|&gt;&lt;strong&gt;.+&lt;/stro.+\n.+a"
-    self.lista_canales = re.findall(titulos, self.html)
-    self.vacia_lista()
-    self.regex_titulo()
-    return self.lista_canales
-
-  def vacia_lista(self):
-    del self.lista_canales[44:len(self.lista_canales)]
-
-  def regex_titulo(self):
-    cont = 0
-    while len(self.lista_canales) > cont:
-      self.lista_canales[cont] = re.search(r"&gt;.+&lt",
-                                           self.lista_canales[cont]).group()
-      self.lista_canales[cont] = limpia_html(self.lista_canales[cont])
-      cont += 1
-    return self.lista_canales
-
-  def get_json_enlaces(self):
-    self.get_canales()
-    cont = 0
-    lista_enlaces = {}
-    while cont < len(self.lista_canales):
-      if cont < len(self.lista_canales) - 1:
-        regex = r'(?<=' + self.lista_canales[
-          cont] + ')(.|\n)*?acestream[^"]+(?=.*' + \
-                self.lista_canales[cont + 1] + ')'
-      else:
-        regex = r'(?<=' + self.lista_canales[
-          cont] + ')(.|\n)*?acestream[^"]+(?=.*MundoToro HD)'
-      bloque_regex = re.search(regex, self.html)
-      if bloque_regex is not None:
-        bloque_regex = bloque_regex.group()
-      else:
-        print("error")
-      enlaces_regex = re.findall("acestream.+&", bloque_regex)
-      cont2 = 0
-      while cont2 < len(enlaces_regex):
-        enlaces_regex[cont2] = replace(enlaces_regex[cont2], "&", "")
-        cont2 += 1
-      lista_enlaces[self.lista_canales[cont]] = enlaces_regex
-
-      cont += 1
-    return lista_enlaces
-
-
 
 
 
@@ -96,9 +35,8 @@ class ScrapperFutbolenlatv:
 
   @staticmethod
   def guarda_partidos(eventos, fecha):
-    eventos = json.dumps(eventos, ensure_ascii=False)
-    db = Database("calendario", ScrapperFutbolenlatv.generate_document_name(fecha), eventos)
-    db.add_data_firebase()
+    from database import DataManagerSupabase
+    DataManagerSupabase.guardar_calendario(eventos, fecha)
 
 
   @staticmethod
@@ -111,8 +49,9 @@ class ScrapperFutbolenlatv:
     self.url = "https://www.futbolenlatv.es/deporte"
     self.soup = BeautifulSoup(requests.get(self.url).text, "html.parser")
     self.canales = []
-    db  = Database("mapeo_canales", "mapeo_canales_iptv", None)
-    self.mapeo_canales = db.get_doc_firebase().to_dict()
+    from database import DataManagerSupabase
+    self.mapeo_canales = DataManagerSupabase.obtener_mapeo_canales()
+    self.mapeo_web = DataManagerSupabase.obtener_mapeo_web()
 
 
   def existe_fecha(self, fecha):
@@ -149,16 +88,24 @@ class ScrapperFutbolenlatv:
 
     for canal in lista_canales:
       canal_title = canal["title"].lower()
-      # Encontrar la key donde el value contiene canal_title
-      key_encontrada = next(
-          (key for key, value in self.mapeo_canales.items()
-           if canal_title == str(key).lower()),
-          None
-      )
-
-      if key_encontrada:
+      
+      # PASO 1: Buscar en mapeo_web (Web -> Comercial)
+      # Ej: "DAZN 1 HD" -> "DAZN 1"
+      nombre_comercial = None
+      for web_name, comercial_name in self.mapeo_web.items():
+        if canal_title == web_name.lower():
+          nombre_comercial = comercial_name
+          break
+      
+      # Si no se encuentra en mapeo_web, usar el nombre original
+      if not nombre_comercial:
+        nombre_comercial = canal["title"]
+      
+      # PASO 2: Verificar que el nombre comercial existe en mapeo_canales
+      # Ej: "DAZN 1" -> [{"nombre": "ES| DAZN 1 FHD"}, ...]
+      if nombre_comercial in self.mapeo_canales:
         resultado = True
-        self.canales.append(key_encontrada)
+        self.canales.append(nombre_comercial)
 
     return resultado
 

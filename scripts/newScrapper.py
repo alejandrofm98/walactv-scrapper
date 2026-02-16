@@ -1,7 +1,7 @@
 """
 Web scraper optimizado para eventos deportivos con extracción de streams M3U8.
 Incluye manejo robusto de drivers, timeouts y procesamiento concurrente.
-Actualizado para nueva estructura de Firebase.
+Actualizado para usar Supabase.
 """
 
 from datetime import datetime, timedelta
@@ -21,7 +21,7 @@ import threading
 import locale
 from difflib import SequenceMatcher
 from typing import Dict, List, Optional, Any, Union, Tuple
-from database import Database
+from database import DataManagerSupabase, ConfigManager
 import requests
 import urllib.parse
 
@@ -156,24 +156,18 @@ class DataManager:
 
   @staticmethod
   def guardar_eventos(eventos: Dict) -> None:
-    """Guarda eventos en Firebase."""
-    eventos_json = json.dumps(eventos, ensure_ascii=False)
-    db = Database("tvLibreEventos", DataManager.generate_document_name(),
-                  eventos_json)
-    db.add_data_firebase()
+    """Guarda eventos en Supabase."""
+    return DataManagerSupabase.guardar_eventos(eventos)
 
   @staticmethod
   def obtener_mapeo_canales() -> Dict:
-    """Obtiene el mapeo de canales desde Firebase."""
-    db = Database("mapeo_canales", "mapeo_canales_iptv", None)
-    return db.get_doc_firebase().to_dict()
+    """Obtiene el mapeo de canales desde Supabase."""
+    return DataManagerSupabase.obtener_mapeo_canales()
 
   @staticmethod
   def obtener_enlaces_canales() -> Dict:
-    """Obtiene los enlaces de canales desde Firebase."""
-    db = Database("canales", "canales_iptv", None)
-    doc_data = db.get_doc_firebase().to_dict()
-    return doc_data.get("items", {})
+    """Obtiene los enlaces de canales desde Supabase."""
+    return DataManagerSupabase.obtener_enlaces_canales()
 
 
 
@@ -590,20 +584,19 @@ class DriverManager:
     self.monitor: Optional[DriverMonitor] = None
     self.seleniumwire_options = self._load_proxy_config()
 
-  def _load_proxy_config(self) -> Dict:
-    """Carga la configuración del proxy desde Firebase."""
-    db = Database("configNewScrapper", 'proxy', None)
-    proxy = db.get_doc_firebase().to_dict()
+    def _load_proxy_config(self) -> Dict:
+        """Carga la configuración del proxy desde Supabase tabla config."""
+        proxy = ConfigManager.get_proxy_config()
 
-    return {
-      "proxy": {
-        'http': f"http://{proxy['proxy_user']}:{proxy['proxy_pass']}@{proxy['proxy_ip']}:{proxy['proxy_port']}"
-      },
-      'mitm_http2': False,
-      'suppress_connection_errors': True,
-      'connection_timeout': self.timeout,
-      'verify_ssl': False
-    }
+        return {
+          "proxy": {
+            'http': f"http://{proxy.get('user', '')}:{proxy.get('pass', '')}@{proxy.get('ip', '')}:{proxy.get('port', '')}"
+          },
+          'mitm_http2': False,
+          'suppress_connection_errors': True,
+          'connection_timeout': self.timeout,
+          'verify_ssl': False
+        }
 
   def setup_driver(self) -> webdriver.Chrome:
     """Configura y retorna una instancia de Chrome WebDriver."""

@@ -4,14 +4,13 @@ import aiohttp
 import asyncio
 from urllib.parse import urljoin
 import ssl
-from database import Database
+from database import ConfigManager
 
 app = Quart(__name__)
 app = cors(app, allow_origin=["https://walactvweb.walerike.com", "http://localhost:4200"])
 
-# Configuración del proxy
-db = Database("configNewScrapper", 'proxy', None)
-proxy = db.get_doc_firebase().to_dict()
+# Configuración del proxy desde tabla config
+proxy = ConfigManager.get_proxy_config()
 proxy_ip = proxy.get("proxy_ip")
 proxy_port = proxy.get("proxy_port")
 proxy_user = proxy.get("proxy_user")

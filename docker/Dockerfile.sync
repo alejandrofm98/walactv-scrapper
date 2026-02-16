@@ -1,0 +1,36 @@
+FROM python:3.12-alpine
+
+WORKDIR /app
+
+# Instalar dependencias del sistema
+RUN apk add --no-cache \
+    build-base \
+    curl \
+    tzdata && \
+    cp /usr/share/zoneinfo/Europe/Madrid /etc/localtime && \
+    echo "Europe/Madrid" > /etc/timezone
+
+# Copiar e instalar requirements
+COPY docker/config/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar código necesario
+COPY scripts/config.py scripts/
+COPY scripts/database.py scripts/
+COPY scripts/sync_iptv.py scripts/
+COPY scripts/poblar_mapeo_canales.py scripts/
+COPY scripts/utils/ scripts/utils/
+COPY scripts/services/ scripts/services/
+COPY resources/ resources/
+COPY docker/entrypoint-sync.sh /app/entrypoint.sh
+
+# Hacer el entrypoint ejecutable
+RUN chmod +x /app/entrypoint.sh
+
+# Variables de entorno
+ENV DOCKER_CONTAINER=true \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/scripts:$PYTHONPATH
+
+# Comando por defecto
+CMD ["/app/entrypoint.sh"]
