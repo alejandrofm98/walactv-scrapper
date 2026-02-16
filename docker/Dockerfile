@@ -13,7 +13,7 @@ RUN apk add --no-cache \
     echo "Europe/Madrid" > /etc/timezone
 # copy requirements and install
 COPY docker/config/requirements.txt .
-RUN pip install --no-cache-dir --force-reinstall 'setuptools>=68' && \
+RUN pip install --no-cache-dir 'setuptools==66.1.1' && \
     python -c "import pkg_resources; print('pkg_resources OK')" && \
     pip install --no-cache-dir -r requirements.txt && \
     python -c "import seleniumwire; print('seleniumwire OK')"
