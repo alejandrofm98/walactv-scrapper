@@ -645,8 +645,8 @@ class CalendarioAcestreamManager:
 
     @staticmethod
     def upsert_partido(fecha: date, hora: str, equipos: str, competicion: str = None,
-                       canales: List[str] = None, acestream_ids: List[str] = None) -> bool:
-        """Inserta o actualiza un partido del calendario acestream"""
+                       canales: List[str] = None) -> bool:
+        """Inserta o actualiza un partido del calendario"""
         try:
             supabase = SupabaseDB.get_client()
             data = {
@@ -654,8 +654,7 @@ class CalendarioAcestreamManager:
                 'hora': hora,
                 'equipos': equipos,
                 'competicion': competicion,
-                'canales': canales or [],
-                'acestream_ids': acestream_ids or []
+                'canales': canales or []
             }
             
             # Buscar si existe
