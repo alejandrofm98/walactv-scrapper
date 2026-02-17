@@ -1,6 +1,6 @@
 """
-Módulo de base de datos usando Supabase con esquema relacional normalizado
-Reemplaza el enfoque JSON por tablas relacionales
+Módulo de base de datos usando Supabase con esquema simplificado
+Tablas: channel_mappings y channel_variants (reemplazan 4 tablas antiguas)
 """
 import json
 import os
@@ -82,7 +82,6 @@ class SupabaseDB:
 class ConfigManager:
     """
     Gestor de configuración usando la tabla config de Supabase
-    Estructura: key (TEXT PRIMARY KEY), value (TEXT), description (TEXT), updated_at (TIMESTAMPTZ)
     """
 
     @staticmethod
@@ -98,549 +97,169 @@ class ConfigManager:
             print(f"❌ Error obteniendo config '{key}': {e}")
             return None
 
-    @staticmethod
-    def get_proxy_config() -> Dict:
-        """Obtiene la configuración del proxy de forma específica"""
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('config').select('key, value').or_(
-                'key.eq.PROXY_IP,key.eq.PROXY_PORT,key.eq.PROXY_USER,key.eq.PROXY_PASS'
-            ).execute()
 
-            config = {}
-            if result.data:
-                for item in result.data:
-                    key = item['key'].lower().replace('proxy_', '')
-                    config[key] = item['value']
-
-            return config
-
-        except Exception as e:
-            print(f"❌ Error obteniendo config proxy: {e}")
-            return {}
-
-
-class CanalManager:
+class ChannelMappingManager:
     """
-    Gestor de canales IPTV
-    Usa la tabla 'channels' existente
+    Gestor de mapeos simplificado
+    Tablas: channel_mappings + channel_variants
     """
 
     @staticmethod
-    def upsert_canal(id_canal: str, nombre: str, url: str, grupo: str = None, 
-                     provider_id: str = None, logo: str = None, 
-                     country: str = None, numero: int = None) -> Optional[str]:
+    def upsert_mapping(source_name: str, display_name: str, channel_ids: List[str] = None, qualities: List[str] = None) -> Optional[int]:
         """
-        Inserta o actualiza un canal en la tabla 'channels'
+        Inserta o actualiza un mapeo completo con sus variantes
         
         Args:
-            id_canal: ID único del canal (ej: "dazn1_hd")
-            nombre: Nombre del canal
-            url: URL del stream
-            grupo: Grupo/categoría (ej: "Deportes")
-            provider_id: ID del proveedor
-            logo: URL del logo
-            country: Código de país (ej: "ES")
-            numero: Número de canal
+            source_name: Nombre en futbolenlatv (ej: "DAZN 1 HD")
+            display_name: Nombre en la web (ej: "DAZN 1")
+            channel_ids: Lista de IDs de la tabla channels (ej: ["dazn1_fhd", "dazn1_hd"])
+            qualities: Lista de calidades (ej: ["FHD", "HD"])
+        
+        Returns:
+            ID del mapeo creado/actualizado
         """
         try:
             supabase = SupabaseDB.get_client()
-            data = {
-                'id': id_canal,
-                'nombre': nombre,
-                'url': url,
-                'grupo': grupo,
-                'provider_id': provider_id,
-                'logo': logo,
-                'country': country,
-                'numero': numero
+            
+            # 1. Insertar o actualizar mapeo
+            mapping_data = {
+                'source_name': source_name,
+                'display_name': display_name
             }
-            # Eliminar valores None
-            data = {k: v for k, v in data.items() if v is not None}
             
-            result = supabase.table('channels').upsert(data, on_conflict='id').execute()
-            if result.data:
-                return result.data[0]['id']
-            return None
-        except Exception as e:
-            print(f"❌ Error guardando canal '{nombre}': {e}")
-            return None
-
-    @staticmethod
-    def get_canal_by_id(id_canal: str) -> Optional[Dict]:
-        """Obtiene un canal por su ID"""
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('channels').select('*').eq('id', id_canal).execute()
-            if result.data and len(result.data) > 0:
-                return result.data[0]
-            return None
-        except Exception as e:
-            print(f"❌ Error obteniendo canal '{id_canal}': {e}")
-            return None
-
-    @staticmethod
-    def get_canal_by_nombre(nombre: str) -> Optional[Dict]:
-        """Obtiene un canal por su nombre exacto"""
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('channels').select('*').eq('nombre', nombre).execute()
-            if result.data and len(result.data) > 0:
-                return result.data[0]
-            return None
-        except Exception as e:
-            print(f"❌ Error obteniendo canal '{nombre}': {e}")
-            return None
-
-    @staticmethod
-    def get_canales_by_grupo(grupo: str) -> List[Dict]:
-        """Obtiene todos los canales de un grupo"""
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('channels').select('*').eq('grupo', grupo).execute()
-            return result.data or []
-        except Exception as e:
-            print(f"❌ Error obteniendo canales del grupo '{grupo}': {e}")
-            return []
-
-    @staticmethod
-    def get_all_canales() -> List[Dict]:
-        """Obtiene todos los canales"""
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('channels').select('*').execute()
-            return result.data or []
-        except Exception as e:
-            print(f"❌ Error obteniendo canales: {e}")
-            return []
-
-    @staticmethod
-    def bulk_insert_canales(canales: List[Dict]) -> int:
-        """
-        Inserta múltiples canales a la vez
-        Cada canal debe tener al menos: id, nombre, url
-        """
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('channels').upsert(canales, on_conflict='id').execute()
-            return len(result.data) if result.data else 0
-        except Exception as e:
-            print(f"❌ Error en bulk insert de canales: {e}")
-            return 0
-
-
-class MapeoCanalesManager:
-    """
-    Gestor de mapeo de canales con estructura relacionada:
-    - canales_walactv: Canal padre referencia a channels (ej: "DAZN 1")
-    - canales_calidades: Variaciones con calidades (ej: "ES| DAZN 1 FHD")
-    - mapeo_futbolenlatv: Mapeo desde futbolenlatv
-    """
-
-    @staticmethod
-    def _generate_id(nombre: str) -> str:
-        """Genera un ID tipo slug a partir del nombre"""
-        import re
-        # Eliminar prefijos como "ES|", "UK|", etc.
-        id_limpio = re.sub(r'^[A-Z]{2}\|\s*', '', nombre)
-        # Convertir a minúsculas y reemplazar caracteres especiales
-        id_limpio = id_limpio.lower()
-        # Reemplazar espacios y caracteres especiales con guiones bajos
-        id_limpio = re.sub(r'[^a-z0-9]+', '_', id_limpio)
-        # Eliminar guiones bajos múltiples
-        id_limpio = re.sub(r'_+', '_', id_limpio)
-        # Eliminar guiones bajos al inicio y final
-        return id_limpio.strip('_')
-
-    @staticmethod
-    def _extraer_calidad(nombre_iptv: str) -> str:
-        """Extrae la calidad del nombre IPTV"""
-        import re
-        calidades = ['FHD', 'HD', 'SD', '4K', 'UHD', 'RAW', 'LOW', 'HEVC']
-        nombre_upper = nombre_iptv.upper()
-        for calidad in calidades:
-            if calidad in nombre_upper:
-                return calidad
-        return 'HD'
-
-    # ============ Métodos para tabla canales_walactv ============
-
-    @staticmethod
-    def upsert_canal_walactv(nombre: str, channel_id: str = None) -> Optional[int]:
-        """
-        Inserta o actualiza un canal walactv
-        Retorna el ID numérico generado (BIGSERIAL)
-        """
-        try:
-            supabase = SupabaseDB.get_client()
-            
-            # Verificar si ya existe por nombre
-            existing = supabase.table('canales_walactv').select('id').eq('nombre', nombre).execute()
-            
-            if existing.data and len(existing.data) > 0:
-                # Actualizar
-                canal_id = existing.data[0]['id']
-                data = {'channel_id': channel_id} if channel_id else {}
-                if data:
-                    supabase.table('canales_walactv').update(data).eq('id', canal_id).execute()
-                return canal_id
-            else:
-                # Insertar nuevo - no especificar id, será autogenerado
-                data = {
-                    'nombre': nombre,
-                    'channel_id': channel_id
-                }
-                data = {k: v for k, v in data.items() if v is not None}
-                
-                result = supabase.table('canales_walactv').insert(data).execute()
-                
-                if result.data:
-                    return result.data[0]['id']
-                return None
-        except Exception as e:
-            print(f"❌ Error guardando canal walactv '{nombre}': {e}")
-            return None
-
-    @staticmethod
-    def get_canal_walactv_id(nombre: str) -> Optional[int]:
-        """Obtiene el ID numérico de un canal walactv por su nombre"""
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('canales_walactv').select('id').eq(
-                'nombre', nombre
+            result = supabase.table('channel_mappings').upsert(
+                mapping_data, 
+                on_conflict='source_name'
             ).execute()
             
+            if not result.data:
+                return None
+                
+            mapping_id = result.data[0]['id']
+            
+            # 2. Si hay channel_ids, actualizar variantes
+            if channel_ids:
+                # Eliminar variantes antiguas
+                supabase.table('channel_variants').delete().eq('mapping_id', mapping_id).execute()
+                
+                # Insertar nuevas variantes
+                variants = []
+                for i, channel_id in enumerate(channel_ids):
+                    quality = qualities[i] if qualities and i < len(qualities) else 'HD'
+                    variants.append({
+                        'mapping_id': mapping_id,
+                        'channel_id': channel_id,
+                        'quality': quality,
+                        'priority': i
+                    })
+                
+                if variants:
+                    supabase.table('channel_variants').insert(variants).execute()
+            
+            return mapping_id
+            
+        except Exception as e:
+            print(f"❌ Error guardando mapeo '{source_name}': {e}")
+            return None
+
+    @staticmethod
+    def get_mapping_by_source(source_name: str) -> Optional[Dict]:
+        """Obtiene un mapeo por su nombre de origen (futbolenlatv)"""
+        try:
+            supabase = SupabaseDB.get_client()
+            result = supabase.table('channel_mappings').select('*').eq('source_name', source_name).execute()
+            
             if result.data and len(result.data) > 0:
-                return result.data[0]['id']
+                mapping = result.data[0]
+                # Obtener variantes
+                variants = supabase.table('channel_variants').select('*').eq('mapping_id', mapping['id']).order('priority').execute()
+                mapping['variants'] = variants.data or []
+                return mapping
             return None
         except Exception as e:
-            print(f"❌ Error obteniendo ID de canal walactv '{nombre}': {e}")
-            return None
-
-    @staticmethod
-    def get_canal_walactv_by_id(canal_id: int) -> Optional[Dict]:
-        """Obtiene un canal walactv por su ID numérico"""
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('canales_walactv').select('*').eq('id', canal_id).execute()
-            
-            if result.data and len(result.data) > 0:
-                return result.data[0]
-            return None
-        except Exception as e:
-            print(f"❌ Error obteniendo canal walactv '{canal_id}': {e}")
+            print(f"❌ Error obteniendo mapeo '{source_name}': {e}")
             return None
 
     @staticmethod
-    def get_all_canales_walactv() -> List[Dict]:
-        """Obtiene todos los canales walactv"""
+    def get_channel_ids_from_source(source_name: str) -> List[str]:
+        """Obtiene lista de channel_ids desde un nombre de origen"""
         try:
             supabase = SupabaseDB.get_client()
-            result = supabase.table('canales_walactv').select('*').execute()
-            return result.data or []
-        except Exception as e:
-            print(f"❌ Error obteniendo canales walactv: {e}")
-            return []
-
-    # ============ Métodos para tabla canales_calidades ============
-
-    @staticmethod
-    def upsert_calidad(canal_walactv_id: int, nombre_iptv: str, 
-                       channel_id: str = None, calidad: str = None, orden: int = 0) -> bool:
-        """
-        Inserta o actualiza una calidad de canal
-        """
-        try:
-            supabase = SupabaseDB.get_client()
+            result = supabase.table('channel_mappings').select('id').eq('source_name', source_name).execute()
             
-            # Extraer calidad si no se proporciona
-            if not calidad:
-                calidad = MapeoCanalesManager._extraer_calidad(nombre_iptv)
-            
-            # Verificar si ya existe esta combinación
-            existing = supabase.table('canales_calidades').select('id').eq(
-                'canal_walactv_id', canal_walactv_id
-            ).eq('nombre_iptv', nombre_iptv).execute()
-            
-            data = {
-                'canal_walactv_id': canal_walactv_id,
-                'nombre_iptv': nombre_iptv,
-                'calidad': calidad,
-                'orden': orden
-            }
-            
-            if channel_id:
-                data['channel_id'] = channel_id
-            
-            if existing.data and len(existing.data) > 0:
-                # Actualizar
-                calidad_id = existing.data[0]['id']
-                result = supabase.table('canales_calidades').update(data).eq('id', calidad_id).execute()
-            else:
-                # Insertar nuevo - id autogenerado
-                result = supabase.table('canales_calidades').insert(data).execute()
-            
-            return bool(result.data)
-        except Exception as e:
-            print(f"❌ Error guardando calidad '{nombre_iptv}': {e}")
-            return False
-
-    @staticmethod
-    def get_calidades_por_canal(nombre: str) -> List[Dict]:
-        """
-        Obtiene todas las calidades de un canal walactv
-        Retorna: [{"nombre_iptv": "...", "calidad": "...", ...}, ...]
-        """
-        try:
-            supabase = SupabaseDB.get_client()
-            # Primero obtener el ID del canal
-            canal_id = MapeoCanalesManager.get_canal_walactv_id(nombre)
-            if not canal_id:
+            if not result.data:
                 return []
             
-            # Luego obtener las calidades
-            result = supabase.table('canales_calidades').select('*').eq(
-                'canal_walactv_id', canal_id
-            ).order('orden').execute()
+            mapping_id = result.data[0]['id']
+            variants = supabase.table('channel_variants').select('channel_id').eq('mapping_id', mapping_id).order('priority').execute()
             
-            return result.data or []
+            return [v['channel_id'] for v in variants.data if v['channel_id']]
         except Exception as e:
-            print(f"❌ Error obteniendo calidades de '{nombre}': {e}")
+            print(f"❌ Error obteniendo channel_ids para '{source_name}': {e}")
             return []
 
     @staticmethod
-    def get_calidades_por_canal_id(canal_walactv_id: int) -> List[Dict]:
-        """
-        Obtiene todas las calidades de un canal walactv por su ID numérico
-        """
+    def get_all_mappings() -> List[Dict]:
+        """Obtiene todos los mapeos con sus variantes"""
         try:
             supabase = SupabaseDB.get_client()
-            result = supabase.table('canales_calidades').select('*').eq(
-                'canal_walactv_id', canal_walactv_id
-            ).order('orden').execute()
+            result = supabase.table('channel_mappings').select('*').execute()
             
-            return result.data or []
+            if not result.data:
+                return []
+            
+            mappings = result.data
+            for mapping in mappings:
+                variants = supabase.table('channel_variants').select('*').eq('mapping_id', mapping['id']).order('priority').execute()
+                mapping['variants'] = variants.data or []
+            
+            return mappings
         except Exception as e:
-            print(f"❌ Error obteniendo calidades: {e}")
+            print(f"❌ Error obteniendo mapeos: {e}")
             return []
 
     @staticmethod
-    def buscar_calidad_por_nombre(nombre_iptv: str) -> Optional[Dict]:
+    def get_all_mappings_simple() -> Dict[str, str]:
         """
-        Busca una calidad por su nombre IPTV exacto
-        """
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('canales_calidades').select(
-                '*, canales_walactv(nombre)'
-            ).eq('nombre_iptv', nombre_iptv).execute()
-            
-            if result.data and len(result.data) > 0:
-                return result.data[0]
-            return None
-        except Exception as e:
-            print(f"❌ Error buscando calidad '{nombre_iptv}': {e}")
-            return None
-
-    # ============ Métodos para tabla mapeo_futbolenlatv (relación N:M) ============
-
-    @staticmethod
-    def upsert_mapeo_futboltv(nombre_futboltv: str) -> Optional[int]:
-        """
-        Inserta o actualiza un mapeo desde futbolenlatv
-        Retorna el ID numérico del mapeo creado (BIGSERIAL)
+        Obtiene mapeo simple: source_name -> display_name
+        Útil para compatibilidad con código antiguo
         """
         try:
             supabase = SupabaseDB.get_client()
-            
-            # Verificar si ya existe
-            existing = supabase.table('mapeo_futbolenlatv').select('id').eq(
-                'nombre_futboltv', nombre_futboltv
-            ).execute()
-            
-            if existing.data and len(existing.data) > 0:
-                return existing.data[0]['id']
-            
-            # Insertar nuevo - id autogenerado
-            data = {
-                'nombre_futboltv': nombre_futboltv
-            }
-            result = supabase.table('mapeo_futbolenlatv').insert(data).execute()
+            result = supabase.table('channel_mappings').select('source_name, display_name').execute()
             
             if result.data:
-                return result.data[0]['id']
-            return None
-        except Exception as e:
-            print(f"❌ Error guardando mapeo futboltv '{nombre_futboltv}': {e}")
-            return None
-
-    @staticmethod
-    def asociar_canal_a_mapeo(mapeo_futbolenlatv_id: int, canal_walactv_id: int, orden: int = 0) -> bool:
-        """
-        Asocia un canal walactv a un mapeo de futbolenlatv
-        """
-        try:
-            supabase = SupabaseDB.get_client()
-            data = {
-                'mapeo_futbolenlatv_id': mapeo_futbolenlatv_id,
-                'canal_walactv_id': canal_walactv_id,
-                'orden': orden
-            }
-            result = supabase.table('mapeo_futbolenlatv_canales').upsert(data).execute()
-            return bool(result.data)
-        except Exception as e:
-            print(f"❌ Error asociando canal '{canal_walactv_id}' a mapeo '{mapeo_futbolenlatv_id}': {e}")
-            return False
-
-    @staticmethod
-    def get_mapeo_futboltv_id(nombre_futboltv: str) -> Optional[int]:
-        """
-        Obtiene el ID numérico de un mapeo por su nombre
-        """
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('mapeo_futbolenlatv').select('id').eq(
-                'nombre_futboltv', nombre_futboltv
-            ).execute()
-            
-            if result.data and len(result.data) > 0:
-                return result.data[0]['id']
-            return None
-        except Exception as e:
-            print(f"❌ Error obteniendo ID de mapeo '{nombre_futboltv}': {e}")
-            return None
-
-    @staticmethod
-    def get_canales_walactv_por_futboltv(nombre_futboltv: str) -> List[Dict]:
-        """
-        Obtiene todos los canales walactv asociados a un nombre de futbolenlatv
-        Retorna: [{"id": "...", "nombre": "...", "orden": 0}, ...]
-        """
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('mapeo_futbolenlatv_canales').select(
-                'canal_walactv_id, orden, canales_walactv(id, nombre)'
-            ).eq('mapeo_futbolenlatv.nombre_futboltv', nombre_futboltv).execute()
-            
-            if result.data:
-                return [
-                    {
-                        'id': item['canales_walactv']['id'],
-                        'nombre': item['canales_walactv']['nombre'],
-                        'orden': item['orden']
-                    }
-                    for item in result.data
-                ]
-            return []
-        except Exception as e:
-            print(f"❌ Error obteniendo canales para '{nombre_futboltv}': {e}")
-            return []
-
-    @staticmethod
-    def get_all_mapeos_futboltv() -> Dict[str, List[str]]:
-        """
-        Obtiene todos los mapeos de futbolenlatv con sus canales asociados
-        Retorna: {"DAZN 1 HD": ["dazn_1", "dazn_1_bar"], ...}
-        """
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('mapeo_futbolenlatv').select(
-                'nombre_futboltv, mapeo_futbolenlatv_canales(canal_walactv_id, canales_walactv(nombre))'
-            ).execute()
-            
-            if result.data:
-                mapeos = {}
-                for item in result.data:
-                    nombre_futboltv = item['nombre_futboltv']
-                    canales = [
-                        canal['canales_walactv']['nombre']
-                        for canal in item['mapeo_futbolenlatv_canales']
-                    ]
-                    mapeos[nombre_futboltv] = canales
-                return mapeos
+                return {m['source_name']: m['display_name'] for m in result.data}
             return {}
         except Exception as e:
-            print(f"❌ Error obteniendo mapeos futboltv: {e}")
+            print(f"❌ Error obteniendo mapeos simples: {e}")
             return {}
 
     @staticmethod
-    def resolver_canal_futboltv(nombre_futboltv: str) -> List[Dict]:
+    def get_all_mappings_with_channels() -> Dict[str, List[str]]:
         """
-        Resolución completa: futbolenlatv -> Calidades IPTV de todos los canales asociados
-        Ej: "DAZN 1 HD" -> [{"nombre": "ES| DAZN 1 FHD", "calidad": "FHD"}, ...]
-        """
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.rpc('resolver_canal_futboltv', {
-                'nombre_futboltv': nombre_futboltv
-            }).execute()
-            
-            return result.data or []
-        except Exception as e:
-            print(f"❌ Error resolviendo canal '{nombre_futboltv}': {e}")
-            return []
-
-    @staticmethod
-    def get_all_mapeos_web(fuente: str = 'futbolenlatv') -> Dict[str, str]:
-        """
-        Obtiene mapeo web: {nombre_web: nombre_comercial}
+        Obtiene mapeo completo: source_name -> [channel_id, channel_id, ...]
+        Útil para resolver canales
         """
         try:
             supabase = SupabaseDB.get_client()
-            result = supabase.table('mapeo_futbolenlatv').select(
-                'nombre_futboltv, mapeo_futbolenlatv_canales(canales_walactv(nombre))'
-            ).execute()
+            result = supabase.table('channel_mappings').select('*, channel_variants(channel_id, priority)').execute()
             
             if result.data:
-                mapeos = {}
-                for item in result.data:
-                    nombre_web = item['nombre_futboltv']
-                    # Tomar el primer canal asociado como nombre comercial
-                    if item.get('mapeo_futbolenlatv_canales'):
-                        nombre_comercial = item['mapeo_futbolenlatv_canales'][0]['canales_walactv']['nombre']
-                        mapeos[nombre_web] = nombre_comercial
-                return mapeos
+                mappings = {}
+                for m in result.data:
+                    channel_ids = [v['channel_id'] for v in m.get('channel_variants', []) if v['channel_id']]
+                    mappings[m['source_name']] = channel_ids
+                return mappings
             return {}
         except Exception as e:
-            print(f"❌ Error obteniendo mapeos web: {e}")
+            print(f"❌ Error obteniendo mapeos con canales: {e}")
             return {}
-
-    # ============ Métodos de conveniencia ============
-
-    @staticmethod
-    def importar_mapeo_completo(nombre_comercial: str, variaciones: List[Dict], channel_id: str = None) -> bool:
-        """
-        Importa un mapeo completo: canal walactv + todas sus calidades
-        variaciones: [{"nombre": "ES| DAZN 1 FHD"}, ...]
-        """
-        try:
-            # 1. Crear canal walactv
-            canal_id = MapeoCanalesManager.upsert_canal_walactv(nombre_comercial, channel_id)
-            if not canal_id:
-                return False
-            
-            # 2. Crear calidades
-            for idx, var in enumerate(variaciones):
-                if isinstance(var, dict) and 'nombre' in var:
-                    nombre_iptv = var['nombre']
-                    calidad = var.get('calidad') or MapeoCanalesManager._extraer_calidad(nombre_iptv)
-                    
-                    MapeoCanalesManager.upsert_calidad(
-                        canal_id, 
-                        nombre_iptv, 
-                        calidad=calidad,
-                        orden=idx
-                    )
-            
-            return True
-        except Exception as e:
-            print(f"❌ Error importando mapeo completo '{nombre_comercial}': {e}")
-            return False
 
 
 class CalendarioAcestreamManager:
     """
-    Gestor de calendario de acestream (scraping de futbolenlatv)
+    Gestor de calendario de acestream
     """
 
     @staticmethod
@@ -686,22 +305,14 @@ class CalendarioAcestreamManager:
             return []
 
     @staticmethod
-    def buscar_partidos(equipo: str, fecha: date = None) -> List[Dict]:
-        """Busca partidos por nombre de equipo"""
+    def get_partidos_with_channels(fecha: date) -> List[Dict]:
+        """Obtiene partidos con canales resueltos usando la función SQL"""
         try:
             supabase = SupabaseDB.get_client()
-            query = supabase.table('calendario').select('*')
-            
-            if fecha:
-                query = query.eq('fecha', fecha.isoformat())
-            
-            # Búsqueda de texto en equipos
-            query = query.ilike('equipos', f'%{equipo}%')
-            
-            result = query.execute()
+            result = supabase.rpc('get_eventos_fecha_con_channels', {'p_fecha': fecha.isoformat()}).execute()
             return result.data or []
         except Exception as e:
-            print(f"❌ Error buscando partidos: {e}")
+            print(f"❌ Error obteniendo partidos con canales: {e}")
             return []
 
 
@@ -710,13 +321,9 @@ class CalendarioAcestreamManager:
 class Database:
     """
     Clase Database compatible con la interfaz anterior
-    pero usando el nuevo esquema relacional
     """
 
     def __init__(self, table_name: str, document_name: str, json_document: Optional[str] = None):
-        """
-        Constructor mantenido por compatibilidad
-        """
         self.table_name = table_name
         self.document_name = document_name
         self.json_document = json_document
@@ -729,28 +336,17 @@ class Database:
 
             data = json.loads(self.json_document)
 
-            if self.table_name == 'canales':
-                # Insertar canales desde items
-                items = data.get('items', {})
-                canales_list = []
-                for nombre, url in items.items():
-                    canales_list.append({
-                        'nombre': nombre,
-                        'url': url,
-                        'grupo': 'General'
-                    })
-                count = CanalManager.bulk_insert_canales(canales_list)
-                return count > 0
-
-            elif self.table_name == 'mapeo_canales':
-                # Insertar mapeos
-                for nombre_comercial, variaciones in data.items():
-                    if isinstance(variaciones, list):
-                        MapeoCanalesManager.upsert_mapeo(nombre_comercial, variaciones)
+            if self.table_name == 'mapeo_canales':
+                # Migrar datos antiguos al nuevo formato
+                for source_name, info in data.items():
+                    if isinstance(info, dict):
+                        display_name = info.get('display_name', source_name)
+                        channel_ids = info.get('channel_ids', [])
+                        qualities = info.get('qualities', [])
+                        ChannelMappingManager.upsert_mapping(source_name, display_name, channel_ids, qualities)
                 return True
 
             elif self.table_name == 'calendario':
-                # Guardar calendario acestream
                 fecha_str = self.document_name.replace('calendario_', '').replace('.', '/')
                 try:
                     fecha = datetime.strptime(fecha_str, '%d/%m/%Y').date()
@@ -775,17 +371,14 @@ class Database:
             print(f"❌ Error en add_data_firebase: {e}")
             return False
 
-    def get_doc_firebase(self) -> 'SupabaseDocumentSnapshot':
+    def get_doc_firebase(self):
         """Obtiene documento manteniendo compatibilidad"""
+        from database import SupabaseDocumentSnapshot
+        
         try:
-            if self.table_name == 'canales':
-                canales = CanalManager.get_canales_by_grupo('General')
-                items = {c['nombre']: c['url'] for c in canales}
-                return SupabaseDocumentSnapshot({'items': items}, exists=True)
-
-            elif self.table_name == 'mapeo_canales':
-                mapeos = MapeoCanalesManager.get_all_mapeos()
-                return SupabaseDocumentSnapshot(mapeos, exists=True)
+            if self.table_name == 'mapeo_canales':
+                mappings = ChannelMappingManager.get_all_mappings_simple()
+                return SupabaseDocumentSnapshot(mappings, exists=True)
 
             elif self.table_name == 'calendario':
                 fecha_str = self.document_name.replace('calendario_', '').replace('.', '/')
@@ -855,23 +448,14 @@ class DataManagerSupabase:
         return f"{prefix}_" + DataManagerSupabase.obtener_fechas().replace("/", ".")
 
     @staticmethod
-    def obtener_mapeo_canales() -> Dict[str, List[Dict]]:
-        """Obtiene mapeo de canales IPTV: {nombre_comercial: [{"nombre": "..."}, ...]}"""
-        return MapeoCanalesManager.get_all_mapeos_futboltv()
+    def obtener_mapeo_canales() -> Dict[str, List[str]]:
+        """Obtiene mapeo de canales: source_name -> [channel_ids]"""
+        return ChannelMappingManager.get_all_mappings_with_channels()
 
     @staticmethod
     def obtener_mapeo_web(fuente: str = 'futbolenlatv') -> Dict[str, str]:
-        """Obtiene mapeo web: {nombre_web: nombre_comercial}"""
-        return MapeoCanalesManager.get_all_mapeos_web(fuente)
-
-    @staticmethod
-    def obtener_enlaces_canales() -> Dict[str, Dict]:
-        """
-        Obtiene todos los canales como diccionario
-        Retorna: {id_canal: {nombre: "...", url: "...", grupo: "...", ...}}
-        """
-        canales = CanalManager.get_all_canales()
-        return {c['id']: c for c in canales}
+        """Obtiene mapeo web: source_name -> display_name"""
+        return ChannelMappingManager.get_all_mappings_simple()
 
     @staticmethod
     def guardar_calendario(eventos: Dict, fecha_str: str) -> bool:
@@ -918,8 +502,7 @@ class DataManagerSupabase:
 __all__ = [
     'SupabaseDB',
     'ConfigManager',
-    'CanalManager',
-    'MapeoCanalesManager',
+    'ChannelMappingManager',
     'CalendarioAcestreamManager',
     'Database',
     'DataManagerSupabase',

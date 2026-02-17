@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
-from database import Database, DataManagerSupabase
+from database import Database, DataManagerSupabase, ChannelMappingManager
 
 def limpia_html(html_canal):
     html_canal = html_canal.replace("&gt", "")
@@ -46,12 +46,11 @@ class ScrapperFutbolenlatv:
             
         self.canales = []
         try:
-            self.mapeo_canales = DataManagerSupabase.obtener_mapeo_canales()
-            self.mapeo_web = DataManagerSupabase.obtener_mapeo_web()
+            # Nuevo sistema simplificado: source_name -> [channel_ids]
+            self.mapeos = ChannelMappingManager.get_all_mappings_with_channels()
         except Exception as e:
             print(f"Error cargando mapeos: {e}")
-            self.mapeo_canales = {}
-            self.mapeo_web = {}
+            self.mapeos = {}
 
     def existe_fecha(self, fecha):
         if not self.soup:
@@ -133,52 +132,36 @@ class ScrapperFutbolenlatv:
     def existe_mapeo(self, td):
         if not td:
             return False
-            
+
         lista_canales = td.find_all("li")
         if not lista_canales:
             return False
-            
-        # self.limpia_canales(lista_canales) # No necesario si limpiamos al leer
+
         resultado = False
 
         for canal in lista_canales:
             canal_title = canal.get("title", "").strip()
-            
+
             # Limpieza básica inline
             canal_title = re.sub(r"\(.+", "", canal_title).strip()
-            
+
             if not canal_title or canal_title in self.publicidad:
                 continue
-                
+
+            # Nuevo sistema simplificado: buscar directamente en los mapeos
+            # Los mapeos tienen como clave el source_name (nombre de futbolenlatv)
             canal_lower = canal_title.lower()
-            
-            # PASO 1: Buscar en mapeo_web (Web -> Comercial)
-            nombre_comercial = None
-            for web_name, comercial_name in self.mapeo_web.items():
-                if canal_lower == comercial_name.lower():
-                    nombre_comercial = web_name #
-                    break
-            
-            # Si no se encuentra en mapeo_web, usar el nombre original
-            if not nombre_comercial:
-                nombre_comercial = canal_title
-            
-            # PASO 2: Verificar que el nombre comercial existe en mapeo_canales
-            # mapoe_canales es un dict { "DAZN 1": ["...", "..."] }
-            # Ojo: la clave en el dict puede no coincidir exactamente en mayúsculas/minúsculas
-            # Es mejor normalizar keys si es posible, pero aquí asumimos coincidencia
-            
             encontrado = False
-            for k in self.mapeo_canales.keys():
-                if k.lower() == nombre_comercial.lower():
-                    nombre_comercial = k
+
+            for source_name in self.mapeos.keys():
+                if source_name.lower() == canal_lower:
                     encontrado = True
+                    if source_name not in self.canales:
+                        self.canales.append(source_name)
                     break
-            
+
             if encontrado:
                 resultado = True
-                if nombre_comercial not in self.canales:
-                    self.canales.append(nombre_comercial)
 
         return resultado
 

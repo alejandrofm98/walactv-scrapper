@@ -1,17 +1,15 @@
 -- ==========================================
--- Schema SQL Normalizado para Supabase
--- Estructura relacional para WALACTV Scrapper
--- NOTA: Usa tabla 'channels' existente
--- IDs numéricos autoincrementales (BIGSERIAL)
+-- Schema SQL Simplificado para Supabase
+-- WALACTV Scrapper - Versión simplificada
 -- ==========================================
 
 -- ==========================================
--- 1. Tabla de canales (sincronizada desde IPTV)
+-- 1. Tabla de canales IPTV (sincronizada desde M3U)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS channels (
     id VARCHAR(50) PRIMARY KEY,
     numero INT,
-    provider_id VARCHAR(50),  -- ID del proveedor (ej: "176861" de la URL)
+    provider_id VARCHAR(50),
     nombre VARCHAR(255) NOT NULL,
     logo TEXT,
     url TEXT NOT NULL,
@@ -23,15 +21,65 @@ CREATE TABLE IF NOT EXISTS channels (
 
 CREATE INDEX IF NOT EXISTS idx_channels_grupo ON channels(grupo);
 CREATE INDEX IF NOT EXISTS idx_channels_country ON channels(country);
-CREATE INDEX IF NOT EXISTS idx_channels_provider_id ON channels(provider_id);
 
 -- ==========================================
--- 2. Tabla de películas (sincronizada desde IPTV)
+-- 2. NUEVA: Tabla de mapeos simplificada
+-- Unifica: nombre_futboltv + display_name + channel_ids
+-- ==========================================
+CREATE TABLE IF NOT EXISTS channel_mappings (
+    id BIGSERIAL PRIMARY KEY,
+    source_name TEXT NOT NULL UNIQUE,      -- Nombre en futbolenlatv (ej: "DAZN 1 HD")
+    display_name TEXT NOT NULL,             -- Nombre en la web (ej: "DAZN 1")
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_mappings_source ON channel_mappings(source_name);
+CREATE INDEX IF NOT EXISTS idx_mappings_display ON channel_mappings(display_name);
+
+-- ==========================================
+-- 3. NUEVA: Tabla de variantes/calidades
+-- Relaciona un mapeo con múltiples channel_ids (FHD, HD, etc.)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS channel_variants (
+    id BIGSERIAL PRIMARY KEY,
+    mapping_id BIGINT NOT NULL REFERENCES channel_mappings(id) ON DELETE CASCADE,
+    channel_id VARCHAR(50) REFERENCES channels(id) ON DELETE CASCADE,
+    quality TEXT DEFAULT 'HD',              -- FHD, HD, SD, 4K
+    priority INTEGER DEFAULT 0,             -- 0 = mejor calidad
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_variants_mapping ON channel_variants(mapping_id);
+CREATE INDEX IF NOT EXISTS idx_variants_channel ON channel_variants(channel_id);
+CREATE INDEX IF NOT EXISTS idx_variants_priority ON channel_variants(priority);
+
+-- ==========================================
+-- 4. Tabla de calendario (sin cambios)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS calendario (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    fecha DATE NOT NULL,
+    hora TEXT NOT NULL,
+    competicion TEXT,
+    categoria TEXT,
+    equipos TEXT NOT NULL,
+    canales TEXT[],                         -- Array de source_names
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(fecha, hora, equipos)
+);
+
+CREATE INDEX IF NOT EXISTS idx_calendario_fecha ON calendario(fecha);
+CREATE INDEX IF NOT EXISTS idx_calendario_categoria ON calendario(categoria);
+
+-- ==========================================
+-- 5. Tablas de películas y series (sin cambios)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS movies (
     id VARCHAR(50) PRIMARY KEY,
     numero INT,
-    provider_id VARCHAR(50),  -- ID del proveedor (ej: "2001330" de la URL)
+    provider_id VARCHAR(50),
     nombre TEXT NOT NULL,
     logo TEXT,
     url TEXT NOT NULL,
@@ -41,19 +89,12 @@ CREATE TABLE IF NOT EXISTS movies (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_movies_grupo ON movies(grupo);
-CREATE INDEX IF NOT EXISTS idx_movies_country ON movies(country);
-CREATE INDEX IF NOT EXISTS idx_movies_provider_id ON movies(provider_id);
-
--- ==========================================
--- 3. Tabla de series (sincronizada desde IPTV)
--- ==========================================
 CREATE TABLE IF NOT EXISTS series (
     id VARCHAR(50) PRIMARY KEY,
     numero INT,
-    provider_id VARCHAR(50),  -- ID del proveedor (ej: "1306345" de la URL)
+    provider_id VARCHAR(50),
     nombre TEXT NOT NULL,
-    serie_name VARCHAR(255),  -- Nombre de la serie (ej: "Breaking Bad")
+    serie_name VARCHAR(255),
     logo TEXT,
     url TEXT NOT NULL,
     grupo TEXT,
@@ -64,165 +105,26 @@ CREATE TABLE IF NOT EXISTS series (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_series_grupo ON series(grupo);
-CREATE INDEX IF NOT EXISTS idx_series_country ON series(country);
-CREATE INDEX IF NOT EXISTS idx_series_provider_id ON series(provider_id);
-CREATE INDEX IF NOT EXISTS idx_series_serie_name ON series(serie_name);
-
 -- ==========================================
--- 4. Tabla de metadata de sincronización
+-- RLS (Row Level Security)
 -- ==========================================
-CREATE TABLE IF NOT EXISTS sync_metadata (
-    id VARCHAR(50) PRIMARY KEY,
-    ultima_actualizacion TIMESTAMP WITH TIME ZONE,
-    total_canales INT DEFAULT 0,
-    total_movies INT DEFAULT 0,
-    total_series INT DEFAULT 0,
-    m3u_url TEXT,
-    m3u_size BIGINT,
-    m3u_size_mb DECIMAL(10,2),
-    channels_con_logo INT DEFAULT 0,
-    channels_sin_logo INT DEFAULT 0,
-    movies_con_logo INT DEFAULT 0,
-    movies_sin_logo INT DEFAULT 0,
-    series_con_logo INT DEFAULT 0,
-    series_sin_logo INT DEFAULT 0
-);
-
--- ==========================================
--- 5. Función para truncar tablas (optimización)
--- ==========================================
-CREATE OR REPLACE FUNCTION truncate_table(table_name TEXT)
-RETURNS VOID AS $$
-BEGIN
-    EXECUTE 'TRUNCATE TABLE ' || quote_ident(table_name) || ' RESTART IDENTITY CASCADE';
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TABLE IF EXISTS mapeo_futbolenlatv_canales CASCADE;
-DROP TABLE IF EXISTS canales_calidades CASCADE;
-DROP TABLE IF EXISTS mapeo_futbolenlatv CASCADE;
-DROP TABLE IF EXISTS canales_walactv CASCADE;
-DROP TABLE IF EXISTS calendario CASCADE;
-
--- ==========================================
--- Tabla: canales_walactv
--- Canal padre/comercial que referencia a channels
--- Ejemplo: "DAZN 1" referencia a channel_id "dazn1_hd"
--- ==========================================
-CREATE TABLE IF NOT EXISTS canales_walactv (
-    id BIGSERIAL PRIMARY KEY,
-    nombre TEXT NOT NULL UNIQUE,  -- Ej: "DAZN 1"
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_canales_walactv_nombre ON canales_walactv(nombre);
-
--- ==========================================
--- Tabla: canales_calidades
--- Variaciones de un canal con diferentes calidades
--- Ej: "ES| DAZN 1 FHD", "ES| DAZN 1 HD"
--- Relación N:1 con canales_walactv
--- ==========================================
-CREATE TABLE IF NOT EXISTS canales_calidades (
-    id BIGSERIAL PRIMARY KEY,
-    canal_walactv_id BIGINT NOT NULL REFERENCES canales_walactv(id) ON DELETE CASCADE,
-    channel_id VARCHAR(50) REFERENCES channels(id) ON DELETE SET NULL,
-    nombre_iptv TEXT NOT NULL,              -- Nombre completo del canal IPTV
-    calidad TEXT,                           -- FHD, HD, SD, 4K, RAW, etc.
-    orden INTEGER DEFAULT 0,                -- Orden de preferencia (0 = mejor)
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_calidades_canal_id ON canales_calidades(canal_walactv_id);
-CREATE INDEX IF NOT EXISTS idx_calidades_calidad ON canales_calidades(calidad);
-CREATE INDEX IF NOT EXISTS idx_calidades_channel_id ON canales_calidades(channel_id);
-CREATE INDEX IF NOT EXISTS idx_calidades_nombre_iptv ON canales_calidades(nombre_iptv);
-
-
--- ==========================================
--- Tabla: mapeo_futbolenlatv
--- Nombres que aparecen en futbolenlatv
--- Ejemplo: "DAZN 1 HD"
--- Origen: mapeoCanalesFutbolEnLaTv de Firebase
--- ==========================================
-CREATE TABLE IF NOT EXISTS mapeo_futbolenlatv (
-    id BIGSERIAL PRIMARY KEY,
-    nombre_futboltv TEXT NOT NULL UNIQUE,   -- Ej: "DAZN 1 HD" (como aparece en futbolenlatv)
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_mapeo_futboltv_nombre ON mapeo_futbolenlatv(nombre_futboltv);
-
--- ==========================================
--- Tabla: mapeo_futbolenlatv_canales
--- Relación N:M entre mapeo_futbolenlatv y canales_walactv
--- Un nombre de futbolenlatv puede referenciar varios canales walactv
--- Ejemplo: "DAZN 1 HD" -> ["DAZN 1", "DAZN 1 Bar"]
--- ==========================================
-CREATE TABLE IF NOT EXISTS mapeo_futbolenlatv_canales (
-    id BIGSERIAL PRIMARY KEY,
-    mapeo_futbolenlatv_id BIGINT NOT NULL REFERENCES mapeo_futbolenlatv(id) ON DELETE CASCADE,
-    canal_walactv_id BIGINT NOT NULL REFERENCES canales_walactv(id) ON DELETE CASCADE,
-    orden INTEGER DEFAULT 0,                -- Orden de preferencia entre los canales
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(mapeo_futbolenlatv_id, canal_walactv_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_mapeo_futboltv_canales_mapeo ON mapeo_futbolenlatv_canales(mapeo_futbolenlatv_id);
-CREATE INDEX IF NOT EXISTS idx_mapeo_futboltv_canales_canal ON mapeo_futbolenlatv_canales(canal_walactv_id);
-
--- ==========================================
--- Tabla: calendario
--- Partidos con enlaces acestream (scraping de futbolenlatv)
--- ==========================================
-CREATE TABLE IF NOT EXISTS calendario (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    fecha DATE NOT NULL,
-    hora TEXT NOT NULL,
-    competicion TEXT,
-    categoria TEXT,
-    equipos TEXT NOT NULL,  -- "Real Madrid vs Barcelona"
-    canales TEXT[],         -- Array de nombres de canales
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(fecha, hora, equipos)
-);
-
-CREATE INDEX IF NOT EXISTS idx_calendario_fecha ON calendario(fecha);
-CREATE INDEX IF NOT EXISTS idx_calendario_categoria ON calendario(categoria);
-CREATE INDEX IF NOT EXISTS idx_calendario_equipos ON calendario USING gin(to_tsvector('spanish', equipos));
-
--- ==========================================
--- Habilitar RLS (Row Level Security)
--- ==========================================
-
-ALTER TABLE canales_walactv ENABLE ROW LEVEL SECURITY;
-ALTER TABLE canales_calidades ENABLE ROW LEVEL SECURITY;
-ALTER TABLE mapeo_futbolenlatv ENABLE ROW LEVEL SECURITY;
-ALTER TABLE mapeo_futbolenlatv_canales ENABLE ROW LEVEL SECURITY;
+ALTER TABLE channel_mappings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE channel_variants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE calendario ENABLE ROW LEVEL SECURITY;
 
--- Políticas de lectura pública
-CREATE POLICY "Allow public read walactv" ON canales_walactv FOR SELECT USING (true);
-CREATE POLICY "Allow public read calidades" ON canales_calidades FOR SELECT USING (true);
-CREATE POLICY "Allow public read mapeo_futbolenlatv" ON mapeo_futbolenlatv FOR SELECT USING (true);
-CREATE POLICY "Allow public read mapeo_futbolenlatv_canales" ON mapeo_futbolenlatv_canales FOR SELECT USING (true);
+CREATE POLICY "Allow public read mappings" ON channel_mappings FOR SELECT USING (true);
+CREATE POLICY "Allow public read variants" ON channel_variants FOR SELECT USING (true);
 CREATE POLICY "Allow public read calendario" ON calendario FOR SELECT USING (true);
 
--- Políticas de escritura para usuarios autenticados
-CREATE POLICY "Allow authenticated write walactv" ON canales_walactv FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated write calidades" ON canales_calidades FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated write mapeo_futbolenlatv" ON mapeo_futbolenlatv FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated write mapeo_futbolenlatv_canales" ON mapeo_futbolenlatv_canales FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow authenticated write mappings" ON channel_mappings FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow authenticated write variants" ON channel_variants FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow authenticated write calendario" ON calendario FOR ALL USING (true) WITH CHECK (true);
 
 -- ==========================================
--- Triggers para actualizar updated_at
+-- Funciones utilitarias simplificadas
 -- ==========================================
+
+-- Trigger para updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -231,92 +133,164 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
-CREATE TRIGGER update_walactv_updated_at BEFORE UPDATE ON canales_walactv
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_calidades_updated_at BEFORE UPDATE ON canales_calidades
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_mapeo_futbolenlatv_updated_at BEFORE UPDATE ON mapeo_futbolenlatv
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_mapeo_futbolenlatv_canales_updated_at BEFORE UPDATE ON mapeo_futbolenlatv_canales
+CREATE TRIGGER update_mappings_updated_at BEFORE UPDATE ON channel_mappings
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_calendario_updated_at BEFORE UPDATE ON calendario
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ==========================================
--- Funciones utilitarias
+-- Función principal: Obtener evento con channels resueltos
 -- ==========================================
-
--- Eliminar funciones existentes para poder recrearlas con nuevas firmas
-DROP FUNCTION IF EXISTS get_calidades_canal(TEXT);
-DROP FUNCTION IF EXISTS resolver_canal_futboltv(TEXT);
-DROP FUNCTION IF EXISTS get_canales_por_futboltv(TEXT);
-DROP FUNCTION IF EXISTS get_eventos_con_canales(DATE);
-
--- Obtener todas las calidades de un canal walactv
-CREATE OR REPLACE FUNCTION get_calidades_canal(nombre_comercial TEXT)
+CREATE OR REPLACE FUNCTION get_evento_con_channels(p_calendario_id UUID)
 RETURNS TABLE (
-    nombre_iptv TEXT,
-    calidad TEXT,
-    orden INTEGER
+    id UUID,
+    fecha DATE,
+    hora TEXT,
+    competicion TEXT,
+    categoria TEXT,
+    equipos TEXT,
+    canales_original TEXT[],
+    canales_resueltos JSONB
 ) AS $$
 BEGIN
     RETURN QUERY
     SELECT 
-        cc.nombre_iptv,
-        cc.calidad,
-        cc.orden
-    FROM canales_calidades cc
-    JOIN canales_walactv cw ON cc.canal_walactv_id = cw.id
-    WHERE cw.nombre = nombre_comercial
-    ORDER BY cc.orden, cc.nombre_iptv;
+        c.id,
+        c.fecha,
+        c.hora,
+        c.competicion,
+        c.categoria,
+        c.equipos,
+        c.canales as canales_original,
+        COALESCE(
+            jsonb_agg(
+                jsonb_build_object(
+                    'channel_id', cv.channel_id,
+                    'display_name', cm.display_name,
+                    'quality', cv.quality,
+                    'priority', cv.priority,
+                    'source_name', cm.source_name
+                ) ORDER BY cm.source_name, cv.priority
+            ) FILTER (WHERE cv.channel_id IS NOT NULL),
+            '[]'::jsonb
+        ) as canales_resueltos
+    FROM calendario c
+    LEFT JOIN unnest(c.canales) AS canal_nombre ON true
+    LEFT JOIN channel_mappings cm ON cm.source_name = canal_nombre
+    LEFT JOIN channel_variants cv ON cv.mapping_id = cm.id
+    WHERE c.id = p_calendario_id
+    GROUP BY c.id, c.fecha, c.hora, c.competicion, c.categoria, c.equipos, c.canales;
 END;
 $$ LANGUAGE plpgsql;
 
--- Resolver canal desde futbolenlatv: obtener todas las calidades de todos los canales asociados
-CREATE OR REPLACE FUNCTION resolver_canal_futboltv(nombre_futboltv TEXT)
+-- ==========================================
+-- Función: Obtener eventos por fecha con channels
+-- ==========================================
+CREATE OR REPLACE FUNCTION get_eventos_fecha_con_channels(p_fecha DATE)
 RETURNS TABLE (
-    nombre_comercial TEXT,
-    nombre_iptv TEXT,
-    calidad TEXT,
-    canal_orden INTEGER
+    id UUID,
+    fecha DATE,
+    hora TEXT,
+    competicion TEXT,
+    categoria TEXT,
+    equipos TEXT,
+    canales_original TEXT[],
+    canales_resueltos JSONB
 ) AS $$
 BEGIN
     RETURN QUERY
     SELECT 
-        cw.nombre as nombre_comercial,
-        cc.nombre_iptv,
-        cc.calidad,
-        mfc.orden as canal_orden
-    FROM mapeo_futbolenlatv mf
-    JOIN mapeo_futbolenlatv_canales mfc ON mf.id = mfc.mapeo_futbolenlatv_id
-    JOIN canales_walactv cw ON mfc.canal_walactv_id = cw.id
-    LEFT JOIN canales_calidades cc ON cw.id = cc.canal_walactv_id
-    WHERE mf.nombre_futboltv = nombre_futboltv
-    ORDER BY mfc.orden, cc.orden;
+        c.id,
+        c.fecha,
+        c.hora,
+        c.competicion,
+        c.categoria,
+        c.equipos,
+        c.canales as canales_original,
+        COALESCE(
+            jsonb_agg(
+                jsonb_build_object(
+                    'channel_id', cv.channel_id,
+                    'display_name', cm.display_name,
+                    'quality', cv.quality,
+                    'priority', cv.priority,
+                    'source_name', cm.source_name
+                ) ORDER BY cm.source_name, cv.priority
+            ) FILTER (WHERE cv.channel_id IS NOT NULL),
+            '[]'::jsonb
+        ) as canales_resueltos
+    FROM calendario c
+    LEFT JOIN unnest(c.canales) AS canal_nombre ON true
+    LEFT JOIN channel_mappings cm ON cm.source_name = canal_nombre
+    LEFT JOIN channel_variants cv ON cv.mapping_id = cm.id
+    WHERE c.fecha = p_fecha
+    GROUP BY c.id, c.fecha, c.hora, c.competicion, c.categoria, c.equipos, c.canales
+    ORDER BY c.hora;
 END;
 $$ LANGUAGE plpgsql;
 
--- Obtener todos los canales walactv asociados a un nombre de futbolenlatv
-CREATE OR REPLACE FUNCTION get_canales_por_futboltv(nombre_futboltv TEXT)
+-- ==========================================
+-- Función: Obtener channel_ids desde array de nombres
+-- ==========================================
+CREATE OR REPLACE FUNCTION get_channels_from_names(nombres_canales TEXT[])
 RETURNS TABLE (
-    canal_id BIGINT,
-    nombre TEXT,
-    orden INTEGER
+    source_name TEXT,
+    display_name TEXT,
+    channel_id VARCHAR(50),
+    quality TEXT,
+    priority INTEGER
 ) AS $$
 BEGIN
     RETURN QUERY
     SELECT 
-        cw.id,
-        cw.nombre,
-        mfc.orden
-    FROM mapeo_futbolenlatv mf
-    JOIN mapeo_futbolenlatv_canales mfc ON mf.id = mfc.mapeo_futbolenlatv_id
-    JOIN canales_walactv cw ON mfc.canal_walactv_id = cw.id
-    WHERE mf.nombre_futboltv = nombre_futboltv
-    ORDER BY mfc.orden;
+        cm.source_name,
+        cm.display_name,
+        cv.channel_id,
+        cv.quality,
+        cv.priority
+    FROM channel_mappings cm
+    JOIN channel_variants cv ON cv.mapping_id = cm.id
+    WHERE cm.source_name = ANY(nombres_canales)
+    ORDER BY cm.source_name, cv.priority;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ==========================================
+-- Función: Insertar mapeo completo (conveniencia)
+-- ==========================================
+CREATE OR REPLACE FUNCTION insert_channel_mapping(
+    p_source_name TEXT,
+    p_display_name TEXT,
+    p_channel_ids TEXT[],  -- Array de channel_ids
+    p_qualities TEXT[] DEFAULT NULL  -- Array de calidades (opcional)
+)
+RETURNS BIGINT AS $$
+DECLARE
+    v_mapping_id BIGINT;
+    v_quality TEXT;
+    v_channel_id TEXT;
+    i INTEGER;
+BEGIN
+    -- Insertar o actualizar mapeo
+    INSERT INTO channel_mappings (source_name, display_name)
+    VALUES (p_source_name, p_display_name)
+    ON CONFLICT (source_name) DO UPDATE
+    SET display_name = EXCLUDED.display_name
+    RETURNING id INTO v_mapping_id;
+    
+    -- Eliminar variantes antiguas
+    DELETE FROM channel_variants WHERE mapping_id = v_mapping_id;
+    
+    -- Insertar nuevas variantes
+    FOR i IN 1..array_length(p_channel_ids, 1) LOOP
+        v_channel_id := p_channel_ids[i];
+        v_quality := COALESCE(p_qualities[i], 'HD');
+        
+        INSERT INTO channel_variants (mapping_id, channel_id, quality, priority)
+        VALUES (v_mapping_id, v_channel_id, v_quality, i-1);
+    END LOOP;
+    
+    RETURN v_mapping_id;
 END;
 $$ LANGUAGE plpgsql;

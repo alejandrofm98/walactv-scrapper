@@ -81,7 +81,7 @@
       "nombre": "ES| DAZN 8"
     }
   ],
-  "DAZN 1 Bar": [
+  "DAZN 1 BAR": [
     {
       "nombre": "ES| DAZN BAR 1 FHD"
     },
@@ -92,7 +92,7 @@
       "nombre": "ES| DAZN BAR 1 SD"
     }
   ],
-  "DAZN 2 Bar": [
+  "DAZN 2 BAR": [
     {
       "nombre": "ES| DAZN BAR 2 FHD"
     },
@@ -103,7 +103,7 @@
       "nombre": "ES| DAZN BAR 2 SD"
     }
   ],
-  "DAZN LaLiga": [
+  "DAZN LALIGA": [
     {
       "nombre": "ES| DAZN LALIGA 4K"
     },
@@ -123,7 +123,7 @@
       "nombre": "ES| DAZN LALIGA SD"
     }
   ],
-  "DAZN LaLiga 2": [
+  "DAZN LALIGA 2": [
     {
       "nombre": "ES| DAZN LALIGA 2 FHD"
     },
@@ -134,12 +134,12 @@
       "nombre": "ES| DAZN LALIGA 2 SD"
     }
   ],
-  "DAZN LaLiga 3": [
+  "DAZN LALIGA 3": [
     {
       "nombre": "ES| DAZN LALIGA 3 SD"
     }
   ],
-  "DAZN LaLiga 4": [
+  "DAZN LALIGA 4": [
     {
       "nombre": "ES| DAZN LALIGA 4K"
     },
@@ -147,7 +147,7 @@
       "nombre": "ES| DAZN LALIGA 4 SD"
     }
   ],
-  "DAZN LaLiga 5": [
+  "DAZN LALIGA 5": [
     {
       "nombre": "ES| DAZN LALIGA 5 SD"
     }
@@ -172,31 +172,22 @@
       "nombre": "ES| LA 1 SD"
     }
   ],
-  "LaLiga TV": [
+  "LALIGA TV 2": [
     {
-      "nombre":"ES| M+ LALIGA TV 4K UHD ᴿᴬᵂ"
-    },
-    {
-      "nombre":"ES| M+ LALIGA TV FHD ᴿᴬᵂ"
+      "nombre": "ES| M+ LALIGA TV 2 FHD ᴿᴬᵂ"
     }
   ],
-  "LaLiga TV 2": [
+  "LALIGA TV 3": [
     {
-      "nombre":"ES| M+ LALIGA TV 2 FHD ᴿᴬᵂ"
+      "nombre": "ES| M+ LALIGA TV 3 FHD ᴿᴬᵂ"
     }
   ],
-  "LaLiga TV 3": [
-
+  "LALIGA TV 4": [
     {
-      "nombre":"ES| M+ LALIGA TV 3 FHD ᴿᴬᵂ"
+      "nombre": "ES| M+ LALIGA TV 4 FHD ᴿᴬᵂ"
     }
   ],
-  "LaLiga TV 4": [
-    {
-      "nombre":"ES| M+ LALIGA TV 4 FHD ᴿᴬᵂ"
-    }
-  ],
-  "LaLiga TV Bar": [
+  "LALIGA TV BAR": [
     {
       "nombre": "ES| LALIGA TV BAR FHD"
     },
@@ -204,7 +195,7 @@
       "nombre": "ES| LALIGA TV BAR HD"
     }
   ],
-  "LALIGA TV Hypermotion": [
+  "LALIGA TV HYPERMOTION": [
     {
       "nombre": "ES| LALIGA TV HYPERMOTION FHD"
     },
@@ -218,7 +209,7 @@
       "nombre": "ES| LALIGA TV HYPERMOTION SD"
     }
   ],
-  "LaLiga TV M2": [
+  "LALIGA TV M2": [
     {
       "nombre": "ES| LALIGA TV HYPERMOTION 2 FHD"
     },
@@ -226,7 +217,7 @@
       "nombre": "PRIME| LALIGA HYPERMOTION TV 2 ᴿᴬᵂ"
     }
   ],
-  "LaLiga TV M3": [
+  "LALIGA TV M3": [
     {
       "nombre": "ES| LALIGA TV HYPERMOTION 3 FHD"
     },
@@ -237,27 +228,27 @@
       "nombre": "PRIME| LALIGA HYPERMOTION TV 3 ᴿᴬᵂ"
     }
   ],
-  "LaLiga TV M4": [
+  "LALIGA TV M4": [
     {
       "nombre": "ES| LALIGA TV HYPERMOTION 4 FHD"
     }
   ],
-  "LaLiga TV M5": [
+  "LALIGA TV M5": [
     {
       "nombre": "ES| LALIGA TV HYPERMOTION 5 FHD"
     }
   ],
-  "LaLiga TV M6": [
+  "LALIGA TV M6": [
     {
       "nombre": "ES| LALIGA TV HYPERMOTION 6 FHD"
     }
   ],
-  "LaLiga TV M7": [
+  "LALIGA TV M7": [
     {
       "nombre": "ES| LALIGA TV HYPERMOTION 7 FHD"
     }
   ],
-  "M+ Vamos": [
+  "M+ VAMOS": [
     {
       "nombre": "ES| M+ VAMOS FHD"
     },
@@ -272,6 +263,12 @@
     }
   ],
   "M+ LALIGA": [
+    {
+      "nombre": "ES| M+ LALIGA TV 4K UHD ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| M+ LALIGA TV FHD ᴿᴬᵂ"
+    },
     {
       "nombre": "ES| M.LALIGA 1 FHD"
     },
@@ -293,7 +290,7 @@
       "nombre": "ES| M.LALIGA 2 HD"
     }
   ],
-  "M+ Liga de Campeones": [
+  "M+ LIGA DE CAMPEONES": [
     {
       "nombre": "ES| M. LIGA DE CAMPEONES 1 ᵁᴴᴰ"
     },
@@ -313,7 +310,7 @@
       "nombre": "ES| M. LIGA DE CAMPEONES 1 SD"
     }
   ],
-  "M+ Liga de Campeones 2": [
+  "M+ LIGA DE CAMPEONES 2": [
     {
       "nombre": "ES| M. LIGA DE CAMPEONES 2 ᴴᴰ"
     },
@@ -327,7 +324,7 @@
       "nombre": "ES| M. LIGA DE CAMPEONES 2 SD"
     }
   ],
-  "M+ Liga de Campeones 3": [
+  "M+ LIGA DE CAMPEONES 3": [
     {
       "nombre": "ES| M. LIGA DE CAMPEONES 3 ᴴᴰ"
     },
@@ -338,7 +335,7 @@
       "nombre": "ES| M. LIGA DE CAMPEONES 3 SD"
     }
   ],
-  "M+ Liga de Campeones 4": [
+  "M+ LIGA DE CAMPEONES 4": [
     {
       "nombre": "ES| M. LIGA DE CAMPEONES 4 ᴴᴰ"
     },
@@ -349,7 +346,7 @@
       "nombre": "ES| M. LIGA DE CAMPEONES 4 SD"
     }
   ],
-  "M+ Liga de Campeones 5": [
+  "M+ LIGA DE CAMPEONES 5": [
     {
       "nombre": "ES| M. LIGA DE CAMPEONES 5 ᴴᴰ"
     },
@@ -360,7 +357,7 @@
       "nombre": "ES| M. LIGA DE CAMPEONES 5 SD"
     }
   ],
-  "M+ Liga de Campeones 6": [
+  "M+ LIGA DE CAMPEONES 6": [
     {
       "nombre": "ES| M+ LALIGA DE CAMPEONES 6 HD ᴿᴬᵂ"
     },
@@ -374,7 +371,7 @@
       "nombre": "ES| M. LIGA DE CAMPEONES 6 SD"
     }
   ],
-  "M+ Deportes": [
+  "M+ DEPORTES": [
     {
       "nombre": "ES| M.DEPORTES FHD"
     },
@@ -397,7 +394,7 @@
       "nombre": "ES| M.DEPORTES 1 HEVC"
     }
   ],
-  "M+ Deportes 2": [
+  "M+ DEPORTES 2": [
     {
       "nombre": "ES| M.DEPORTES 2 FHD"
     },
@@ -408,7 +405,7 @@
       "nombre": "ES| M.DEPORTES 2 SD"
     }
   ],
-  "M+ Deportes 3": [
+  "M+ DEPORTES 3": [
     {
       "nombre": "ES| M.DEPORTES 3 FHD [LIVEEVENT]"
     },
@@ -419,7 +416,7 @@
       "nombre": "ES| M.DEPORTES 3 SD [LIVEEVENT]"
     }
   ],
-  "M+ Deportes 4": [
+  "M+ DEPORTES 4": [
     {
       "nombre": "ES| M.DEPORTES 4 FHD [LIVEEVENT]"
     },
@@ -431,6 +428,59 @@
     },
     {
       "nombre": "ES| M.DEPORTES 4 SD [LIVEEVENT]"
+    }
+  ],
+  "M+ DEPORTES 5": [
+    {
+      "nombre": "ES| M.DEPORTES 5 FHD [LIVEEVENT]"
+    },
+    {
+      "nombre": "ES| M.DEPORTES 5 HD [LIVEEVENT]"
+    },
+    {
+      "nombre": "ES| M+ DEPORTES 5 HD ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| M.DEPORTES 5 SD [LIVEEVENT]"
+    }
+  ],
+  "M+ DEPORTES 6": [
+    {
+      "nombre": "ES| M.DEPORTES 5 HD [LIVEEVENT]"
+    },
+    {
+      "nombre": "ES| M+ DEPORTES 5 HD ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| M.DEPORTES 5 SD [LIVEEVENT]"
+    }
+  ],
+  "M+ GOLF": [
+    {
+      "nombre": "ES| M.GOLF FHD"
+    },
+    {
+      "nombre": "ES| M.GOLF HD"
+    },
+    {
+      "nombre": "ES| M.GOLF HEVC"
+    },
+    {
+      "nombre": "ES| M.GOLF SD"
+    }
+  ],
+  "M+ PLUS": [
+    {
+      "nombre": "ES| M.PLUS+ FHD"
+    },
+    {
+      "nombre": "ES| M.PLUS+ HD"
+    },
+    {
+      "nombre": "ES| MOVISTAR PLUS+ ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| M.PLUS+ SD"
     }
   ]
 }
