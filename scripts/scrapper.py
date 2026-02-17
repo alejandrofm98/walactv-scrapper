@@ -103,6 +103,13 @@ class ScrapperFutbolenlatv:
                         detalles_td = tr.find("td", {"class": "detalles"})
                         competicion = detalles_td.text.strip() if detalles_td else ""
                         
+                        # Extraer categoría desde la imagen
+                        categoria = "Otros"
+                        if detalles_td:
+                            img_tag = detalles_td.find("img")
+                            if img_tag and img_tag.get("alt"):
+                                categoria = img_tag.get("alt").strip()
+
                         if len(tds) > 2:
                             equipos = tds[2].text.strip()
                             
@@ -114,6 +121,7 @@ class ScrapperFutbolenlatv:
                             eventos[cont] = {
                                 "hora": hora, 
                                 "competicion": competicion, 
+                                "categoria": categoria,
                                 "equipos": equipos,
                                 "canales": self.canales
                             }
