@@ -147,8 +147,8 @@ class ScrapperFutbolenlatv:
             # PASO 1: Buscar en mapeo_web (Web -> Comercial)
             nombre_comercial = None
             for web_name, comercial_name in self.mapeo_web.items():
-                if canal_lower == web_name.lower():
-                    nombre_comercial = comercial_name # Corregido: antes asignaba web_name
+                if canal_lower == comercial_name.lower():
+                    nombre_comercial = web_name #
                     break
             
             # Si no se encuentra en mapeo_web, usar el nombre original

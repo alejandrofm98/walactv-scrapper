@@ -645,7 +645,7 @@ class CalendarioAcestreamManager:
 
     @staticmethod
     def upsert_partido(fecha: date, hora: str, equipos: str, competicion: str = None,
-                       canales: List[str] = None) -> bool:
+                       canales: List[str] = None, categoria: str = None) -> bool:
         """Inserta o actualiza un partido del calendario"""
         try:
             supabase = SupabaseDB.get_client()
@@ -654,7 +654,8 @@ class CalendarioAcestreamManager:
                 'hora': hora,
                 'equipos': equipos,
                 'competicion': competicion,
-                'canales': canales or []
+                'canales': canales or [],
+                'categoria': categoria
             }
             
             # Buscar si existe
@@ -763,7 +764,8 @@ class Database:
                             hora=partido.get('hora', '00:00'),
                             equipos=partido.get('equipos', ''),
                             competicion=partido.get('competicion', ''),
-                            canales=partido.get('canales', [])
+                            canales=partido.get('canales', []),
+                            categoria=partido.get('categoria', '')
                         )
                 return True
 
@@ -799,7 +801,8 @@ class Database:
                         'hora': partido['hora'],
                         'equipos': partido['equipos'],
                         'competicion': partido['competicion'],
-                        'canales': partido['canales']
+                        'canales': partido['canales'],
+                        'categoria': partido.get('categoria', '')
                     }
                 return SupabaseDocumentSnapshot(data, exists=len(data) > 0)
 
@@ -885,7 +888,8 @@ class DataManagerSupabase:
                     hora=partido.get('hora', '00:00'),
                     equipos=partido.get('equipos', ''),
                     competicion=partido.get('competicion', ''),
-                    canales=partido.get('canales', [])
+                    canales=partido.get('canales', []),
+                    categoria=partido.get('categoria', '')
                 )
         return True
 
@@ -904,7 +908,8 @@ class DataManagerSupabase:
                 'hora': partido['hora'],
                 'equipos': partido['equipos'],
                 'competicion': partido['competicion'],
-                'canales': partido['canales']
+                'canales': partido['canales'],
+                'categoria': partido.get('categoria', '')
             }
         return data
 

@@ -184,6 +184,7 @@ CREATE TABLE IF NOT EXISTS calendario (
     fecha DATE NOT NULL,
     hora TEXT NOT NULL,
     competicion TEXT,
+    categoria TEXT,
     equipos TEXT NOT NULL,  -- "Real Madrid vs Barcelona"
     canales TEXT[],         -- Array de nombres de canales
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -192,6 +193,7 @@ CREATE TABLE IF NOT EXISTS calendario (
 );
 
 CREATE INDEX IF NOT EXISTS idx_calendario_fecha ON calendario(fecha);
+CREATE INDEX IF NOT EXISTS idx_calendario_categoria ON calendario(categoria);
 CREATE INDEX IF NOT EXISTS idx_calendario_equipos ON calendario USING gin(to_tsvector('spanish', equipos));
 
 -- ==========================================
