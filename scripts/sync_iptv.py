@@ -272,9 +272,9 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> str:
     # IMPORTANTE: Soportar tanto .mkv como .mp4
     # Series: http://provider/series/user/pass/12345.mkv
     pattern_series = re.compile(rf'{provider_url_escaped}/series/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)')
-    # Movies: http://provider/movie/user/pass/12345.mkv  
+    # Movies: http://provider/movie/user/pass/12345.mkv
     pattern_movie = re.compile(rf'{provider_url_escaped}/movie/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)')
-    # Live: http://provider/user/pass/12345 (sin subdirectorio /live/)
+    # Live: http://provider/user/pass/12345 (sin subdirectorio, pero se añade /live/ en el template)
     pattern_live = re.compile(rf'{provider_url_escaped}/[^/]+/[^/]+/(\d+)(?:\.ts)?')
     
     for line in lines:
@@ -291,10 +291,10 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> str:
         elif pattern_movie.search(line):
             line = pattern_movie.sub(r'{{DOMAIN}}/movie/{{USERNAME}}/{{PASSWORD}}/\1.\2', line)
             matched = True
-        # Verificar live (canales - sin tipo en URL)
+        # Verificar live (canales - con /live/ en URL)
         elif pattern_live.search(line):
-            # Live: sin tipo, directo: dominio/user/pass/id
-            line = pattern_live.sub(r'{{DOMAIN}}/{{USERNAME}}/{{PASSWORD}}/\1', line)
+            # Live: con tipo /live/: dominio/live/user/pass/id
+            line = pattern_live.sub(r'{{DOMAIN}}/live/{{USERNAME}}/{{PASSWORD}}/\1', line)
             matched = True
         
         processed_lines.append(line)
