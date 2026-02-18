@@ -492,13 +492,10 @@ def sync_to_supabase():
     print(f"⏰ Hora de inicio: {hora_inicio}")
     print("=" * 70 + "\n")
 
-    # Validar configuración
-    if not settings.is_valid():
-        print("❌ Error: Configuración incompleta")
-        print(f"📋 Estado de configuración:\n{settings}")
-        return
-
-    print(f"📋 Configuración cargada:\n{settings}")
+    print(f"📋 Configuración inicial:\n{settings}")
+    
+    # Nota: La validación completa se hace después de intentar leer de la tabla config
+    # ya que las credenciales IPTV pueden estar almacenadas allí, no en variables de entorno
 
     # Inicializar Supabase PRIMERO para obtener config
     try:
@@ -506,7 +503,7 @@ def sync_to_supabase():
         print("✅ Conectado a Supabase")
     except Exception as e:
         print(f"❌ Error al conectar con Supabase: {e}")
-        return
+        return 1
 
     # Obtener configuración del proveedor desde tabla config
     provider_url: str = ""
@@ -548,7 +545,7 @@ def sync_to_supabase():
 
     if not playlist_url:
         print("❌ Error: URL del proveedor no configurada (ni en config ni en settings)")
-        return
+        return 1
 
     # Usar URL completa con credenciales para descargar playlist
     url = playlist_url
@@ -569,7 +566,7 @@ def sync_to_supabase():
 
     except Exception as e:
         print(f"❌ Error de conexión: {e}")
-        return
+        return 1
 
     # Guardar archivo M3U
     print("\n" + "=" * 60)
@@ -726,7 +723,7 @@ def sync_to_supabase():
         print(f"  ⏱️  Duración: {duracion_total:.2f}s")
         print(
             f"\n🌐 Archivo M3U template disponible en: {m3u_info['template_path'] if m3u_info else 'N/A'}")
-        return
+        return 0
 
     # Si no coinciden, mostrar diferencias
     print("\n⚠️  Diferencias detectadas:")
@@ -749,7 +746,7 @@ def sync_to_supabase():
         total_items = len(channels) + len(movies) + len(series)
         if total_items == 0:
             print("❌ No hay contenido para insertar.")
-            return
+            return 1
 
         print(f"✅ Validado: {total_items:,} items listos para insertar")
 
@@ -905,6 +902,7 @@ def sync_to_supabase():
         print(f"  📄 {m3u_info['template_filename'] if m3u_info else 'N/A'}")
         print(f"  📁 {m3u_info['template_path'] if m3u_info else 'N/A'}")
         print("=" * 70 + "\n")
+        return 0
 
     except Exception as e:
         fin_total = time.time()
@@ -917,7 +915,9 @@ def sync_to_supabase():
         print(f"  Fin: {hora_fin}")
         print(f"  Duración: {duracion_total:.2f}s")
         traceback.print_exc()
+        return 1
 
 
 if __name__ == "__main__":
-    sync_to_supabase()
+    import sys
+    sys.exit(sync_to_supabase())
