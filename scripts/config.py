@@ -59,6 +59,7 @@ class Settings:
   # Servidor
   session_timeout_minutes: int = 30  # Default, se sobrescribe desde BD
   cleanup_interval_minutes: int = 5  # Default, se sobrescribe desde BD
+  public_domain: str = "http://localhost:8000"  # Default, se sobrescribe desde BD
 
   # ===== Estado interno =====
   _config_loaded: bool = False
@@ -100,6 +101,12 @@ class Settings:
 
       if 'CLEANUP_INTERVAL_MINUTES' in config:
         self.cleanup_interval_minutes = int(config['CLEANUP_INTERVAL_MINUTES'])
+
+      if 'PUBLIC_DOMAIN' in config:
+        self.public_domain = config['PUBLIC_DOMAIN']
+      elif os.getenv('PUBLIC_DOMAIN'):
+        # Fallback a variable de entorno
+        self.public_domain = os.getenv('PUBLIC_DOMAIN')
 
       # Generar URL de playlist
       if self.iptv_user and self.iptv_pass:
@@ -232,6 +239,7 @@ class Settings:
       f"  IPTV Config: {'✓' if self.is_iptv_configured() else '✗'}\n"
       f"  Session Timeout: {self.session_timeout_minutes}min\n"
       f"  Cleanup Interval: {self.cleanup_interval_minutes}min\n"
+      f"  Public Domain: {self.public_domain}\n"
       f")"
     )
 
