@@ -250,63 +250,99 @@ def extraer_provider_base_url(url_source: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
-def crear_template_m3u(contenido_m3u: str, provider_url: str) -> str:
+def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
     """
-    Procesa el M3U original y crea una versión template con placeholders.
-    Esto permite generar playlists personalizadas rápidamente sin regex en cada request.
+    Procesa el M3U original y crea templates con placeholders, clasificados por tipo.
     
     Args:
         contenido_m3u: Contenido del M3U original con credenciales del proveedor
         provider_url: URL base del proveedor (ej: http://line.8kultradnscloud.ru:80)
         
     Returns:
-        M3U con placeholders: {{USERNAME}} y {{PASSWORD}} en lugar de credenciales reales
+        dict con:
+            - 'full': template completo
+            - 'live': solo canales en vivo
+            - 'movie': solo películas
+            - 'series': solo series
+            - 'counts': contador por tipo
     """
     lines = contenido_m3u.split('\n')
-    processed_lines = []
-
-    # Escapar caracteres especiales en la URL del proveedor para regex
+    
+    all_lines = ['#EXTM3U']
+    live_lines = ['#EXTM3U']
+    movie_lines = ['#EXTM3U']
+    series_lines = ['#EXTM3U']
+    
+    counts = {'live': 0, 'movie': 0, 'series': 0}
+    
     provider_url_escaped = re.escape(provider_url)
 
-    # Compilar regex patterns (solo una vez durante el sync)
-    # IMPORTANTE: Soportar tanto .mkv como .mp4
-    # Series: http://provider/series/user/pass/12345.mkv
     pattern_series = re.compile(rf'{provider_url_escaped}/series/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)')
-    # Movies: http://provider/movie/user/pass/12345.mkv
     pattern_movie = re.compile(rf'{provider_url_escaped}/movie/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)')
-    # Live: http://provider/user/pass/12345 (sin subdirectorio, pero se añade /live/ en el template)
     pattern_live = re.compile(rf'{provider_url_escaped}/[^/]+/[^/]+/(\d+)(?:\.ts)?')
     
-    for line in lines:
-        # Limpiar caracteres de control (\r de Windows, espacios al final)
-        line = line.rstrip('\r\n\t ')
-        original_line = line
-        matched = False
-        
-        # Verificar series primero (más específico)
-        if pattern_series.search(line):
-            line = pattern_series.sub(r'{{DOMAIN}}/series/{{USERNAME}}/{{PASSWORD}}/\1.\2', line)
-            matched = True
-        # Verificar movies
-        elif pattern_movie.search(line):
-            line = pattern_movie.sub(r'{{DOMAIN}}/movie/{{USERNAME}}/{{PASSWORD}}/\1.\2', line)
-            matched = True
-        # Verificar live (canales - con /live/ en URL)
-        elif pattern_live.search(line):
-            # Live: con tipo /live/: dominio/live/user/pass/id
-            line = pattern_live.sub(r'{{DOMAIN}}/live/{{USERNAME}}/{{PASSWORD}}/\1', line)
-            matched = True
-        
-        processed_lines.append(line)
+    current_extinf = None
     
-    return '\n'.join(processed_lines)
+    for line in lines:
+        line = line.rstrip('\r\n\t ')
+        
+        if line.startswith('#EXTINF:'):
+            current_extinf = line
+            all_lines.append(line)
+            continue
+        
+        if not line or line.startswith('#'):
+            all_lines.append(line)
+            continue
+        
+        content_type = None
+        processed_line = line
+        
+        if pattern_series.search(line):
+            processed_line = pattern_series.sub(r'{{DOMAIN}}/series/{{USERNAME}}/{{PASSWORD}}/\1.\2', line)
+            content_type = 'series'
+        elif pattern_movie.search(line):
+            processed_line = pattern_movie.sub(r'{{DOMAIN}}/movie/{{USERNAME}}/{{PASSWORD}}/\1.\2', line)
+            content_type = 'movie'
+        elif pattern_live.search(line):
+            processed_line = pattern_live.sub(r'{{DOMAIN}}/live/{{USERNAME}}/{{PASSWORD}}/\1', line)
+            content_type = 'live'
+        
+        all_lines.append(processed_line)
+        
+        if content_type:
+            counts[content_type] += 1
+            if current_extinf:
+                if content_type == 'live':
+                    live_lines.append(current_extinf)
+                    live_lines.append(processed_line)
+                elif content_type == 'movie':
+                    movie_lines.append(current_extinf)
+                    movie_lines.append(processed_line)
+                elif content_type == 'series':
+                    series_lines.append(current_extinf)
+                    series_lines.append(processed_line)
+        
+        current_extinf = None
+    
+    return {
+        'full': '\n'.join(all_lines),
+        'live': '\n'.join(live_lines),
+        'movie': '\n'.join(movie_lines),
+        'series': '\n'.join(series_lines),
+        'counts': counts
+    }
 
 
 def guardar_m3u_local(contenido_m3u: str, m3u_dir: str = None, provider_url: str = None):
     """
-    Guarda el archivo M3U en el servidor local (accesible por Nginx)
+    Guarda archivos M3U templates separados por tipo de contenido.
+    Genera:
+        - playlist_template.m3u (completo)
+        - playlist_template_live.m3u (solo canales)
+        - playlist_template_movie.m3u (solo películas)
+        - playlist_template_series.m3u (solo series)
     """
-    # Detectar si estamos en Docker o local
     is_docker = (
         os.path.exists(CONSTANTS.DOCKER_ENV_PATH) or
         os.getenv(CONSTANTS.DOCKER_ENV_FLAG) == CONSTANTS.DOCKER_ENV_VALUE
@@ -326,63 +362,45 @@ def guardar_m3u_local(contenido_m3u: str, m3u_dir: str = None, provider_url: str
         print(f"📁 Preparando directorio: {m3u_dir}")
         os.makedirs(m3u_dir, exist_ok=True)
 
-        # PRIMERO: Limpiar TODOS los archivos M3U anteriores
         print(f"  🧹 Limpiando archivos M3U anteriores...")
         limpiar_m3u_antiguos(m3u_dir)
 
-        # Calcular tamaño
-        file_bytes = contenido_m3u.encode('utf-8')
-        size_bytes = len(file_bytes)
-        size_kb = size_bytes / 1024
-        size_mb = size_kb / 1024
-
-        print(f"💾 Generando template M3U:")
-        print(f"  📊 Tamaño: {size_mb:.2f} MB")
-        print(f"  📁 Directorio: {m3u_dir}")
-
-        # Crear versión template con placeholders para procesamiento rápido
-        # Usando ATOMIC WRITE para evitar race conditions durante la lectura
-        print(f"  🔧 Creando template con placeholders...")
+        print(f"💾 Generando templates M3U...")
         if not provider_url:
             if not settings.iptv_source_url:
                 raise ValueError("No se puede crear template: falta URL del proveedor")
             provider_url = extraer_provider_base_url(settings.iptv_source_url)
-        template_content = crear_template_m3u(contenido_m3u, provider_url)
-        path_template = os.path.join(m3u_dir, "playlist_template.m3u")
-        path_template_tmp = os.path.join(m3u_dir, "playlist_template.m3u.tmp")
         
-        # Paso 1: Escribir a archivo temporal
-        with open(path_template_tmp, 'w', encoding='utf-8') as f:
-            f.write(template_content)
+        templates = crear_template_m3u(contenido_m3u, provider_url)
         
-        # Paso 2: Renombrar atómicamente (operación instantánea en filesystem)
-        # Esto garantiza que el archivo nunca esté en estado parcial
-        os.rename(path_template_tmp, path_template)
+        def write_atomic(content: str, filename: str):
+            path = os.path.join(m3u_dir, filename)
+            path_tmp = f"{path}.tmp"
+            with open(path_tmp, 'w', encoding='utf-8') as f:
+                f.write(content)
+            os.rename(path_tmp, path)
+            return path
         
-        print(f"    ✅ Template guardado (atomic write): playlist_template.m3u")
-
-        # URL pública
-        if is_docker:
-            base_domain = os.getenv(
-                CONSTANTS.PUBLIC_DOMAIN_ENV,
-                CONSTANTS.PUBLIC_DOMAIN_DEFAULT_DOCKER
-            )
-        else:
-            base_domain = os.getenv(
-                CONSTANTS.PUBLIC_DOMAIN_ENV,
-                CONSTANTS.PUBLIC_DOMAIN_DEFAULT_LOCAL
-            )
-
-        print(f"✅ Template M3U generado correctamente:")
-        print(f"  📄 Archivo: playlist_template.m3u")
-        print(f"  📊 Tamaño: {size_mb:.2f} MB ({size_bytes:,} bytes)")
-        print(f"  📁 Ubicación: {path_template}")
+        results = {}
+        
+        for name, key in [('Completo', 'full'), ('Live', 'live'), ('Movie', 'movie'), ('Series', 'series')]:
+            content = templates[key]
+            size_mb = len(content.encode('utf-8')) / 1024 / 1024
+            filename = f"playlist_template_{key}.m3u" if key != 'full' else "playlist_template.m3u"
+            path = write_atomic(content, filename)
+            results[key] = {"path": path, "filename": filename, "size_mb": size_mb}
+            print(f"    ✅ {name}: {filename} ({size_mb:.2f} MB)")
+        
+        print(f"\n📊 Conteo por tipo:")
+        for t, c in templates['counts'].items():
+            print(f"    {t}: {c:,} items")
 
         return {
-            "template_path": path_template,
-            "template_filename": "playlist_template.m3u",
-            "size": size_bytes,
-            "size_mb": size_mb
+            "template_path": results['full']['path'],
+            "template_filename": results['full']['filename'],
+            "size_mb": results['full']['size_mb'],
+            "templates": results,
+            "counts": templates['counts']
         }
 
     except Exception as e:
