@@ -676,8 +676,7 @@ def sync_to_supabase():
 
     if m3u_info:
         print(f"  📄 Template M3U:")
-        print(
-            f"    - Tamaño: {m3u_info['size']:,} bytes ({m3u_info['size_mb']:.2f} MB)")
+        print(f"    - Tamaño: {m3u_info['size_mb']:.2f} MB")
         print(f"    - Ubicación: {m3u_info['template_path']}")
 
     # Verificar estado de la base de datos
@@ -716,7 +715,7 @@ def sync_to_supabase():
                 "total_canales": len(channels),
                 "total_movies": len(movies),
                 "total_series": len(series),
-                "m3u_size": m3u_info['size'] if m3u_info else None,
+                "m3u_size": int(m3u_info['size_mb'] * 1024 * 1024) if m3u_info else None,
                 "m3u_size_mb": m3u_info['size_mb'] if m3u_info else None,
                 "channels_con_logo": stats['channels']['con_logo'],
                 "channels_sin_logo": stats['channels']['sin_logo'],
@@ -841,7 +840,7 @@ def sync_to_supabase():
             "total_series": stats_series.inserted_records if stats_series else count_series_db,
             "m3u_template_path": m3u_info['template_path'] if m3u_info else None,
             "m3u_template_filename": m3u_info['template_filename'] if m3u_info else None,
-            "m3u_size": m3u_info['size'] if m3u_info else None,
+            "m3u_size": int(m3u_info['size_mb'] * 1024 * 1024) if m3u_info else None,
             "m3u_size_mb": m3u_info['size_mb'] if m3u_info else None,
             "channels_con_logo": stats['channels']['con_logo'],
             "channels_sin_logo": stats['channels']['sin_logo'],
