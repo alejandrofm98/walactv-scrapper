@@ -47,13 +47,10 @@ services:
       - DOCKER_CONTAINER=true
       - M3U_DIR=/app/data/m3u
       - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-https://localhost}
-      - IPTV_API_URL=${IPTV_API_URL:-http://iptv-api:3010}
-      - JWT_SECRET=${JWT_SECRET:-}
     volumes:
-      - iptv-data:/app/data
+      - walactv-m3u:/app/data/m3u
     networks:
       - dokploy-network
-      - iptv-network
 
   ofelia:
     image: mcuadros/ofelia:latest
@@ -78,5 +75,5 @@ networks:
 volumes:
   walactv-logos:
     external: true
-  iptv-data:
-    external: true
+  walactv-m3u:  # 👈 Nuevo volumen para archivos M3U
+    driver: local
