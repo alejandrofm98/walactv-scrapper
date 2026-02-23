@@ -24,6 +24,22 @@ from services.bulk_insert import insert_bulk_optimized
 # Cargar configuración
 settings = get_settings()
 
+FILTER_LANGUAGES = ['EN', 'ENG', 'ES', 'LA', 'LAT']
+
+
+def contains_language(extinf_line: str) -> bool:
+    """
+    Busca prefijos de idioma SOLO en group-title.
+    Solo incluye si el group-title tiene el idioma (|EN|, |ENG|, |ES|, |LA|, |LAT|)
+    """
+    group_title_match = re.search(r'group-title="([^"]+)"', extinf_line)
+    if group_title_match:
+        group_title = group_title_match.group(1)
+        for lang in FILTER_LANGUAGES:
+            if f'|{lang}|' in group_title:
+                return True
+    return False
+
 
 def init_supabase() -> Client:
     """Inicializa el cliente de Supabase"""
@@ -253,6 +269,7 @@ def extraer_provider_base_url(url_source: str) -> str:
 def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
     """
     Procesa el M3U original y crea templates con placeholders, clasificados por tipo.
+    Filtra movies y series por idiomas: EN, ENG, ES, LA, LAT
     
     Args:
         contenido_m3u: Contenido del M3U original con credenciales del proveedor
@@ -260,10 +277,10 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
         
     Returns:
         dict con:
-            - 'full': template completo
+            - 'full': template completo (live sin filtrar + movies/series filtrados)
             - 'live': solo canales en vivo
-            - 'movie': solo películas
-            - 'series': solo series
+            - 'movie': solo películas filtradas
+            - 'series': solo series filtradas
             - 'counts': contador por tipo
     """
     lines = contenido_m3u.split('\n')
@@ -273,7 +290,8 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
     movie_lines = ['#EXTM3U']
     series_lines = ['#EXTM3U']
     
-    counts = {'live': 0, 'movie': 0, 'series': 0}
+    counts = {'live': 0, 'movie': 0, 'series': 0, 'full': 0}
+    filtered = {'movie': 0, 'series': 0}
     
     provider_url_escaped = re.escape(provider_url)
 
@@ -310,9 +328,18 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
         
         all_lines.append(processed_line)
         
-        if content_type:
-            counts[content_type] += 1
-            if current_extinf:
+        if content_type and current_extinf:
+            should_include = True
+            include_in_full = True
+            
+            if content_type in ['movie', 'series']:
+                if not contains_language(current_extinf):
+                    should_include = False
+                    filtered[content_type] += 1
+                    include_in_full = False
+            
+            if should_include:
+                counts[content_type] += 1
                 if content_type == 'live':
                     live_lines.append(current_extinf)
                     live_lines.append(processed_line)
@@ -322,6 +349,8 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
                 elif content_type == 'series':
                     series_lines.append(current_extinf)
                     series_lines.append(processed_line)
+            
+            counts['full'] += 1
         
         current_extinf = None
     
@@ -330,7 +359,8 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
         'live': '\n'.join(live_lines),
         'movie': '\n'.join(movie_lines),
         'series': '\n'.join(series_lines),
-        'counts': counts
+        'counts': counts,
+        'filtered': filtered
     }
 
 
@@ -394,6 +424,11 @@ def guardar_m3u_local(contenido_m3u: str, m3u_dir: str = None, provider_url: str
         print(f"\n📊 Conteo por tipo:")
         for t, c in templates['counts'].items():
             print(f"    {t}: {c:,} items")
+        
+        if 'filtered' in templates:
+            print(f"\n🔍 Filtrados por idioma (EN, ENG, ES, LA, LAT):")
+            for t, c in templates['filtered'].items():
+                print(f"    {t}: {c:,} items excluidos")
 
         return {
             "template_path": results['full']['path'],
