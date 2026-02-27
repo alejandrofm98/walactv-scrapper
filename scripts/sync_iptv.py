@@ -603,23 +603,36 @@ def sync_to_supabase():
     # Usar URL completa con credenciales para descargar playlist
     url = playlist_url
 
-    try:
-        print("\n📥 FASE 1: Descargando playlist M3U...")
-        inicio_descarga = time.time()
+    MAX_RETRIES = 3
+    retry_count = 0
+    m3u_content = None
 
-        response = requests.get(url, timeout=CONSTANTS.PLAYLIST_DOWNLOAD_TIMEOUT)
-        response.raise_for_status()
-        m3u_content = response.text
+    print("\n📥 FASE 1: Descargando playlist M3U...")
 
-        fin_descarga = time.time()
-        duracion_descarga = fin_descarga - inicio_descarga
+    while retry_count < MAX_RETRIES:
+        try:
+            inicio_descarga = time.time()
 
-        print(f"✅ Playlist descargada: {len(m3u_content):,} caracteres")
-        print(f"  ⏱️  Tiempo de descarga: {duracion_descarga:.2f}s")
+            response = requests.get(url, timeout=CONSTANTS.PLAYLIST_DOWNLOAD_TIMEOUT)
+            response.raise_for_status()
+            m3u_content = response.text
 
-    except Exception as e:
-        print(f"❌ Error de conexión: {e}")
-        return 1
+            fin_descarga = time.time()
+            duracion_descarga = fin_descarga - inicio_descarga
+
+            print(f"✅ Playlist descargada: {len(m3u_content):,} caracteres")
+            print(f"  ⏱️  Tiempo de descarga: {duracion_descarga:.2f}s")
+            break
+
+        except Exception as e:
+            retry_count += 1
+            if retry_count < MAX_RETRIES:
+                print(f"⚠️  Error de conexión (intento {retry_count}/{MAX_RETRIES}): {e}")
+                print(f"   ⏳ Reintentando en 5 segundos...")
+                time.sleep(5)
+            else:
+                print(f"❌ Error de conexión después de {MAX_RETRIES} intentos: {e}")
+                return 1
 
     # Guardar archivo M3U
     print("\n" + "=" * 60)
