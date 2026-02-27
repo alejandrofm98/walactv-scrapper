@@ -41,6 +41,7 @@ services:
       dockerfile: docker/Dockerfile.sync
     container_name: walactv-sync-iptv
     restart: unless-stopped
+    entrypoint: ["/app/entrypoint.sh"]
     env_file:
       - .env
     environment:
