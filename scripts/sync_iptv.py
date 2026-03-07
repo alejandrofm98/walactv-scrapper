@@ -295,9 +295,23 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
     
     provider_url_escaped = re.escape(provider_url)
 
-    pattern_series = re.compile(rf'{provider_url_escaped}/series/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)')
-    pattern_movie = re.compile(rf'{provider_url_escaped}/movie/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)')
-    pattern_live = re.compile(rf'{provider_url_escaped}/[^/]+/[^/]+/(\d+)(?:\.ts)?')
+    pattern_series = re.compile(
+        rf'{provider_url_escaped}/series/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)'
+    )
+    pattern_movie = re.compile(
+        rf'{provider_url_escaped}/movie/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)'
+    )
+    pattern_live = re.compile(
+        rf'{provider_url_escaped}/(?:(?P<prefix>[^/]+)/)?[^/]+/[^/]+/(?P<id>\d+)(?P<ext>\.ts)?'
+    )
+
+    def replace_live_url(match: re.Match) -> str:
+        prefix = match.group('prefix')
+        stream_id = match.group('id')
+        ext = match.group('ext') or ''
+
+        prefix_part = f"{prefix}/" if prefix else ""
+        return f"{{{{DOMAIN}}}}/{prefix_part}{{{{USERNAME}}}}/{{{{PASSWORD}}}}/{stream_id}{ext}"
     
     current_extinf = None
     
@@ -323,7 +337,7 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
             processed_line = pattern_movie.sub(r'{{DOMAIN}}/movie/{{USERNAME}}/{{PASSWORD}}/\1.\2', line)
             content_type = 'movie'
         elif pattern_live.search(line):
-            processed_line = pattern_live.sub(r'{{DOMAIN}}/live/{{USERNAME}}/{{PASSWORD}}/\1', line)
+            processed_line = pattern_live.sub(replace_live_url, line)
             content_type = 'live'
         
         all_lines.append(processed_line)
@@ -623,6 +637,23 @@ def sync_to_supabase():
             print(f"✅ Playlist descargada: {len(m3u_content):,} caracteres")
             print(f"  ⏱️  Tiempo de descarga: {duracion_descarga:.2f}s")
             break
+
+        except requests.exceptions.HTTPError as e:
+            retry_count += 1
+            status_code = e.response.status_code if e.response is not None else None
+
+            if status_code is not None and 400 <= status_code < 500 and status_code not in [408, 429]:
+                print(f"❌ Error HTTP {status_code}: no se reintenta porque no es transitorio")
+                print(f"   URL: {url}")
+                return 1
+
+            if retry_count < MAX_RETRIES:
+                print(f"⚠️  Error HTTP (intento {retry_count}/{MAX_RETRIES}): {e}")
+                print(f"   ⏳ Reintentando en 5 segundos...")
+                time.sleep(5)
+            else:
+                print(f"❌ Error HTTP después de {MAX_RETRIES} intentos: {e}")
+                return 1
 
         except Exception as e:
             retry_count += 1

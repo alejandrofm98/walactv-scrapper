@@ -10,8 +10,10 @@ Nuevo esquema simplificado:
 """
 
 import json
+import re
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Añadir el directorio scripts al path
 scripts_dir = Path(__file__).parent
@@ -54,7 +56,7 @@ def extraer_calidad(nombre_iptv: str) -> str:
     return 'HD'
 
 
-def buscar_channel_id_por_nombre(supabase, nombre_iptv: str) -> str:
+def buscar_channel_id_por_nombre(supabase, nombre_iptv: str) -> Optional[str]:
     """Busca en la tabla channels por nombre exacto y retorna el ID"""
     try:
         result = supabase.table('channels').select('id').eq('nombre', nombre_iptv).execute()
@@ -64,6 +66,125 @@ def buscar_channel_id_por_nombre(supabase, nombre_iptv: str) -> str:
     except Exception as e:
         print(f"   ⚠️  Error buscando channel '{nombre_iptv}': {e}")
         return None
+
+
+def buscar_channels_por_patron(supabase, variante: dict) -> list:
+    """Busca channels por patrón dinámico usando nombre/grupo."""
+    try:
+        query = supabase.table('channels').select('id, nombre, grupo')
+
+        grupo_contains = variante.get('grupo_contains')
+        nombre_contains = variante.get('nombre_contains')
+
+        if grupo_contains:
+            query = query.ilike('grupo', f"%{grupo_contains}%")
+
+        if nombre_contains:
+            query = query.ilike('nombre', f"%{nombre_contains}%")
+
+        result = query.execute()
+        if not result.data:
+            return []
+
+        nombre_regex = variante.get('nombre_regex')
+        grupo_regex = variante.get('grupo_regex')
+
+        channels = []
+        for row in result.data:
+            nombre = row.get('nombre', '')
+            grupo = row.get('grupo', '')
+
+            if nombre_regex and not re.search(nombre_regex, nombre, re.IGNORECASE):
+                continue
+
+            if grupo_regex and not re.search(grupo_regex, grupo, re.IGNORECASE):
+                continue
+
+            channels.append(row)
+
+        return channels
+    except Exception as e:
+        print(f"   ⚠️  Error buscando channels por patrón: {e}")
+        return []
+
+
+def procesar_mapping(supabase, source_name: str, display_name: str, variantes: list, stats: dict):
+    """Procesa un mapping individual y guarda sus variantes."""
+    print(f"\n📝 Procesando: {source_name} -> {display_name}")
+
+    if not variantes:
+        print(f"   ⚠️  No se encontraron variantes en canales.json")
+        stats['errores'] += 1
+        return
+
+    print(f"   📺 Encontradas {len(variantes)} variaciones")
+
+    channel_ids = []
+    qualities = []
+
+    for var in variantes:
+        if isinstance(var, dict) and 'nombre' in var:
+            nombre_iptv = var['nombre']
+            channel_id = buscar_channel_id_por_nombre(supabase, nombre_iptv)
+
+            if channel_id:
+                channel_ids.append(channel_id)
+                qualities.append(extraer_calidad(nombre_iptv))
+                print(f"      ✅ {nombre_iptv} -> {channel_id}")
+                stats['variantes_insertadas'] += 1
+            else:
+                print(f"      ⚠️  No se encontró channel para: {nombre_iptv}")
+                stats['variantes_omitidas'] += 1
+
+        elif isinstance(var, dict) and ('nombre_regex' in var or 'grupo_regex' in var):
+            channels = buscar_channels_por_patron(supabase, var)
+
+            if channels:
+                for channel in channels:
+                    channel_id = channel['id']
+                    nombre_iptv = channel['nombre']
+                    if channel_id in channel_ids:
+                        continue
+
+                    channel_ids.append(channel_id)
+                    qualities.append(extraer_calidad(nombre_iptv))
+                    print(f"      ✅ {nombre_iptv} -> {channel_id} (patrón)")
+                    stats['variantes_insertadas'] += 1
+            else:
+                print(f"      ⚠️  No se encontraron channels para patrón dinámico")
+                stats['variantes_omitidas'] += 1
+
+    if channel_ids:
+        try:
+            mapping_id = ChannelMappingManager.upsert_mapping(
+                source_name=source_name,
+                display_name=display_name,
+                channel_ids=channel_ids,
+                qualities=qualities
+            )
+
+            if mapping_id:
+                print(f"   ✅ Mapeo guardado (ID: {mapping_id}) con {len(channel_ids)} variantes")
+                stats['mapeos_insertados'] += 1
+            else:
+                print(f"   ❌ Error guardando mapeo")
+                stats['errores'] += 1
+
+        except Exception as e:
+            print(f"   ❌ Error: {e}")
+            stats['errores'] += 1
+    else:
+        print(f"   ⚠️  No se encontraron channel_ids, creando mapeo vacío")
+        try:
+            mapping_id = ChannelMappingManager.upsert_mapping(
+                source_name=source_name,
+                display_name=display_name
+            )
+            if mapping_id:
+                stats['mapeos_insertados'] += 1
+        except Exception as e:
+            print(f"   ❌ Error: {e}")
+            stats['errores'] += 1
 
 
 def main():
@@ -100,72 +221,22 @@ def main():
     print("-" * 80)
     
     # Procesar cada entrada del mapeo
+    display_names_procesados = set()
+
     for source_name, display_name in mapeo_futbolenlatv.items():
-        print(f"\n📝 Procesando: {source_name} -> {display_name}")
-        
-        # Buscar las variaciones en canales.json
         variantes = canales_data.get(display_name, [])
-        
-        if not variantes:
-            print(f"   ⚠️  No se encontraron variantes en canales.json")
-            stats['errores'] += 1
-            continue
-        
-        print(f"   📺 Encontradas {len(variantes)} variaciones")
-        
-        # Preparar arrays de channel_ids y qualities
-        channel_ids = []
-        qualities = []
-        
-        for idx, var in enumerate(variantes):
-            if isinstance(var, dict) and 'nombre' in var:
-                nombre_iptv = var['nombre']
-                
-                # Buscar en tabla channels
-                channel_id = buscar_channel_id_por_nombre(supabase, nombre_iptv)
-                
-                if channel_id:
-                    channel_ids.append(channel_id)
-                    qualities.append(extraer_calidad(nombre_iptv))
-                    print(f"      ✅ {nombre_iptv} -> {channel_id}")
-                    stats['variantes_insertadas'] += 1
-                else:
-                    print(f"      ⚠️  No se encontró channel para: {nombre_iptv}")
-                    stats['variantes_omitidas'] += 1
-        
-        if channel_ids:
-            # Insertar en el nuevo esquema simplificado
-            try:
-                mapping_id = ChannelMappingManager.upsert_mapping(
-                    source_name=source_name,
-                    display_name=display_name,
-                    channel_ids=channel_ids,
-                    qualities=qualities
-                )
-                
-                if mapping_id:
-                    print(f"   ✅ Mapeo guardado (ID: {mapping_id}) con {len(channel_ids)} variantes")
-                    stats['mapeos_insertados'] += 1
-                else:
-                    print(f"   ❌ Error guardando mapeo")
-                    stats['errores'] += 1
-                    
-            except Exception as e:
-                print(f"   ❌ Error: {e}")
-                stats['errores'] += 1
-        else:
-            print(f"   ⚠️  No se encontraron channel_ids, creando mapeo vacío")
-            # Crear mapeo sin variantes (se pueden agregar después)
-            try:
-                mapping_id = ChannelMappingManager.upsert_mapping(
-                    source_name=source_name,
-                    display_name=display_name
-                )
-                if mapping_id:
-                    stats['mapeos_insertados'] += 1
-            except Exception as e:
-                print(f"   ❌ Error: {e}")
-                stats['errores'] += 1
+        procesar_mapping(supabase, source_name, display_name, variantes, stats)
+        display_names_procesados.add(display_name)
+
+    extras = [display_name for display_name in canales_data.keys() if display_name not in display_names_procesados]
+
+    if extras:
+        print("\n📦 Procesando mappings internos adicionales...")
+        print("-" * 80)
+
+    for display_name in extras:
+        variantes = canales_data.get(display_name, [])
+        procesar_mapping(supabase, display_name, display_name, variantes, stats)
     
     # Resumen final
     print("\n" + "=" * 80)

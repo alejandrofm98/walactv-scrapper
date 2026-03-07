@@ -437,5 +437,47 @@
     {
       "nombre": "ES| M.PLUS+ 2 SD"
     }
+  ],
+  "TNT SPORTS": [
+    {
+      "nombre": "UK| TNT SPORTS 1 FHD"
+    },
+    {
+      "nombre": "UK| TNT SPORTS 1 HD"
+    },
+    {
+      "nombre": "UK| TNT SPORTS 1 HD ◉"
+    },
+    {
+      "nombre": "UK| TNT SPORTS 1 SD"
+    }
+  ],
+  "PARAMOUNT PRELIMS EN": [
+    {
+      "grupo_contains": "PARAMOUNT+ PPV VIP",
+      "nombre_contains": "Paramount",
+      "nombre_regex": "UFC.*PRELIMS.*(?:ENGLISH|ENG)"
+    }
+  ],
+  "PARAMOUNT PRELIMS ES": [
+    {
+      "grupo_contains": "PARAMOUNT+ PPV VIP",
+      "nombre_contains": "Paramount",
+      "nombre_regex": "UFC.*PRELIMS.*(?:EN ESPAÑOL|EN ESPANOL|ESPAÑOL|ESPANOL|SPANISH)"
+    }
+  ],
+  "PARAMOUNT MAIN EN": [
+    {
+      "grupo_contains": "PARAMOUNT+ PPV VIP",
+      "nombre_contains": "Paramount",
+      "nombre_regex": "UFC.*MAIN.*(?:ENGLISH|ENG)"
+    }
+  ],
+  "PARAMOUNT MAIN ES": [
+    {
+      "grupo_contains": "PARAMOUNT+ PPV VIP",
+      "nombre_contains": "Paramount",
+      "nombre_regex": "UFC.*MAIN.*(?:EN ESPAÑOL|EN ESPANOL|ESPAÑOL|ESPANOL|SPANISH)"
+    }
   ]
 }
