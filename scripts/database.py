@@ -498,12 +498,44 @@ class DataManagerSupabase:
         return data
 
 
+class ReplayManager:
+    """
+    Gestor de replays UFC y otras repeticiones externas
+    """
+
+    @staticmethod
+    def upsert_replays(replays: List[Dict[str, Any]]) -> int:
+        """
+        Inserta o actualiza replays usando el slug como clave única.
+
+        Args:
+            replays: Lista de replays normalizados para Supabase
+
+        Returns:
+            int: Número de registros procesados
+        """
+        if not replays:
+            return 0
+
+        try:
+            supabase = SupabaseDB.get_client()
+            result = supabase.table('replays').upsert(
+                replays,
+                on_conflict='slug'
+            ).execute()
+            return len(result.data or replays)
+        except Exception as e:
+            print(f"❌ Error guardando replays: {e}")
+            return 0
+
+
 # Exportar todo
 __all__ = [
     'SupabaseDB',
     'ConfigManager',
     'ChannelMappingManager',
     'CalendarioAcestreamManager',
+    'ReplayManager',
     'Database',
     'DataManagerSupabase',
     'SupabaseDocumentSnapshot'

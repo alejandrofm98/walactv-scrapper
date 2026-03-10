@@ -106,19 +106,46 @@ CREATE TABLE IF NOT EXISTS series (
 );
 
 -- ==========================================
+-- 6. Tabla de replays externos
+-- ==========================================
+CREATE TABLE IF NOT EXISTS replays (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    slug TEXT NOT NULL UNIQUE,
+    source_site TEXT NOT NULL DEFAULT 'watch-wrestling.eu',
+    title TEXT NOT NULL,
+    event_name TEXT,
+    event_type TEXT,
+    event_date DATE,
+    post_url TEXT NOT NULL,
+    featured_image_url TEXT,
+    description TEXT,
+    video_sources JSONB NOT NULL DEFAULT '[]'::jsonb,
+    match_card JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_replays_source_site ON replays(source_site);
+CREATE INDEX IF NOT EXISTS idx_replays_event_date ON replays(event_date DESC);
+CREATE INDEX IF NOT EXISTS idx_replays_event_type ON replays(event_type);
+
+-- ==========================================
 -- RLS (Row Level Security)
 -- ==========================================
 ALTER TABLE channel_mappings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE channel_variants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE calendario ENABLE ROW LEVEL SECURITY;
+ALTER TABLE replays ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow public read mappings" ON channel_mappings FOR SELECT USING (true);
 CREATE POLICY "Allow public read variants" ON channel_variants FOR SELECT USING (true);
 CREATE POLICY "Allow public read calendario" ON calendario FOR SELECT USING (true);
+CREATE POLICY "Allow public read replays" ON replays FOR SELECT USING (true);
 
 CREATE POLICY "Allow authenticated write mappings" ON channel_mappings FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow authenticated write variants" ON channel_variants FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow authenticated write calendario" ON calendario FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow authenticated write replays" ON replays FOR ALL USING (true) WITH CHECK (true);
 
 -- ==========================================
 -- Funciones utilitarias simplificadas
@@ -137,6 +164,9 @@ CREATE TRIGGER update_mappings_updated_at BEFORE UPDATE ON channel_mappings
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_calendario_updated_at BEFORE UPDATE ON calendario
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_replays_updated_at BEFORE UPDATE ON replays
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ==========================================

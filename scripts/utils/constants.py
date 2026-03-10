@@ -35,6 +35,7 @@ CHANNELS_TABLE = "channels"
 MOVIES_TABLE = "movies"
 SERIES_TABLE = "series"
 SYNC_METADATA_TABLE = "sync_metadata"
+REPLAYS_TABLE = "replays"
 
 # ===== Configuración M3U =====
 M3U_FILENAME_LATEST = "playlist.m3u"
