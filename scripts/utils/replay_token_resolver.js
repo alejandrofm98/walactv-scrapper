@@ -73,7 +73,7 @@ async function resolveProviderUrlFromToken(token, tokenEnc, refererUrl) {
   const submitUrl = `https://techradan.com/?id=${encodeURIComponent(token)}`;
   const submitBody = new URLSearchParams({ id: token, id_enc: tokenEnc }).toString();
 
-  const submitResponse = await requestText(submitUrl, {
+  const initialResponse = await requestText(submitUrl, {
     method: 'POST',
     body: submitBody,
     headers: {
@@ -82,24 +82,44 @@ async function resolveProviderUrlFromToken(token, tokenEnc, refererUrl) {
     },
   });
 
-  const cookieHeader = (submitResponse.headers['set-cookie'] || [])
-    .map((value) => value.split(';')[0])
+  const alternateFormMatch = initialResponse.text.match(/<form[^>]*action="([^"]+)"[^>]*>/i);
+  let resolverBaseUrl = 'https://techradan.com';
+  let submitResponse = initialResponse;
+
+  if (!initialResponse.headers['set-cookie'] && alternateFormMatch) {
+    const alternateAction = alternateFormMatch[1];
+    const alternateUrl = new URL(alternateAction);
+    resolverBaseUrl = `${alternateUrl.protocol}//${alternateUrl.host}`;
+    submitResponse = await requestText(alternateAction, {
+      method: 'POST',
+      body: new URLSearchParams({ id: token }).toString(),
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Referer: submitUrl,
+      },
+    });
+  }
+
+  const rawCookies = submitResponse.headers['set-cookie'] || initialResponse.headers['set-cookie'] || [];
+  const cookieList = Array.isArray(rawCookies) ? rawCookies : [rawCookies];
+  const cookieHeader = cookieList
+    .map((value) => String(value).split(';')[0])
     .join('; ');
 
   if (!cookieHeader) {
-    throw new Error('No se obtuvieron cookies desde techradan');
+    throw new Error('No se obtuvieron cookies desde el resolvedor');
   }
 
-  const playerUrl = 'https://techradan.com/2024_oct/embed_player_provider';
+  const playerUrl = `${resolverBaseUrl}/2024_oct/embed_player_provider`;
   const preloadScript = (
-    await requestText('https://techradan.com/2024_oct/cached_data_provider.php', {
+    await requestText(`${resolverBaseUrl}/2024_oct/cached_data_provider.php`, {
       headers: { Referer: playerUrl },
       cookie: cookieHeader,
     })
   ).text;
 
   const loaderScript = (
-    await requestText('https://techradan.com/robots_.js?ver=3.28', {
+    await requestText(`${resolverBaseUrl}/robots_.js?ver=3.28`, {
       headers: { Referer: playerUrl },
       cookie: cookieHeader,
     })

@@ -2,6 +2,8 @@
 Scraper de replays UFC desde watch-wrestling.eu
 """
 import argparse
+import html
+import json
 import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -29,9 +31,23 @@ class WatchWrestlingUfcScraper:
     REQUEST_TIMEOUT = 30
     PRIORITY_GROUP_KEYWORDS = (
         "dailymotion",
+        "ok.ru",
+        "okru",
+        "vidframe",
+        "vk video",
+        "vk.com",
+        "streamw",
+        "voe",
+        "voe.sx",
+        "streamtape",
+        "vot",
+        "vtube",
+        "other hosts",
     )
     PRIORITY_LABEL_KEYWORDS = (
         "streamw",
+        "voe",
+        "voe.sx",
         "full show",
         "part 1",
         "part 2",
@@ -39,9 +55,8 @@ class WatchWrestlingUfcScraper:
         "part 4",
     )
     SKIP_LABEL_KEYWORDS = (
-        "voe",
-        "netu",
         "abyss",
+        "netu",
     )
     DEFAULT_HEADERS = {
         "User-Agent": (
@@ -200,11 +215,27 @@ class WatchWrestlingUfcScraper:
         total_fuentes = sum(replay.get("source_scan_total", 0) for replay in replays)
         total_streams = sum(replay.get("source_scan_resolved", 0) for replay in replays)
         total_descartadas = sum(replay.get("source_scan_skipped", 0) for replay in replays)
+        total_embed = sum(
+            1
+            for replay in replays
+            for group in replay.get("video_sources", [])
+            for source in group.get("sources", [])
+            if source.get("web_embed_url")
+        )
+        total_m3u = sum(
+            1
+            for replay in replays
+            for group in replay.get("video_sources", [])
+            for source in group.get("sources", [])
+            if source.get("stream_url")
+        )
 
         self._log_info(f"Posts UFC encontrados: {len(posts)}")
         self._log_info(f"Replays normalizados: {len(replays)}")
         self._log_info(f"Fuentes detectadas: {total_fuentes}")
         self._log_info(f"Fuentes resueltas: {total_streams}")
+        self._log_info(f"Fuentes con embed: {total_embed}")
+        self._log_info(f"Fuentes con m3u: {total_m3u}")
         self._log_info(f"Fuentes no recogidas: {total_descartadas}")
 
         guardados = self._guardar_replays(replays)
@@ -221,7 +252,9 @@ class WatchWrestlingUfcScraper:
             f"{replay['source_scan_total']} | no recogidas {replay['source_scan_skipped']}"
         )
         for item in replay.get("source_scan_resolved_items", []):
-            self._log_info(f"  OBTENIDA {item['group']} / {item['label']}")
+            mode = item.get("mode")
+            suffix = f" [{str(mode).upper()}]" if mode else ""
+            self._log_info(f"  OBTENIDA {item['group']} / {item['label']}{suffix}")
         for item in replay.get("source_scan_skipped_items", []):
             self._log_info(f"  NO OBTENIDA {item['group']} / {item['label']}")
 
@@ -378,14 +411,18 @@ class WatchWrestlingUfcScraper:
         grupos_map: Dict[int, Dict[str, Any]] = {}
 
         descartadas = 0
-        resolved_items: List[Dict[str, str]] = []
+        resolved_items: List[Dict[str, Any]] = []
         discarded_items: List[Dict[str, str]] = []
 
         for c in candidatos:
             cache_key = f"{c['group_index']}:{c['button_index']}"
             stream = resueltos_http.get(cache_key) or {}
+            web_embed_url = None if (stream.get("provider") or "").lower() == "vidframe" else self._seleccionar_embed_para_web(
+                c["embed_url"],
+                stream.get("provider_url"),
+            )
 
-            if not stream.get("stream_url"):
+            if not stream.get("stream_url") and not web_embed_url:
                 descartadas += 1
                 discarded_items.append({
                     "group": c["nombre_grupo"],
@@ -399,10 +436,12 @@ class WatchWrestlingUfcScraper:
 
             grupos_map[gi]["sources"].append({
                 "label": c["label"],
-                "web_embed_url": self._seleccionar_embed_para_web(
-                    c["embed_url"],
-                    stream.get("provider_url"),
-                ),
+                "source_index": c["group_index"],
+                "button_index": c["button_index"],
+                "provider": stream.get("provider"),
+                "provider_url": stream.get("provider_url"),
+                "provider_video_id": stream.get("provider_video_id"),
+                "web_embed_url": web_embed_url,
                 **{k: stream.get(k) for k in (
                     "stream_url",
                     "stream_format",
@@ -411,6 +450,10 @@ class WatchWrestlingUfcScraper:
             resolved_items.append({
                 "group": c["nombre_grupo"],
                 "label": c["label"],
+                "mode": self._build_resolution_log_mode(
+                    stream=stream,
+                    web_embed_url=web_embed_url,
+                ),
             })
 
         grupos = [g for g in grupos_map.values() if g["sources"]]
@@ -441,6 +484,8 @@ class WatchWrestlingUfcScraper:
         def resolver_uno(candidato: Dict[str, Any]):
             embed_url = candidato.get("embed_url")
             cache_key = f"{candidato['group_index']}:{candidato['button_index']}"
+            group_name = candidato.get("nombre_grupo", "")
+            label = candidato.get("label", "")
             if not embed_url:
                 return cache_key, {}
 
@@ -448,14 +493,9 @@ class WatchWrestlingUfcScraper:
             if embed_url in self._provider_url_cache:
                 return cache_key, dict(self._provider_url_cache[embed_url])
 
-            provider_url = self._resolver_provider_url(embed_url)
             stream_data: Dict[str, Any] = {}
-            if provider_url:
-                stream_data = self._resolver_provider_stream(provider_url)
 
-            if (not stream_data.get("stream_url")) and self._es_grupo_dailymotion(
-                candidato.get("nombre_grupo", "")
-            ):
+            if self._es_fuente_resolvable(group_name, label):
                 provider_url = self._resolver_provider_url_desde_token(
                     token=candidato.get("token"),
                     token_enc=candidato.get("token_enc"),
@@ -464,7 +504,12 @@ class WatchWrestlingUfcScraper:
                 if provider_url:
                     stream_data = self._resolver_provider_stream(provider_url)
 
-            if stream_data.get("stream_url"):
+            if not stream_data.get("stream_url"):
+                provider_url = self._resolver_provider_url(embed_url)
+                if provider_url:
+                    stream_data = self._resolver_provider_stream(provider_url)
+
+            if stream_data.get("stream_url") and self._validar_stream_resuelto(stream_data):
                 self._provider_url_cache[embed_url] = stream_data
                 return cache_key, stream_data
 
@@ -485,6 +530,28 @@ class WatchWrestlingUfcScraper:
     @staticmethod
     def _es_grupo_dailymotion(group_name: str) -> bool:
         return "dailymotion" in (group_name or "").lower()
+
+    @staticmethod
+    def _es_fuente_resolvable(group_name: str, label: str) -> bool:
+        """Determina si una fuente debe intentar resolverse via token."""
+        group_lower = (group_name or "").lower()
+        label_lower = (label or "").lower()
+        keywords = (
+            "dailymotion",
+            "ok.ru",
+            "okru",
+            "vidframe",
+            "vk video",
+            "vk.com",
+            "streamw",
+            "voe",
+            "voe.sx",
+            "streamtape",
+            "vtube",
+            "vot",
+            "other hosts",
+        )
+        return any(keyword in group_lower or keyword in label_lower for keyword in keywords)
 
     # ──────────────────────────────────────────────────────────────
     # Resolución de streams — métodos de soporte
@@ -528,7 +595,10 @@ class WatchWrestlingUfcScraper:
         if any(keyword in label_lower for keyword in self.SKIP_LABEL_KEYWORDS):
             return False
 
-        return any(keyword in group_lower for keyword in self.PRIORITY_GROUP_KEYWORDS)
+        return (
+            any(keyword in group_lower for keyword in self.PRIORITY_GROUP_KEYWORDS)
+            or any(keyword in label_lower for keyword in self.PRIORITY_LABEL_KEYWORDS)
+        )
 
     def _resolver_provider_url(self, embed_url: str) -> Optional[str]:
         resolver_path = Path(__file__).resolve().parent / "utils" / "replay_embed_resolver.js"
@@ -610,10 +680,112 @@ class WatchWrestlingUfcScraper:
         return salida or None
 
     def _resolver_provider_stream(self, provider_url: str) -> Dict[str, Any]:
+        provider_url = self._normalizar_provider_url(provider_url)
         stream_data: Dict[str, Any] = {"provider_url": provider_url}
 
         if "dailymotion.com/embed/video/" in provider_url:
             stream_data.update(self._resolver_dailymotion_stream(provider_url))
+            return stream_data
+
+        if "ok.ru/videoembed/" in provider_url or "ok.ru/video/" in provider_url:
+            video_id = self._extraer_okru_video_id(provider_url)
+            stream_url = self._resolver_okru_stream(provider_url)
+            stream_data.update({
+                "provider": "okru",
+                "stream_url": stream_url,
+                "stream_format": "application/x-mpegURL" if stream_url else "embed",
+                "resolution_mode": "stream+embed" if stream_url else "embed",
+                "provider_video_id": video_id,
+            })
+            return stream_data
+
+        if "vidframe.com/embed/" in provider_url or urlparse(provider_url).path.startswith("/embed/"):
+            video_id = self._extraer_vidframe_video_id(provider_url)
+            stream_url = self._resolver_vidframe_stream(provider_url)
+            if stream_url:
+                stream_data.update({
+                    "provider": "vidframe",
+                    "stream_url": stream_url,
+                    "stream_format": "application/x-mpegURL",
+                    "resolution_mode": "stream+embed",
+                    "provider_video_id": video_id,
+                })
+                return stream_data
+
+            if "vidframe.com/embed/" in provider_url:
+                stream_data.update({
+                    "provider": "vidframe",
+                    "stream_url": None,
+                    "stream_format": "embed",
+                    "resolution_mode": "embed",
+                    "provider_video_id": video_id,
+                })
+                return stream_data
+
+        if "vk.com/video-" in provider_url or "vk.com/ext.php" in provider_url:
+            video_id = self._extraer_vk_video_id(provider_url)
+            stream_data.update({
+                "provider": "vk",
+                "stream_url": None,
+                "stream_format": "embed",
+                "resolution_mode": "embed",
+                "provider_video_id": video_id,
+            })
+            return stream_data
+
+        if "hglink.to/e/" in provider_url.lower() or "vibuxer.com/e/" in provider_url.lower():
+            stream_url = self._resolver_streamw_stream(provider_url)
+            stream_data.update({
+                "provider": "streamw",
+                "stream_url": stream_url,
+                "stream_format": "application/x-mpegURL" if stream_url else "embed",
+                "resolution_mode": "stream+embed" if stream_url else "embed",
+            })
+            return stream_data
+
+        if "streamw" in provider_url.lower():
+            stream_data.update({
+                "provider": "streamw",
+                "stream_url": None,
+                "stream_format": "embed",
+                "resolution_mode": "embed",
+            })
+            return stream_data
+
+        if "voe.sx" in provider_url.lower() or provider_url.startswith("https://voe.sx"):
+            stream_data.update({
+                "provider": "voe",
+                "stream_url": None,
+                "stream_format": "embed",
+                "resolution_mode": "embed",
+            })
+            return stream_data
+
+        if "streamtape" in provider_url.lower():
+            stream_data.update({
+                "provider": "streamtape",
+                "stream_url": None,
+                "stream_format": "embed",
+                "resolution_mode": "embed",
+            })
+            return stream_data
+
+        if "vtube" in provider_url.lower() or "vtube." in provider_url.lower():
+            stream_data.update({
+                "provider": "vtube",
+                "stream_url": None,
+                "stream_format": "embed",
+                "resolution_mode": "embed",
+            })
+            return stream_data
+
+        if "vot" in provider_url.lower():
+            stream_data.update({
+                "provider": "vot",
+                "stream_url": None,
+                "stream_format": "embed",
+                "resolution_mode": "embed",
+            })
             return stream_data
 
         if provider_url.endswith(".m3u8"):
@@ -621,6 +793,7 @@ class WatchWrestlingUfcScraper:
                 "provider": self._detectar_provider_desde_url(provider_url),
                 "stream_url": provider_url,
                 "stream_format": "application/x-mpegURL",
+                "resolution_mode": "stream",
             })
             return stream_data
 
@@ -629,10 +802,233 @@ class WatchWrestlingUfcScraper:
                 "provider": self._detectar_provider_desde_url(provider_url),
                 "stream_url": provider_url,
                 "stream_format": "video/mp4",
+                "resolution_mode": "stream",
             })
             return stream_data
 
+        parsed_url = urlparse(provider_url)
+        if parsed_url.netloc and parsed_url.netloc not in {"dailywrestling.cc", "watch-wrestling.eu"}:
+            if "/embed/" in parsed_url.path or parsed_url.path.startswith("/e/"):
+                stream_data.update({
+                    "provider": self._detectar_provider_desde_url(provider_url),
+                    "stream_url": None,
+                    "stream_format": "embed",
+                    "resolution_mode": "embed",
+                })
+                return stream_data
+
         return stream_data
+
+    def _validar_stream_resuelto(self, stream_data: Dict[str, Any]) -> bool:
+        """Descarta enlaces caidos o paginas genericas sin video."""
+        stream_url = stream_data.get("stream_url")
+        candidate_url = stream_url
+        stream_format = (stream_data.get("stream_format") or "").lower()
+        provider = (stream_data.get("provider") or "").lower()
+
+        if not stream_url:
+            provider_url = stream_data.get("provider_url")
+            if stream_format == "embed" and provider_url and self._es_embed_web_usable(str(provider_url)):
+                candidate_url = provider_url
+            else:
+                return False
+
+        if not candidate_url:
+            return False
+
+        if provider in {"abyss", "netu"}:
+            return False
+
+        if provider == "dailymotion":
+            if stream_data.get("provider_url") and self._es_embed_web_usable(stream_data.get("provider_url", "")):
+                if stream_format in {"application/x-mpegurl", "video/mp4"}:
+                    stream_data["resolution_mode"] = "stream+embed"
+                else:
+                    stream_data["resolution_mode"] = "embed"
+                return True
+            return False
+
+        if stream_format in {"application/x-mpegurl", "video/mp4"}:
+            try:
+                response = self.session.get(
+                    candidate_url,
+                    timeout=15,
+                    allow_redirects=True,
+                    stream=True,
+                    headers=self.DEFAULT_HEADERS,
+                )
+                return response.status_code < 400
+            except Exception:
+                return False
+
+        if stream_format != "embed":
+            return True
+
+        try:
+            response = self.session.get(
+                candidate_url,
+                timeout=15,
+                allow_redirects=True,
+                headers=self.DEFAULT_HEADERS,
+            )
+            response.raise_for_status()
+        except Exception:
+            return False
+
+        final_url = response.url or candidate_url
+        parsed_final = urlparse(final_url)
+        blocked_hosts = ("abyss", "abysscdn", "short.icu", "netu", "hqq.ac", "hqq.to")
+        if any(host in (parsed_final.netloc or "").lower() for host in blocked_hosts):
+            return False
+        if parsed_final.path in {"", "/"}:
+            return False
+
+        body = (response.text or "")[:5000].lower()
+        invalid_markers = (
+            "page not found",
+            "video not found",
+            "file was deleted",
+            "file is no longer available",
+            "video unavailable",
+            "404 not found",
+            "was removed",
+            "doesn't exist",
+            "do not exist",
+            "not available",
+        )
+        if any(marker in body for marker in invalid_markers):
+            return False
+
+        return True
+
+    def _normalizar_provider_url(self, provider_url: str) -> str:
+        """Sigue shorteners conocidos para quedarnos con la URL mas util."""
+        lowered = (provider_url or "").lower()
+        if not provider_url:
+            return provider_url
+
+        if "short.icu/" not in lowered:
+            return provider_url
+
+        try:
+            response = self.session.get(
+                provider_url,
+                timeout=self.REQUEST_TIMEOUT,
+                allow_redirects=False,
+                headers={"User-Agent": self.DEFAULT_HEADERS["User-Agent"]},
+            )
+        except Exception as e:
+            self._log_warning(f"No se pudo expandir shortlink {provider_url}: {e}")
+            return provider_url
+
+        location = response.headers.get("Location") or response.headers.get("location")
+        return location or provider_url
+
+    def _resolver_vidframe_stream(self, provider_url: str) -> Optional[str]:
+        """Extrae el m3u8 real desde el embed HTML de VidFrame."""
+        try:
+            response = self.session.get(
+                provider_url,
+                timeout=self.REQUEST_TIMEOUT,
+                headers=self.DEFAULT_HEADERS,
+            )
+            response.raise_for_status()
+        except Exception as e:
+            self._log_warning(f"No se pudo abrir embed VidFrame {provider_url}: {e}")
+            return None
+
+        match = re.search(r'file:\s*"([^"]+\.m3u8[^"]*)"', response.text)
+        if match:
+            return match.group(1)
+
+        match = re.search(r"file:\s*'([^']+\.m3u8[^']*)'", response.text)
+        if match:
+            return match.group(1)
+
+        return None
+
+    def _resolver_okru_stream(self, provider_url: str) -> Optional[str]:
+        """Extrae el m3u8 real desde el metadata embebido de OK.ru."""
+        try:
+            response = self.session.get(
+                provider_url,
+                timeout=self.REQUEST_TIMEOUT,
+                headers=self.DEFAULT_HEADERS,
+            )
+            response.raise_for_status()
+        except Exception as e:
+            self._log_warning(f"No se pudo abrir embed OK.ru {provider_url}: {e}")
+            return None
+
+        try:
+            soup = BeautifulSoup(response.text, "html.parser")
+            video_node = soup.select_one('[data-module="OKVideo"]')
+            if not video_node:
+                return None
+
+            raw_options = html.unescape(str(video_node.get("data-options") or ""))
+            if not raw_options:
+                return None
+
+            options = json.loads(raw_options)
+            raw_metadata = options.get("flashvars", {}).get("metadata")
+            if not raw_metadata:
+                return None
+
+            metadata = json.loads(raw_metadata)
+            hls_url = metadata.get("hlsManifestUrl")
+            return str(hls_url) if hls_url else None
+        except Exception as e:
+            self._log_warning(f"No se pudo parsear metadata OK.ru {provider_url}: {e}")
+            return None
+
+    def _resolver_streamw_stream(self, provider_url: str) -> Optional[str]:
+        """Extrae el m3u8 real desde el player de StreamW/Vibuxer."""
+        script_path = Path(__file__).resolve().parent / "utils" / "replay_streamw_resolver.js"
+        try:
+            result = subprocess.run(
+                ["node", str(script_path), provider_url],
+                capture_output=True,
+                text=True,
+                timeout=45,
+                check=False,
+            )
+        except Exception as e:
+            self._log_warning(f"No se pudo lanzar resolvedor StreamW para {provider_url}: {e}")
+            return None
+
+        if result.returncode != 0:
+            error = (result.stderr or "").strip()
+            if error:
+                self._log_warning(f"No se pudo resolver StreamW {provider_url}: {error}")
+            return None
+
+        salida = (result.stdout or "").strip()
+        return salida or None
+
+    @staticmethod
+    def _extraer_okru_video_id(url: str) -> Optional[str]:
+        parsed = urlparse(url)
+        path_parts = [p for p in parsed.path.split("/") if p]
+        if path_parts:
+            return path_parts[-1]
+        return None
+
+    @staticmethod
+    def _extraer_vidframe_video_id(url: str) -> Optional[str]:
+        parsed = urlparse(url)
+        path_parts = [p for p in parsed.path.split("/") if p]
+        if path_parts:
+            return path_parts[-1]
+        return None
+
+    @staticmethod
+    def _extraer_vk_video_id(url: str) -> Optional[str]:
+        if "video-" in url:
+            parts = url.split("video-")
+            if len(parts) > 1:
+                return parts[1].split("?")[0]
+        return None
 
     def _seleccionar_embed_para_web(
         self,
@@ -645,14 +1041,52 @@ class WatchWrestlingUfcScraper:
         return embed_url
 
     @staticmethod
+    def _build_resolution_log_mode(
+        stream: Dict[str, Any],
+        web_embed_url: Optional[str],
+    ) -> Optional[str]:
+        stream_url = stream.get("stream_url")
+        stream_format = (stream.get("stream_format") or "").lower()
+        has_stream = bool(stream_url) and stream_format != "embed"
+        has_embed = bool(web_embed_url)
+
+        if has_stream and has_embed:
+            return "embed|m3u"
+
+        if has_stream and not has_embed:
+            return "m3u"
+
+        if has_embed:
+            return "embed"
+
+        return None
+
+    @staticmethod
     def _es_embed_web_usable(url: str) -> bool:
         lowered = (url or "").lower()
-        return any(marker in lowered for marker in (
+        if any(marker in lowered for marker in (
             "dailymotion.com/embed/video/",
             "geo.dailymotion.com/player.html",
             "ok.ru/videoembed/",
             "ok.ru/video/",
-        ))
+            "vidframe.com/embed/",
+            "vk.com/video-",
+            "vk.com/ext.php?",
+            "streamw",
+            "hglink.to/e/",
+            "vibuxer.com/e/",
+            "voe.sx",
+            "streamtape",
+            "vtube",
+            "vot",
+        )):
+            return True
+
+        parsed_url = urlparse(url or "")
+        if parsed_url.netloc and parsed_url.netloc not in {"dailywrestling.cc", "watch-wrestling.eu"}:
+            return "/embed/" in parsed_url.path or parsed_url.path.startswith("/e/")
+
+        return False
 
     # ──────────────────────────────────────────────────────────────
     # Dailymotion
@@ -665,6 +1099,8 @@ class WatchWrestlingUfcScraper:
 
         data: Dict[str, Any] = {
             "provider": "dailymotion",
+            "provider_access_id": access_id,
+            "provider_video_id": access_id,
         }
 
         if not access_id:
@@ -672,6 +1108,9 @@ class WatchWrestlingUfcScraper:
 
         metadata = self._obtener_dailymotion_metadata(access_id)
         if not metadata:
+            data["stream_url"] = None
+            data["stream_format"] = "embed"
+            data["resolution_mode"] = "embed"
             return data
 
         quality_sources = metadata.get("qualities") or {}
@@ -679,6 +1118,11 @@ class WatchWrestlingUfcScraper:
         if source:
             data["stream_url"] = source.get("url")
             data["stream_format"] = source.get("type")
+            data["resolution_mode"] = "stream"
+        else:
+            data["stream_url"] = None
+            data["stream_format"] = "embed"
+            data["resolution_mode"] = "embed"
 
         available_qualities = [key for key, value in quality_sources.items() if value]
 
@@ -738,16 +1182,22 @@ class WatchWrestlingUfcScraper:
         lowered = url.lower()
         if "dailymotion" in lowered or "dmcdn" in lowered:
             return "dailymotion"
-        if "abyss" in lowered:
-            return "abyss"
-        if "streamw" in lowered:
+        if "streamw" in lowered or "hglink.to" in lowered or "vibuxer.com" in lowered:
             return "streamw"
+        if "streamtape" in lowered:
+            return "streamtape"
         if "voe" in lowered:
             return "voe"
         if "ok.ru" in lowered:
             return "okru"
-        if "netu" in lowered:
-            return "netu"
+        if "vidframe" in lowered or "oriandtheblindforesttt" in lowered or "1globaldev2" in lowered:
+            return "vidframe"
+        if "vk.com" in lowered:
+            return "vk"
+        if "vtube" in lowered:
+            return "vtube"
+        if "vot" in lowered:
+            return "vot"
         return urlparse(url).netloc or "unknown"
 
     @staticmethod
