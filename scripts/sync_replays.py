@@ -209,6 +209,9 @@ class WatchWrestlingUfcScraper:
         replays: List[Dict[str, Any]] = []
         for post in posts:
             replay = self.parsear_post(post)
+            if not any(group.get("sources") for group in replay.get("video_sources", [])):
+                self._log_info(f"Evento omitido sin fuentes usables: {replay['title']}")
+                continue
             replays.append(replay)
             self._log_resumen_evento(replay)
 
@@ -255,8 +258,6 @@ class WatchWrestlingUfcScraper:
             mode = item.get("mode")
             suffix = f" [{str(mode).upper()}]" if mode else ""
             self._log_info(f"  OBTENIDA {item['group']} / {item['label']}{suffix}")
-        for item in replay.get("source_scan_skipped_items", []):
-            self._log_info(f"  NO OBTENIDA {item['group']} / {item['label']}")
 
     @staticmethod
     def _guardar_replays(replays: List[Dict[str, Any]]) -> int:
@@ -848,6 +849,52 @@ class WatchWrestlingUfcScraper:
                 return True
             return False
 
+        if provider == "okru":
+            if stream_format in {"application/x-mpegurl", "video/mp4"} and stream_url:
+                try:
+                    response = self.session.get(
+                        stream_url,
+                        timeout=15,
+                        allow_redirects=True,
+                        stream=True,
+                        headers=self.DEFAULT_HEADERS,
+                    )
+                    return response.status_code < 400
+                except Exception:
+                    return False
+
+            provider_url = str(stream_data.get("provider_url") or "")
+            if not provider_url:
+                return False
+
+            try:
+                response = self.session.get(
+                    provider_url,
+                    timeout=15,
+                    allow_redirects=True,
+                    headers=self.DEFAULT_HEADERS,
+                )
+                response.raise_for_status()
+            except Exception:
+                return False
+
+            body = (response.text or "")
+            lowered_body = body.lower()
+            if 'data-module="OKVideo"' not in body and "data-module='OKVideo'" not in body:
+                return False
+            blocked_markers = (
+                "copyrightsrestricted",
+                "video blocked",
+                "video is blocked",
+                "video unavailable",
+                "video has been removed",
+                "видео заблокировано",
+                "из-за нарушений авторских прав",
+                "vp_video_stub",
+                'data-movie-id="null"',
+            )
+            return not any(marker in lowered_body for marker in blocked_markers)
+
         if stream_format in {"application/x-mpegurl", "video/mp4"}:
             try:
                 response = self.session.get(
@@ -1038,7 +1085,7 @@ class WatchWrestlingUfcScraper:
         """Elige la URL embebible más estable para la web."""
         if provider_url and self._es_embed_web_usable(provider_url):
             return provider_url
-        return embed_url
+        return None
 
     @staticmethod
     def _build_resolution_log_mode(
