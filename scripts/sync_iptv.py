@@ -25,20 +25,177 @@ from services.bulk_insert import insert_bulk_optimized
 settings = get_settings()
 
 FILTER_LANGUAGES = ['EN', 'ENG', 'ES', 'LA', 'LAT']
+LANGUAGE_ALIASES = {
+    'ENG': 'EN',
+    'ENGLISH': 'EN',
+    'EN': 'EN',
+    'ES': 'ES',
+    'ESP': 'ES',
+    'ESPANOL': 'ES',
+    'SPANISH': 'ES',
+    'LA': 'LATAM',
+    'LAT': 'LATAM',
+    'LATAM': 'LATAM',
+    'LATINO': 'LATAM',
+    'VOSE': 'VOSE',
+    'CAST': 'CAST',
+    'CASTELLANO': 'CAST',
+    'SUB': 'SUB',
+    'SUBTITULADO': 'SUB',
+}
+FILTER_LANGUAGES_NORMALIZED = {'EN', 'ES', 'LATAM'}
+LANGUAGE_TOKEN_REGEX = re.compile(
+    r'(?i)(?<![A-Z0-9])(LATAM|LATINO|LAT|LA|ENGLISH|ENG|EN|ESPANOL|SPANISH|ESP|ES|VOSE|CASTELLANO|CAST|SUBTITULADO|SUB)(?![A-Z0-9])'
+)
 
 
 def contains_language(extinf_line: str) -> bool:
     """
-    Busca prefijos de idioma SOLO en group-title.
-    Solo incluye si el group-title tiene el idioma (|EN|, |ENG|, |ES|, |LA|, |LAT|)
+    Busca idioma en group-title, tvg-name o display name.
     """
-    group_title_match = re.search(r'group-title="([^"]+)"', extinf_line)
-    if group_title_match:
-        group_title = group_title_match.group(1)
-        for lang in FILTER_LANGUAGES:
-            if f'|{lang}|' in group_title:
-                return True
-    return False
+    metadata = extraer_metadatos_normalizados_m3u(extinf_line)
+    return metadata['language'] in FILTER_LANGUAGES_NORMALIZED
+
+
+def split_extinf_line(extinf_line: str) -> tuple[str, str]:
+    in_quotes = False
+    comma_index = -1
+
+    for i, char in enumerate(extinf_line):
+        if char == '"':
+            in_quotes = not in_quotes
+        elif char == ',' and not in_quotes:
+            comma_index = i
+            break
+
+    if comma_index == -1:
+        return extinf_line, ''
+
+    return extinf_line[:comma_index], extinf_line[comma_index + 1:].strip()
+
+
+def normalizar_idioma(raw_value: str | None) -> str | None:
+    if not raw_value:
+        return None
+
+    cleaned = re.sub(r'[^A-Z0-9]+', '', raw_value.upper())
+    return LANGUAGE_ALIASES.get(cleaned)
+
+
+def extraer_idioma_desde_grupo(group_title: str) -> str | None:
+    if not group_title:
+        return None
+
+    pipe_tokens = re.findall(r'\|\s*([^|]+?)\s*\|', group_title)
+    for token in pipe_tokens:
+        normalized = normalizar_idioma(token)
+        if normalized:
+            return normalized
+
+    prefix_match = re.match(r'^\s*([A-Z]{2,12})\s*[-|]', group_title.upper())
+    if prefix_match:
+        normalized = normalizar_idioma(prefix_match.group(1))
+        if normalized:
+            return normalized
+
+    token_match = LANGUAGE_TOKEN_REGEX.search(group_title.upper())
+    if token_match:
+        return normalizar_idioma(token_match.group(1))
+
+    return None
+
+
+def extraer_idioma_desde_nombre(name: str) -> str | None:
+    if not name:
+        return None
+
+    prefix_match = re.match(r'^\s*([A-Z]{2,12})\s*[-|]\s*', name.upper())
+    if prefix_match:
+        normalized = normalizar_idioma(prefix_match.group(1))
+        if normalized:
+            return normalized
+
+    return None
+
+
+def quitar_prefijo_idioma(texto: str, language: str | None) -> str:
+    if not texto:
+        return ''
+
+    cleaned = texto.strip()
+    if not language:
+        return cleaned
+
+    variants = [key for key, value in LANGUAGE_ALIASES.items() if value == language]
+    variants.append(language)
+    pattern = r'^\s*(?:' + '|'.join(sorted(set(re.escape(v) for v in variants), key=len, reverse=True)) + r')\s*[-|:]\s*'
+    return re.sub(pattern, '', cleaned, count=1, flags=re.IGNORECASE).strip()
+
+
+def normalizar_grupo(group_title: str, language: str | None) -> str:
+    if not group_title:
+        return ''
+
+    cleaned = group_title.strip()
+    if language:
+        variants = [key for key, value in LANGUAGE_ALIASES.items() if value == language]
+        variants.append(language)
+        for variant in sorted(set(variants), key=len, reverse=True):
+            cleaned = re.sub(rf'\|\s*{re.escape(variant)}\s*\|', '|', cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(rf'^\s*{re.escape(variant)}\s*[-|:]\s*', '', cleaned, flags=re.IGNORECASE)
+
+    cleaned = re.sub(r'\|+', '|', cleaned)
+    cleaned = cleaned.strip(' |-_')
+    return re.sub(r'\s+', ' ', cleaned).strip()
+
+
+def extraer_serie_name_normalizado(nombre_normalizado: str) -> str | None:
+    serie_name = extraer_serie_name(nombre_normalizado)
+    return serie_name.strip() if serie_name else None
+
+
+def extraer_metadatos_normalizados_m3u(extinf_line: str) -> dict:
+    attrs_part, display_name = split_extinf_line(extinf_line)
+    group_match = re.search(r'group-title="([^"]+)"', attrs_part)
+    tvg_name_match = re.search(r'tvg-name="([^"]+)"', attrs_part)
+
+    group_title = group_match.group(1).strip() if group_match else ''
+    tvg_name = tvg_name_match.group(1).strip() if tvg_name_match else ''
+
+    language = (
+        extraer_idioma_desde_grupo(group_title)
+        or extraer_idioma_desde_nombre(tvg_name)
+        or extraer_idioma_desde_nombre(display_name)
+    )
+
+    source_name = display_name or tvg_name
+    name_normalized = quitar_prefijo_idioma(source_name, language)
+    group_normalized = normalizar_grupo(group_title, language)
+    series_name_normalized = extraer_serie_name_normalizado(name_normalized)
+
+    return {
+        'language': language,
+        'name_normalized': name_normalized,
+        'group_normalized': group_normalized,
+        'series_name_normalized': series_name_normalized,
+    }
+
+
+def enriquecer_extinf_con_metadatos(extinf_line: str) -> str:
+    attrs_part, display_name = split_extinf_line(extinf_line)
+    metadata = extraer_metadatos_normalizados_m3u(extinf_line)
+
+    extra_attrs = [
+        f' walac-language="{metadata["language"] or ""}"',
+        f' walac-name-normalized="{metadata["name_normalized"]}"',
+        f' walac-group-normalized="{metadata["group_normalized"]}"',
+    ]
+    if metadata['series_name_normalized']:
+        extra_attrs.append(
+            f' walac-series-name-normalized="{metadata["series_name_normalized"]}"'
+        )
+
+    return f'{attrs_part}{"".join(extra_attrs)},{display_name}'
 
 
 def init_supabase() -> Client:
@@ -320,7 +477,7 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
         
         if line.startswith('#EXTINF:'):
             current_extinf = line
-            all_lines.append(line)
+            all_lines.append(enriquecer_extinf_con_metadatos(line))
             continue
         
         if not line or line.startswith('#'):
@@ -355,13 +512,13 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
             if should_include:
                 counts[content_type] += 1
                 if content_type == 'live':
-                    live_lines.append(current_extinf)
+                    live_lines.append(enriquecer_extinf_con_metadatos(current_extinf))
                     live_lines.append(processed_line)
                 elif content_type == 'movie':
-                    movie_lines.append(current_extinf)
+                    movie_lines.append(enriquecer_extinf_con_metadatos(current_extinf))
                     movie_lines.append(processed_line)
                 elif content_type == 'series':
-                    series_lines.append(current_extinf)
+                    series_lines.append(enriquecer_extinf_con_metadatos(current_extinf))
                     series_lines.append(processed_line)
             
             counts['full'] += 1
