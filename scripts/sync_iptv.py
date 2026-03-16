@@ -203,6 +203,33 @@ def init_supabase() -> Client:
     return settings.get_supabase_client()
 
 
+def obtener_config_desde_supabase(supabase: Client, key: str) -> str:
+    """Obtiene un valor de la tabla config."""
+    result = supabase.table('config').select('value').eq('key', key).execute()
+    if result.data and len(result.data) > 0:
+        first_row = result.data[0]
+        if isinstance(first_row, dict):
+            return str(first_row.get('value', '') or '')
+    return ''
+
+
+def construir_proxies_requests(proxy_ip: str, proxy_port: str,
+                               proxy_user: str, proxy_pass: str) -> dict[str, str] | None:
+    """Construye configuración de proxy para requests."""
+    if not proxy_ip or not proxy_port:
+        return None
+
+    if proxy_user and proxy_pass:
+        proxy_url = f"http://{proxy_user}:{proxy_pass}@{proxy_ip}:{proxy_port}"
+    else:
+        proxy_url = f"http://{proxy_ip}:{proxy_port}"
+
+    return {
+        'http': proxy_url,
+        'https': proxy_url,
+    }
+
+
 def detectar_tipo_contenido(url, nombre):
     """
     Detecta si es canal, película o serie basándose en la URL y nombre
@@ -734,19 +761,23 @@ def sync_to_supabase():
     provider_username: str = ""
     provider_password: str = ""
     playlist_url: str = ""
+    download_proxies: dict[str, str] | None = None
 
     try:
-        # Leer los 3 valores de config
-        config_base = supabase.table('config').select('value').eq('key', 'IPTV_BASE_URL').execute()
-        config_user = supabase.table('config').select('value').eq('key', 'IPTV_USERNAME').execute()
-        config_pass = supabase.table('config').select('value').eq('key', 'IPTV_PASSWORD').execute()
+        provider_url = obtener_config_desde_supabase(supabase, 'IPTV_BASE_URL')
+        provider_username = obtener_config_desde_supabase(supabase, 'IPTV_USERNAME')
+        provider_password = obtener_config_desde_supabase(supabase, 'IPTV_PASSWORD')
 
-        if config_base.data and len(config_base.data) > 0:
-            provider_url = str(config_base.data[0].get('value', ''))
-        if config_user.data and len(config_user.data) > 0:
-            provider_username = str(config_user.data[0].get('value', ''))
-        if config_pass.data and len(config_pass.data) > 0:
-            provider_password = str(config_pass.data[0].get('value', ''))
+        proxy_ip = obtener_config_desde_supabase(supabase, 'PROXY_IP')
+        proxy_port = obtener_config_desde_supabase(supabase, 'PROXY_PORT')
+        proxy_user = obtener_config_desde_supabase(supabase, 'PROXY_USER')
+        proxy_pass = obtener_config_desde_supabase(supabase, 'PROXY_PASS')
+        download_proxies = construir_proxies_requests(
+            proxy_ip,
+            proxy_port,
+            proxy_user,
+            proxy_pass,
+        )
 
         if provider_url and provider_username and provider_password:
             # Construir URL completa para descargar playlist
@@ -755,6 +786,10 @@ def sync_to_supabase():
             print(f"✅ Configuración del proveedor obtenida desde config")
             print(f"   URL Base: {provider_url}")
             print(f"   Username: {provider_username}")
+            if download_proxies:
+                print(f"✅ Proxy configurado desde config: {proxy_ip}:{proxy_port}")
+            else:
+                print("⚠️  Proxy no configurado en config; descarga directa")
         else:
             # Fallback: usar iptv_source_url desde settings
             playlist_url = str(settings.iptv_source_url) if settings.iptv_source_url else ""
@@ -784,7 +819,11 @@ def sync_to_supabase():
         try:
             inicio_descarga = time.time()
 
-            response = requests.get(url, timeout=CONSTANTS.PLAYLIST_DOWNLOAD_TIMEOUT)
+            response = requests.get(
+                url,
+                timeout=CONSTANTS.PLAYLIST_DOWNLOAD_TIMEOUT,
+                proxies=download_proxies,
+            )
             response.raise_for_status()
             m3u_content = response.text
 
