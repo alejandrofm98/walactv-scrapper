@@ -327,6 +327,24 @@ def extraer_serie_name(nombre):
     return None
 
 
+COUNTRY_KEYWORDS = {
+    'BR': ['BRASIL', 'BRA', 'BRAZIL', 'BRASILEIRAO', 'GLOBO', 'SBT', 'BAND', 'REDE', 'TV GLOBO'],
+    'AR': ['ARGENTINA', 'ARG', 'CANAL 13', 'TELEFE', 'TYC', 'ARGENTINOS'],
+    'MX': ['MEXICO', 'MEX', 'TELEVISA', 'TV AZTECA', 'CANAL ONCE', 'NUEVO LEON'],
+    'CO': ['COLOMBIA', 'COL', 'CARACOL', 'RCN', 'COLOMBIAN'],
+    'CL': ['CHILE', 'CHI', 'CHANNEL', 'TVN', 'CHV', 'CANAL 13 CHILE'],
+    'PE': ['PERU', 'PER', 'ATV', 'AMERICA TV', 'LIMA'],
+    'VE': ['VENEZUELA', 'VEN', 'VENEVISION', 'TELESUR'],
+    'US': ['USA', 'ESTADOS UNIDOS', 'AMERICAN', 'UNIVISION', 'ESPN US'],
+    'UK': ['UK', 'ENGLAND', 'BRITISH', 'BBC', 'SKY UK'],
+    'ES': ['ESPAÑA', 'SPAIN', 'ES', 'SPANISH', 'CANAL+', 'MOVISTAR', 'TELEDEPORTE'],
+    'PT': ['PORTUGAL', 'POR', 'PORTUGUESE', 'RTP', 'SIC'],
+    'IT': ['ITALIA', 'ITA', 'ITALIAN', 'RAI', 'MEDIASET'],
+    'FR': ['FRANCIA', 'FRA', 'FRENCH', 'TF1', 'FRANCE'],
+    'DE': ['ALEMANIA', 'GERMANY', 'DEU', 'GERMAN', 'ZDF', 'ARD'],
+    'UY': ['URUGUAY', 'URU', 'URUGUAYAN', 'CANAL 10', 'TVU'],
+}
+
 def extraer_country(grupo):
     """
     Extrae el código de país del grupo
@@ -334,13 +352,24 @@ def extraer_country(grupo):
         - "ES|DEPORTES" -> "ES"
         - "|AR| افلام اجنبي اكشن" -> "AR"
         - "NL| AMAZON PRIME" -> "NL"
+        - "BR| BRASIL DAZN PPV" -> "BR"
+        - "BRASIL DAZN PPV" -> "BR" (por keyword)
     """
     if not grupo:
         return None
 
-    match = re.search(CONSTANTS.COUNTRY_CODE_PATTERN, grupo)
+    # Primero: buscar código de país al inicio con patrón flexible
+    # Soporta: BR|, |BR|, BR|, BR |, etc.
+    match = re.match(r'^[|\s]*([A-Z]{2})[\s|]?', grupo)
     if match:
         return match.group(1)
+
+    # Segundo: buscar por keywords en el grupo
+    grupo_upper = grupo.upper()
+    for country_code, keywords in COUNTRY_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in grupo_upper:
+                return country_code
 
     return None
 
