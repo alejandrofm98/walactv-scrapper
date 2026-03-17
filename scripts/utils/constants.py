@@ -79,6 +79,19 @@ DELETE_BATCH_SLEEP = 0.1  # segundos
 # ===== Metadata sync =====
 SYNC_METADATA_ID = "iptv_sync"
 
+# ===== Filtros de canales =====
+CHANNEL_FILTER_LANGUAGES = {'EN', 'ES', 'LATAM'}
+CHANNEL_FILTER_CATEGORIES = {
+    'sports', 'deporte', 'futbol', 'football',
+    'news', 'noticias',
+    'entertainment', 'entretenimiento',
+    'movies', 'peliculas',
+    'series',
+    'music', 'musica',
+    'kids', 'infantil',
+    'documentary', 'documentales',
+}
+
 # ===== M3U Parsing =====
 M3U_EXTINF_PREFIX = "#EXTINF:"
 M3U_GROUP_TITLE_ATTR = 'group-title="'

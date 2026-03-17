@@ -30,7 +30,7 @@ LANGUAGE_ALIASES = {
     'ENGLISH': 'EN',
     'EN': 'EN',
     'ES': 'ES',
-    'ESP': 'ES',
+    'ESP': 'ESP',
     'ESPANOL': 'ES',
     'SPANISH': 'ES',
     'LA': 'LATAM',
@@ -44,6 +44,8 @@ LANGUAGE_ALIASES = {
     'SUBTITULADO': 'SUB',
 }
 FILTER_LANGUAGES_NORMALIZED = {'EN', 'ES', 'LATAM'}
+CHANNEL_FILTER_LANGUAGES = CONSTANTS.CHANNEL_FILTER_LANGUAGES
+CHANNEL_FILTER_CATEGORIES = CONSTANTS.CHANNEL_FILTER_CATEGORIES
 LANGUAGE_TOKEN_REGEX = re.compile(
     r'(?i)(?<![A-Z0-9])(LATAM|LATINO|LAT|LA|ENGLISH|ENG|EN|ESPANOL|SPANISH|ESP|ES|VOSE|CASTELLANO|CAST|SUBTITULADO|SUB)(?![A-Z0-9])'
 )
@@ -55,6 +57,43 @@ def contains_language(extinf_line: str) -> bool:
     """
     metadata = extraer_metadatos_normalizados_m3u(extinf_line)
     return metadata['language'] in FILTER_LANGUAGES_NORMALIZED
+
+
+def extract_category_from_group(group_normalized: str) -> str | None:
+    """
+    Extrae la categoría del group-title normalizado.
+    Ejemplo: "|EN| Sports|Futbol" -> "sports"
+    """
+    if not group_normalized:
+        return None
+    group_lower = group_normalized.lower()
+    for cat in CHANNEL_FILTER_CATEGORIES:
+        if cat in group_lower:
+            return cat
+    return None
+
+
+def should_filter_channel(item: dict) -> tuple[bool, str]:
+    """
+    Determina si un canal debe ser filtrado.
+    
+    Returns:
+        tuple: (should_filter, reason)
+    """
+    extinf = item.get('extinf', '')
+    metadata = extraer_metadatos_normalizados_m3u(extinf)
+    
+    language = metadata.get('language')
+    group_normalized = metadata.get('group_normalized', '')
+    
+    if language and language not in CHANNEL_FILTER_LANGUAGES:
+        return True, f"idioma={language}"
+    
+    category = extract_category_from_group(group_normalized)
+    if not category:
+        return True, "sin_categoria"
+    
+    return False, ""
 
 
 def split_extinf_line(extinf_line: str) -> tuple[str, str]:
@@ -364,6 +403,14 @@ def procesar_item(item, idx, tipo):
     # Extraer provider_id de la URL
     provider_id = extraer_provider_id(item['url'])
 
+    # Extraer metadatos normalizados
+    extinf = item.get('extinf', '')
+    metadata = extraer_metadatos_normalizados_m3u(extinf) if extinf else {
+        'language': None,
+        'name_normalized': item['name'],
+        'group_normalized': item['group'],
+    }
+
     # Datos base comunes a todos los tipos
     data_base = {
         "id": item_id,
@@ -374,7 +421,9 @@ def procesar_item(item, idx, tipo):
         "provider_id": provider_id,
         "grupo": item['group'],
         "country": country,
-        "tvg_id": item.get('tvg_id', '')
+        "tvg_id": item.get('tvg_id', ''),
+        "language": metadata.get('language'),
+        "group_normalized": metadata.get('group_normalized'),
     }
 
     # Si es serie, añadir temporada, episodio y serie_name
@@ -888,12 +937,12 @@ def sync_to_supabase():
     series = []
 
     stats = {
-        'channels': {'total': 0, 'con_logo': 0, 'sin_logo': 0},
-        'movies': {'total': 0, 'con_logo': 0, 'sin_logo': 0},
-        'series': {'total': 0, 'con_logo': 0, 'sin_logo': 0}
+        'channels': {'total': 0, 'con_logo': 0, 'sin_logo': 0, 'filtered': 0},
+        'movies': {'total': 0, 'con_logo': 0, 'sin_logo': 0, 'filtered': 0},
+        'series': {'total': 0, 'con_logo': 0, 'sin_logo': 0, 'filtered': 0}
     }
 
-    print(f"\n🔍 FASE 3: Clasificando contenido por tipo...")
+    print(f"\n🔍 FASE 3: Clasificando contenido por tipo y aplicando filtros...")
     inicio_clasificacion = time.time()
 
     idx_channel = 1
@@ -904,9 +953,13 @@ def sync_to_supabase():
         tipo = detectar_tipo_contenido(item['url'], item['name'])
 
         if tipo == CONSTANTS.CONTENT_TYPE_CHANNEL:
-            item_data = procesar_item(item, idx_channel, tipo)
-            channels.append(item_data)
-            idx_channel += 1
+            should_filter, reason = should_filter_channel(item)
+            if should_filter:
+                stats['channels']['filtered'] += 1
+            else:
+                item_data = procesar_item(item, idx_channel, tipo)
+                channels.append(item_data)
+                idx_channel += 1
             stats['channels']['total'] += 1
             if item['logo']:
                 stats['channels']['con_logo'] += 1
@@ -939,7 +992,7 @@ def sync_to_supabase():
     print(f"✅ Clasificación completada en {duracion_clasificacion:.2f}s")
     print("\n" + "=" * 50)
     print(f"📊 Resumen de clasificación:")
-    print(f"  📺 Canales: {stats['channels']['total']:,}")
+    print(f"  📺 Canales: {stats['channels']['total']:,} (filtrados: {stats['channels']['filtered']:,})")
     print(f"    - Con logo: {stats['channels']['con_logo']:,}")
     print(f"    - Sin logo: {stats['channels']['sin_logo']:,}")
     print(f"  🎬 Películas: {stats['movies']['total']:,}")
