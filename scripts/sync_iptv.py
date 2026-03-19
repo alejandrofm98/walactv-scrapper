@@ -398,7 +398,7 @@ def extraer_provider_id(url: str) -> str:
 
 def construir_stream_url(url: str, provider_username: str, provider_password: str) -> str:
     provider_id = extraer_provider_id(url)
-    if not provider_id or not provider_username or not provider_password:
+    if not provider_id:
         return ""
 
     base_url = settings.public_domain.rstrip('/')
@@ -408,11 +408,14 @@ def construir_stream_url(url: str, provider_username: str, provider_password: st
     if '.' in last_part:
         extension = '.' + last_part.split('.')[-1]
 
+    username_placeholder = "{{USERNAME}}"
+    password_placeholder = "{{PASSWORD}}"
+
     if '/series/' in url_lower:
-        return f"{base_url}/series/{provider_username}/{provider_password}/{provider_id}{extension}"
+        return f"{base_url}/series/{username_placeholder}/{password_placeholder}/{provider_id}{extension}"
     if '/movie/' in url_lower:
-        return f"{base_url}/movie/{provider_username}/{provider_password}/{provider_id}{extension}"
-    return f"{base_url}/live/{provider_username}/{provider_password}/{provider_id}"
+        return f"{base_url}/movie/{username_placeholder}/{password_placeholder}/{provider_id}{extension}"
+    return f"{base_url}/live/{username_placeholder}/{password_placeholder}/{provider_id}"
 
 
 def procesar_item(item, idx, tipo, provider_username: str = "", provider_password: str = ""):

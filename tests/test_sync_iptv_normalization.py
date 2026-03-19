@@ -43,7 +43,7 @@ def test_procesar_item_guarda_normalizados_solo_quitando_idioma_en_channel() -> 
     assert processed["nombre_normalizado"] == "Canal Demo HD"
     assert processed["grupo"] == "ES - Noticias"
     assert processed["grupo_normalizado"] == "Noticias"
-    assert processed["stream_url"] == f"{BASE_PUBLIC_URL}/live/admin/secret/100"
+    assert processed["stream_url"] == f"{BASE_PUBLIC_URL}/live/{{{{USERNAME}}}}/{{{{PASSWORD}}}}/100"
 
 
 def test_procesar_item_guarda_normalizados_solo_quitando_idioma_en_movie() -> None:
@@ -59,7 +59,7 @@ def test_procesar_item_guarda_normalizados_solo_quitando_idioma_en_movie() -> No
 
     assert processed["nombre_normalizado"] == "Mi Pelicula 4K"
     assert processed["grupo_normalizado"] == "Estrenos"
-    assert processed["stream_url"] == f"{BASE_PUBLIC_URL}/movie/admin/secret/200.mp4"
+    assert processed["stream_url"] == f"{BASE_PUBLIC_URL}/movie/{{{{USERNAME}}}}/{{{{PASSWORD}}}}/200.mp4"
 
 
 def test_procesar_item_guarda_stream_url_para_series() -> None:
@@ -73,4 +73,4 @@ def test_procesar_item_guarda_stream_url_para_series() -> None:
 
     processed = procesar_item(item, 3, CONSTANTS.CONTENT_TYPE_SERIE, provider_username="admin", provider_password="secret")
 
-    assert processed["stream_url"] == f"{BASE_PUBLIC_URL}/series/admin/secret/300.mkv"
+    assert processed["stream_url"] == f"{BASE_PUBLIC_URL}/series/{{{{USERNAME}}}}/{{{{PASSWORD}}}}/300.mkv"
