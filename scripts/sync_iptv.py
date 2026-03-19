@@ -396,7 +396,26 @@ def extraer_provider_id(url: str) -> str:
         return ""
 
 
-def procesar_item(item, idx, tipo):
+def construir_stream_url(url: str, provider_username: str, provider_password: str) -> str:
+    provider_id = extraer_provider_id(url)
+    if not provider_id or not provider_username or not provider_password:
+        return ""
+
+    base_url = settings.public_domain.rstrip('/')
+    url_lower = url.lower()
+    last_part = url.rstrip('/').split('/')[-1]
+    extension = ''
+    if '.' in last_part:
+        extension = '.' + last_part.split('.')[-1]
+
+    if '/series/' in url_lower:
+        return f"{base_url}/series/{provider_username}/{provider_password}/{provider_id}{extension}"
+    if '/movie/' in url_lower:
+        return f"{base_url}/movie/{provider_username}/{provider_password}/{provider_id}{extension}"
+    return f"{base_url}/live/{provider_username}/{provider_password}/{provider_id}"
+
+
+def procesar_item(item, idx, tipo, provider_username: str = "", provider_password: str = ""):
     """Procesa un item (canal/movie/serie) según su tipo"""
     item_id = str(idx)[:50]  # Truncar a máximo 50 caracteres
 
@@ -409,6 +428,7 @@ def procesar_item(item, idx, tipo):
 
     # Extraer provider_id de la URL
     provider_id = extraer_provider_id(item['url'])
+    stream_url = construir_stream_url(item['url'], provider_username, provider_password)
 
     # Datos base comunes a todos los tipos
     data_base = {
@@ -418,6 +438,7 @@ def procesar_item(item, idx, tipo):
         "logo": logo_url,
         "url": item['url'],
         "provider_id": provider_id,
+        "stream_url": stream_url,
         "grupo": item['group'],
         "grupo_normalizado": metadata['group_normalized'],
         "country": country,
@@ -952,7 +973,7 @@ def sync_to_supabase():
         tipo = detectar_tipo_contenido(item['url'], item['name'])
 
         if tipo == CONSTANTS.CONTENT_TYPE_CHANNEL:
-            item_data = procesar_item(item, idx_channel, tipo)
+            item_data = procesar_item(item, idx_channel, tipo, provider_username, provider_password)
             channels.append(item_data)
             idx_channel += 1
             stats['channels']['total'] += 1
@@ -962,7 +983,7 @@ def sync_to_supabase():
                 stats['channels']['sin_logo'] += 1
 
         elif tipo == CONSTANTS.CONTENT_TYPE_MOVIE:
-            item_data = procesar_item(item, idx_movie, tipo)
+            item_data = procesar_item(item, idx_movie, tipo, provider_username, provider_password)
             movies.append(item_data)
             idx_movie += 1
             stats['movies']['total'] += 1
@@ -972,7 +993,7 @@ def sync_to_supabase():
                 stats['movies']['sin_logo'] += 1
 
         elif tipo == CONSTANTS.CONTENT_TYPE_SERIE:
-            item_data = procesar_item(item, idx_serie, tipo)
+            item_data = procesar_item(item, idx_serie, tipo, provider_username, provider_password)
             series.append(item_data)
             idx_serie += 1
             stats['series']['total'] += 1

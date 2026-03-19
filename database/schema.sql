@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS channels (
     nombre_normalizado VARCHAR(255),
     logo TEXT,
     url TEXT NOT NULL,
+    stream_url TEXT,
     grupo VARCHAR(255),
     grupo_normalizado VARCHAR(255),
     country VARCHAR(10),
@@ -88,6 +89,7 @@ CREATE TABLE IF NOT EXISTS movies (
     nombre_normalizado TEXT,
     logo TEXT,
     url TEXT NOT NULL,
+    stream_url TEXT,
     grupo TEXT,
     grupo_normalizado TEXT,
     country VARCHAR(10),
@@ -104,6 +106,7 @@ CREATE TABLE IF NOT EXISTS series (
     serie_name VARCHAR(255),
     logo TEXT,
     url TEXT NOT NULL,
+    stream_url TEXT,
     grupo TEXT,
     grupo_normalizado TEXT,
     country VARCHAR(10),
@@ -115,10 +118,13 @@ CREATE TABLE IF NOT EXISTS series (
 
 ALTER TABLE channels ADD COLUMN IF NOT EXISTS nombre_normalizado VARCHAR(255);
 ALTER TABLE channels ADD COLUMN IF NOT EXISTS grupo_normalizado VARCHAR(255);
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS stream_url TEXT;
 ALTER TABLE movies ADD COLUMN IF NOT EXISTS nombre_normalizado TEXT;
 ALTER TABLE movies ADD COLUMN IF NOT EXISTS grupo_normalizado TEXT;
+ALTER TABLE movies ADD COLUMN IF NOT EXISTS stream_url TEXT;
 ALTER TABLE series ADD COLUMN IF NOT EXISTS nombre_normalizado TEXT;
 ALTER TABLE series ADD COLUMN IF NOT EXISTS grupo_normalizado TEXT;
+ALTER TABLE series ADD COLUMN IF NOT EXISTS stream_url TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_movies_grupo_normalizado ON movies(grupo_normalizado);
 CREATE INDEX IF NOT EXISTS idx_movies_nombre_normalizado ON movies(nombre_normalizado);
