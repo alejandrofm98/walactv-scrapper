@@ -154,6 +154,23 @@ def extraer_serie_name_normalizado(nombre_normalizado: str) -> str | None:
     return serie_name.strip() if serie_name else None
 
 
+def construir_metadatos_normalizados(name: str, group_title: str, content_type: str) -> dict:
+    if content_type == CONSTANTS.CONTENT_TYPE_CHANNEL:
+        language = extraer_country(group_title) or extraer_idioma_desde_nombre(name)
+    else:
+        language = extraer_idioma_desde_grupo(group_title) or extraer_idioma_desde_nombre(name)
+
+    name_normalized = quitar_prefijo_idioma(name, language)
+    group_normalized = normalizar_grupo(group_title, language)
+
+    return {
+        'language': language,
+        'name_normalized': name_normalized,
+        'group_normalized': group_normalized,
+        'series_name_normalized': extraer_serie_name_normalizado(name_normalized),
+    }
+
+
 def extraer_metadatos_normalizados_m3u(extinf_line: str) -> dict:
     attrs_part, display_name = split_extinf_line(extinf_line)
     group_match = re.search(r'group-title="([^"]+)"', attrs_part)
@@ -162,23 +179,8 @@ def extraer_metadatos_normalizados_m3u(extinf_line: str) -> dict:
     group_title = group_match.group(1).strip() if group_match else ''
     tvg_name = tvg_name_match.group(1).strip() if tvg_name_match else ''
 
-    language = (
-        extraer_idioma_desde_grupo(group_title)
-        or extraer_idioma_desde_nombre(tvg_name)
-        or extraer_idioma_desde_nombre(display_name)
-    )
-
     source_name = display_name or tvg_name
-    name_normalized = quitar_prefijo_idioma(source_name, language)
-    group_normalized = normalizar_grupo(group_title, language)
-    series_name_normalized = extraer_serie_name_normalizado(name_normalized)
-
-    return {
-        'language': language,
-        'name_normalized': name_normalized,
-        'group_normalized': group_normalized,
-        'series_name_normalized': series_name_normalized,
-    }
+    return construir_metadatos_normalizados(source_name, group_title, CONSTANTS.CONTENT_TYPE_MOVIE)
 
 
 def enriquecer_extinf_con_metadatos(extinf_line: str, content_type: str = None) -> str:
@@ -400,6 +402,7 @@ def procesar_item(item, idx, tipo):
 
     # Extraer country del grupo
     country = extraer_country(item['group'])
+    metadata = construir_metadatos_normalizados(item['name'], item['group'], tipo)
 
     # Convertir URL del logo a HTTPS usando el proxy
     logo_url = proxy_logo_url(item['logo'], settings.public_domain, tipo)
@@ -416,7 +419,9 @@ def procesar_item(item, idx, tipo):
         "url": item['url'],
         "provider_id": provider_id,
         "grupo": item['group'],
+        "grupo_normalizado": metadata['group_normalized'],
         "country": country,
+        "nombre_normalizado": metadata['name_normalized'],
         "tvg_id": item.get('tvg_id', '')
     }
 
@@ -547,7 +552,7 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
         
         if line.startswith('#EXTINF:'):
             current_extinf = line
-            all_lines.append(enriquecer_extinf_con_metadatos(line))
+            all_lines.append(line)
             continue
         
         if not line or line.startswith('#'):
@@ -582,13 +587,13 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
             if should_include:
                 counts[content_type] += 1
                 if content_type == 'live':
-                    live_lines.append(enriquecer_extinf_con_metadatos(current_extinf, CONSTANTS.CONTENT_TYPE_CHANNEL))
+                    live_lines.append(current_extinf)
                     live_lines.append(processed_line)
                 elif content_type == 'movie':
-                    movie_lines.append(enriquecer_extinf_con_metadatos(current_extinf))
+                    movie_lines.append(current_extinf)
                     movie_lines.append(processed_line)
                 elif content_type == 'series':
-                    series_lines.append(enriquecer_extinf_con_metadatos(current_extinf))
+                    series_lines.append(current_extinf)
                     series_lines.append(processed_line)
             
             counts['full'] += 1

@@ -11,15 +11,19 @@ CREATE TABLE IF NOT EXISTS channels (
     numero INT,
     provider_id VARCHAR(50),
     nombre VARCHAR(255) NOT NULL,
+    nombre_normalizado VARCHAR(255),
     logo TEXT,
     url TEXT NOT NULL,
     grupo VARCHAR(255),
+    grupo_normalizado VARCHAR(255),
     country VARCHAR(10),
     tvg_id VARCHAR(100),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_channels_grupo ON channels(grupo);
+CREATE INDEX IF NOT EXISTS idx_channels_grupo_normalizado ON channels(grupo_normalizado);
+CREATE INDEX IF NOT EXISTS idx_channels_nombre_normalizado ON channels(nombre_normalizado);
 CREATE INDEX IF NOT EXISTS idx_channels_country ON channels(country);
 
 -- ==========================================
@@ -81,9 +85,11 @@ CREATE TABLE IF NOT EXISTS movies (
     numero INT,
     provider_id VARCHAR(50),
     nombre TEXT NOT NULL,
+    nombre_normalizado TEXT,
     logo TEXT,
     url TEXT NOT NULL,
     grupo TEXT,
+    grupo_normalizado TEXT,
     country VARCHAR(10),
     tvg_id VARCHAR(100),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -94,16 +100,30 @@ CREATE TABLE IF NOT EXISTS series (
     numero INT,
     provider_id VARCHAR(50),
     nombre TEXT NOT NULL,
+    nombre_normalizado TEXT,
     serie_name VARCHAR(255),
     logo TEXT,
     url TEXT NOT NULL,
     grupo TEXT,
+    grupo_normalizado TEXT,
     country VARCHAR(10),
     tvg_id VARCHAR(100),
     temporada VARCHAR(10),
     episodio VARCHAR(10),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS nombre_normalizado VARCHAR(255);
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS grupo_normalizado VARCHAR(255);
+ALTER TABLE movies ADD COLUMN IF NOT EXISTS nombre_normalizado TEXT;
+ALTER TABLE movies ADD COLUMN IF NOT EXISTS grupo_normalizado TEXT;
+ALTER TABLE series ADD COLUMN IF NOT EXISTS nombre_normalizado TEXT;
+ALTER TABLE series ADD COLUMN IF NOT EXISTS grupo_normalizado TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_movies_grupo_normalizado ON movies(grupo_normalizado);
+CREATE INDEX IF NOT EXISTS idx_movies_nombre_normalizado ON movies(nombre_normalizado);
+CREATE INDEX IF NOT EXISTS idx_series_grupo_normalizado ON series(grupo_normalizado);
+CREATE INDEX IF NOT EXISTS idx_series_nombre_normalizado ON series(nombre_normalizado);
 
 -- ==========================================
 -- 6. Tabla de replays externos
