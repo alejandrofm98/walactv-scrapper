@@ -7,7 +7,7 @@ SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from sync_iptv import crear_template_m3u, procesar_item  # noqa: E402
+from sync_iptv import crear_template_m3u, debe_guardarse_en_catalogo, procesar_item  # noqa: E402
 import utils.constants as CONSTANTS  # noqa: E402
 from config import get_settings  # noqa: E402
 
@@ -74,3 +74,44 @@ def test_procesar_item_guarda_stream_url_para_series() -> None:
     processed = procesar_item(item, 3, CONSTANTS.CONTENT_TYPE_SERIE, provider_username="admin", provider_password="secret")
 
     assert processed["stream_url"] == f"{BASE_PUBLIC_URL}/series/{{{{USERNAME}}}}/{{{{PASSWORD}}}}/300.mkv"
+
+
+def test_debe_guardarse_en_catalogo_acepta_movies_es_y_en() -> None:
+    movie_es = {
+        "name": "ES - Pelicula Demo",
+        "group": "|ES| ESTRENOS",
+    }
+    movie_en = {
+        "name": "EN - Movie Demo",
+        "group": "|EN| ACTION",
+    }
+
+    assert debe_guardarse_en_catalogo(movie_es, CONSTANTS.CONTENT_TYPE_MOVIE) is True
+    assert debe_guardarse_en_catalogo(movie_en, CONSTANTS.CONTENT_TYPE_MOVIE) is True
+
+
+def test_debe_guardarse_en_catalogo_rechaza_movies_con_country_distinto() -> None:
+    item = {
+        "name": "DE - Film Demo",
+        "group": "|DE| FILME",
+    }
+
+    assert debe_guardarse_en_catalogo(item, CONSTANTS.CONTENT_TYPE_MOVIE) is False
+
+
+def test_debe_guardarse_en_catalogo_recupera_movies_sin_country_desde_nombre() -> None:
+    item = {
+        "name": "EN - Movie Without Group",
+        "group": "",
+    }
+
+    assert debe_guardarse_en_catalogo(item, CONSTANTS.CONTENT_TYPE_MOVIE) is True
+
+
+def test_debe_guardarse_en_catalogo_rechaza_series_sin_etiqueta_es_o_en() -> None:
+    item = {
+        "name": "Serie Demo S01 E01",
+        "group": "|NL| SERIES",
+    }
+
+    assert debe_guardarse_en_catalogo(item, CONSTANTS.CONTENT_TYPE_SERIE) is False

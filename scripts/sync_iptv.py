@@ -44,6 +44,7 @@ LANGUAGE_ALIASES = {
     'SUBTITULADO': 'SUB',
 }
 FILTER_LANGUAGES_NORMALIZED = {'EN', 'ES', 'LATAM'}
+CATALOG_COUNTRIES_ALLOWED = {'EN', 'ES'}
 LANGUAGE_TOKEN_REGEX = re.compile(
     r'(?i)(?<![A-Z0-9])(LATAM|LATINO|LAT|LA|ENGLISH|ENG|EN|ESPANOL|SPANISH|ESP|ES|VOSE|CASTELLANO|CAST|SUBTITULADO|SUB)(?![A-Z0-9])'
 )
@@ -55,6 +56,22 @@ def contains_language(extinf_line: str) -> bool:
     """
     metadata = extraer_metadatos_normalizados_m3u(extinf_line)
     return metadata['language'] in FILTER_LANGUAGES_NORMALIZED
+
+
+def debe_guardarse_en_catalogo(item: dict, tipo: str) -> bool:
+    """Determina si una película o serie debe guardarse en el catálogo."""
+    if tipo not in {CONSTANTS.CONTENT_TYPE_MOVIE, CONSTANTS.CONTENT_TYPE_SERIE}:
+        return True
+
+    country = extraer_country(item.get('group', ''))
+    if country in CATALOG_COUNTRIES_ALLOWED:
+        return True
+
+    if country:
+        return False
+
+    language = extraer_idioma_desde_nombre(item.get('name', ''))
+    return language in CATALOG_COUNTRIES_ALLOWED
 
 
 def split_extinf_line(extinf_line: str) -> tuple[str, str]:
@@ -961,8 +978,8 @@ def sync_to_supabase():
 
     stats = {
         'channels': {'total': 0, 'con_logo': 0, 'sin_logo': 0},
-        'movies': {'total': 0, 'con_logo': 0, 'sin_logo': 0},
-        'series': {'total': 0, 'con_logo': 0, 'sin_logo': 0}
+        'movies': {'total': 0, 'con_logo': 0, 'sin_logo': 0, 'filtradas': 0},
+        'series': {'total': 0, 'con_logo': 0, 'sin_logo': 0, 'filtradas': 0}
     }
 
     print(f"\n🔍 FASE 3: Clasificando contenido por tipo...")
@@ -986,6 +1003,10 @@ def sync_to_supabase():
                 stats['channels']['sin_logo'] += 1
 
         elif tipo == CONSTANTS.CONTENT_TYPE_MOVIE:
+            if not debe_guardarse_en_catalogo(item, tipo):
+                stats['movies']['filtradas'] += 1
+                continue
+
             item_data = procesar_item(item, idx_movie, tipo, provider_username, provider_password)
             movies.append(item_data)
             idx_movie += 1
@@ -996,6 +1017,10 @@ def sync_to_supabase():
                 stats['movies']['sin_logo'] += 1
 
         elif tipo == CONSTANTS.CONTENT_TYPE_SERIE:
+            if not debe_guardarse_en_catalogo(item, tipo):
+                stats['series']['filtradas'] += 1
+                continue
+
             item_data = procesar_item(item, idx_serie, tipo, provider_username, provider_password)
             series.append(item_data)
             idx_serie += 1
@@ -1017,9 +1042,11 @@ def sync_to_supabase():
     print(f"  🎬 Películas: {stats['movies']['total']:,}")
     print(f"    - Con logo: {stats['movies']['con_logo']:,}")
     print(f"    - Sin logo: {stats['movies']['sin_logo']:,}")
+    print(f"    - Filtradas por idioma: {stats['movies']['filtradas']:,}")
     print(f"  📺 Series: {stats['series']['total']:,}")
     print(f"    - Con logo: {stats['series']['con_logo']:,}")
     print(f"    - Sin logo: {stats['series']['sin_logo']:,}")
+    print(f"    - Filtradas por idioma: {stats['series']['filtradas']:,}")
 
     if m3u_info:
         print(f"  📄 Template M3U:")
