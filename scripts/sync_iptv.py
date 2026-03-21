@@ -303,6 +303,12 @@ def proxy_logo_url(logo_url: str, public_domain: str, content_type: str = "chann
     if not logo_url:
         return f"{public_domain}/placeholder/{content_type}.png"
 
+    tmdb_w185_prefix = "https://image.tmdb.org/t/p/w185/"
+    tmdb_series_prefix = "https://image.tmdb.org/t/p/w600_and_h900_bestv2/"
+
+    if content_type == CONSTANTS.CONTENT_TYPE_SERIE and logo_url.startswith(tmdb_w185_prefix):
+        return logo_url.replace(tmdb_w185_prefix, tmdb_series_prefix, 1)
+
     # Si ya es HTTPS o es una URL local, dejarla como está
     if logo_url.startswith('https://') or logo_url.startswith('/'):
         return logo_url
