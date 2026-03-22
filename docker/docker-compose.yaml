@@ -53,6 +53,18 @@ services:
     networks:
       - dokploy-network
 
+  walactv-sync-replays:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.replay-sync
+    container_name: walactv-sync-replays
+    restart: unless-stopped
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
+    env_file:
+      - .env
+    networks:
+      - dokploy-network
+
   ofelia:
     image: mcuadros/ofelia:latest
     container_name: ofelia-scheduler
@@ -60,6 +72,7 @@ services:
     depends_on:
       - walactv-futboltv
       - walactv-sync-iptv
+      - walactv-sync-replays
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./ofelia-config.ini:/ofelia.config.ini:ro
