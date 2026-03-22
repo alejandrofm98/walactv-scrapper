@@ -137,6 +137,40 @@
       "nombre": "ES| DAZN LALIGA 5 SD"
     }
   ],
+  "DAZN MOTOGP": [
+    {
+      "nombre": "ES| DAZN MOTOGP ᵁᴴᴰ"
+    },
+    {
+      "nombre": "ES| DAZN MOTOGP ᴴᴰ"
+    },
+    {
+      "nombre": "ES| DAZN MOTOGP SD"
+    }
+  ],
+  "DAZN F1": [
+    {
+      "nombre": "ES| DAZN F1 FHD"
+    },
+    {
+      "nombre": "ES| DAZN F1 HD"
+    },
+    {
+      "nombre": "ES| DAZN F1® ᴴᴰ"
+    },
+    {
+      "nombre": "ES| DAZN F1 HEVC"
+    },
+    {
+      "nombre": "ES| DAZN F1® ᴿᴬᵂ"
+    },
+    {
+      "nombre": "ES| DAZN F1® SD"
+    },
+    {
+      "nombre": "ES| DAZN F1 SD"
+    }
+  ],
   "LA 1 TVE": [
     {
       "nombre": "ES| LA 1 4K/UHD"
@@ -478,6 +512,20 @@
       "grupo_contains": "PARAMOUNT+ PPV VIP",
       "nombre_contains": "Paramount",
       "nombre_regex": "UFC.*MAIN.*(?:EN ESPAÑOL|EN ESPANOL|ESPAÑOL|ESPANOL|SPANISH)"
+    }
+  ],
+  "PARAMOUNT FIGHT NIGHT EN": [
+    {
+      "grupo_contains": "PARAMOUNT+ PPV VIP",
+      "nombre_contains": "Paramount",
+      "nombre_regex": "UFC.*FIGHT NIGHT.*(?:ENGLISH|ENG)"
+    }
+  ],
+  "PARAMOUNT FIGHT NIGHT ES": [
+    {
+      "grupo_contains": "PARAMOUNT+ PPV VIP",
+      "nombre_contains": "Paramount",
+      "nombre_regex": "UFC.*FIGHT NIGHT.*(?:EN ESPAÑOL|EN ESPANOL|ESPAÑOL|ESPANOL|SPANISH)"
     }
   ]
 }
