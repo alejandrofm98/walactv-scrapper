@@ -1,0 +1,24 @@
+FROM python:3.12-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache \
+    build-base \
+    curl \
+    linux-headers \
+    nodejs \
+    npm \
+    tzdata && \
+    cp /usr/share/zoneinfo/Europe/Madrid /etc/localtime && \
+    echo "Europe/Madrid" > /etc/timezone
+
+COPY docker/config/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY scripts/config.py scripts/
+COPY scripts/sync_replays.py scripts/
+COPY scripts/utils/ scripts/utils/
+
+ENV DOCKER_CONTAINER=true \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/scripts:$PYTHONPATH
