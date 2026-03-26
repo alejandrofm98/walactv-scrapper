@@ -66,7 +66,9 @@ services:
       - dokploy-network
 
   ofelia:
-    image: mcuadros/ofelia:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ofelia
     container_name: ofelia-scheduler
     restart: unless-stopped
     depends_on:
@@ -75,7 +77,6 @@ services:
       - walactv-sync-replays
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./ofelia-config.ini:/ofelia.config.ini:ro
     command: daemon --config /ofelia.config.ini
     networks:
       - dokploy-network
