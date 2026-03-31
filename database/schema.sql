@@ -1,7 +1,39 @@
 -- ==========================================
--- Schema SQL Simplificado para Supabase
+-- Schema SQL Simplificado para PostgreSQL
 -- WALACTV Scrapper - Versión simplificada
 -- ==========================================
+
+-- ==========================================
+-- 0. Tabla de configuración
+-- ==========================================
+CREATE TABLE IF NOT EXISTS config (
+    key VARCHAR(100) PRIMARY KEY,
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ==========================================
+-- 0b. Tabla de metadata de sincronización
+-- ==========================================
+CREATE TABLE IF NOT EXISTS sync_metadata (
+    id VARCHAR(50) PRIMARY KEY,
+    ultima_actualizacion TIMESTAMP WITH TIME ZONE,
+    total_canales INT DEFAULT 0,
+    total_movies INT DEFAULT 0,
+    total_series INT DEFAULT 0,
+    m3u_template_path TEXT,
+    m3u_template_filename TEXT,
+    m3u_size_mb NUMERIC(10,2),
+    channels_con_logo INT DEFAULT 0,
+    channels_sin_logo INT DEFAULT 0,
+    movies_con_logo INT DEFAULT 0,
+    movies_sin_logo INT DEFAULT 0,
+    series_con_logo INT DEFAULT 0,
+    series_sin_logo INT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
 -- ==========================================
 -- 1. Tabla de canales IPTV (sincronizada desde M3U)
@@ -156,22 +188,10 @@ CREATE INDEX IF NOT EXISTS idx_replays_event_date ON replays(event_date DESC);
 CREATE INDEX IF NOT EXISTS idx_replays_event_type ON replays(event_type);
 
 -- ==========================================
--- RLS (Row Level Security)
+-- RLS deshabilitado (PostgreSQL propio, no Supabase)
 -- ==========================================
-ALTER TABLE channel_mappings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE channel_variants ENABLE ROW LEVEL SECURITY;
-ALTER TABLE calendario ENABLE ROW LEVEL SECURITY;
-ALTER TABLE replays ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Allow public read mappings" ON channel_mappings FOR SELECT USING (true);
-CREATE POLICY "Allow public read variants" ON channel_variants FOR SELECT USING (true);
-CREATE POLICY "Allow public read calendario" ON calendario FOR SELECT USING (true);
-CREATE POLICY "Allow public read replays" ON replays FOR SELECT USING (true);
-
-CREATE POLICY "Allow authenticated write mappings" ON channel_mappings FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated write variants" ON channel_variants FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated write calendario" ON calendario FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated write replays" ON replays FOR ALL USING (true) WITH CHECK (true);
+-- Las políticas RLS de Supabase no aplican aquí
+-- Si necesitas seguridad, configura pg_hba.conf y GRANTs
 
 -- ==========================================
 -- Funciones utilitarias simplificadas

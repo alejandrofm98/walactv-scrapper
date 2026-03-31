@@ -1,20 +1,22 @@
 """
-Módulo optimizado para inserciones masivas en Supabase
+Módulo optimizado para inserciones masivas en PostgreSQL usando asyncpg
 Implementa múltiples estrategias para acelerar la inserción de grandes volúmenes
 """
 
+import asyncio
 import time
 from typing import List, Dict, Any, Optional, Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from supabase import Client
-import threading
+from asyncpg import Pool
 import sys
 import os
 
-# Agregar el directorio padre al path para importar constantes
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import utils.constants as CONSTANTS
+# Agregar directorio scripts al path para imports relativos
+_scripts_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _scripts_dir not in sys.path:
+    sys.path.insert(0, _scripts_dir)
+
+from utils import constants as CONSTANTS
 
 
 @dataclass
@@ -66,7 +68,7 @@ class InsertStats:
 
 class BulkInserter:
     """
-    Clase para inserciones masivas optimizadas en Supabase
+    Clase para inserciones masivas optimizadas en PostgreSQL
 
     Características:
     - Procesamiento paralelo con múltiples workers
@@ -78,23 +80,23 @@ class BulkInserter:
 
     def __init__(
         self,
-        supabase_client: Client,
+        pool: Pool,
         table_name: str,
-        batch_size: int = CONSTANTS.SUPABASE_DEFAULT_BATCH_SIZE,
-        max_workers: int = CONSTANTS.SUPABASE_DEFAULT_MAX_WORKERS,
-        max_retries: int = CONSTANTS.SUPABASE_DEFAULT_MAX_RETRIES,
+        batch_size: int = CONSTANTS.DB_DEFAULT_BATCH_SIZE,
+        max_workers: int = CONSTANTS.DB_DEFAULT_MAX_WORKERS,
+        max_retries: int = CONSTANTS.DB_DEFAULT_MAX_RETRIES,
         progress_callback: Optional[Callable[[InsertStats], None]] = None
     ):
         """
         Args:
-            supabase_client: Cliente de Supabase
+            pool: Pool de conexiones asyncpg
             table_name: Nombre de la tabla
-            batch_size: Tamaño del batch (500 recomendado para free tier)
-            max_workers: Número de workers paralelos (1 recomendado para free tier)
+            batch_size: Tamaño del batch
+            max_workers: Número de workers paralelos
             max_retries: Intentos máximos por batch fallido
             progress_callback: Función a llamar con stats en cada actualización
         """
-        self.client = supabase_client
+        self.pool = pool
         self.table_name = table_name
         self.batch_size = batch_size
         self.max_workers = max_workers
@@ -102,7 +104,6 @@ class BulkInserter:
         self.progress_callback = progress_callback
 
         self.stats = InsertStats()
-        self._lock = threading.Lock()
 
     def _create_batches(self, data: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
         """Divide los datos en batches"""
@@ -112,7 +113,7 @@ class BulkInserter:
             batches.append(batch)
         return batches
 
-    def _insert_batch(
+    async def _insert_batch(
         self,
         batch: List[Dict[str, Any]],
         batch_num: int,
@@ -126,44 +127,44 @@ class BulkInserter:
         """
         for attempt in range(self.max_retries):
             try:
-                # Insertar batch
-                response = self.client.table(self.table_name).insert(batch).execute()
+                async with self.pool.acquire() as conn:
+                    async with conn.transaction():
+                        columns = list(batch[0].keys())
+                        placeholders = ', '.join([f'${i+1}' for i in range(len(columns))])
+                        query = f"INSERT INTO {self.table_name} ({', '.join(columns)}) VALUES ({placeholders})"
+                        
+                        for row in batch:
+                            values = tuple(row[col] for col in columns)
+                            await conn.execute(query, values)
 
-                records_inserted = len(batch)
+                        records_inserted = len(batch)
 
-                # Actualizar estadísticas
-                with self._lock:
-                    self.stats.inserted_records += records_inserted
-                    self.stats.batches_completed += 1
+                        self.stats.inserted_records += records_inserted
+                        self.stats.batches_completed += 1
 
-                    # Llamar callback si existe
-                    if self.progress_callback:
-                        self.progress_callback(self.stats)
+                        if self.progress_callback:
+                            self.progress_callback(self.stats)
 
-                # Delay entre batches para no saturar Supabase
-                # Más conservador para evitar disconnects
-                if len(batch) >= 500:
-                    time.sleep(0.5)  # 500ms de pausa
-                else:
-                    time.sleep(0.3)  # 300ms de pausa
+                        if len(batch) >= 500:
+                            await asyncio.sleep(0.5)
+                        else:
+                            await asyncio.sleep(0.3)
 
-                return True, records_inserted
+                        return True, records_inserted
 
             except Exception as e:
                 if attempt < self.max_retries - 1:
-                    # Backoff exponencial más largo
-                    wait_time = (attempt + 1) * 5  # 5s, 10s, 15s
+                    wait_time = (attempt + 1) * 5
                     print(f"⚠️  Batch {batch_num}/{total_batches} falló (intento {attempt + 1}/{self.max_retries}), reintentando en {wait_time}s...")
-                    time.sleep(wait_time)
+                    await asyncio.sleep(wait_time)
                 else:
                     print(f"❌ Batch {batch_num}/{total_batches} falló después de {self.max_retries} intentos: {e}")
-                    with self._lock:
-                        self.stats.failed_records += len(batch)
+                    self.stats.failed_records += len(batch)
                     return False, 0
 
         return False, 0
 
-    def insert_bulk(self, data: List[Dict[str, Any]]) -> InsertStats:
+    async def insert_bulk(self, data: List[Dict[str, Any]]) -> InsertStats:
         """
         Inserta datos en bulk usando procesamiento paralelo
 
@@ -177,7 +178,6 @@ class BulkInserter:
             print("⚠️  No hay datos para insertar")
             return self.stats
 
-        # Inicializar estadísticas
         self.stats = InsertStats()
         self.stats.total_records = len(data)
 
@@ -186,29 +186,18 @@ class BulkInserter:
         print(f"   📦 Tamaño de batch: {self.batch_size:,}")
         print(f"   👷 Workers paralelos: {self.max_workers}")
 
-        # Crear batches
         batches = self._create_batches(data)
         total_batches = len(batches)
         print(f"   🔢 Total de batches: {total_batches}")
         print()
 
-        # Procesar batches en paralelo
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Enviar todos los batches
-            futures = {
-                executor.submit(self._insert_batch, batch, i + 1, total_batches): i
-                for i, batch in enumerate(batches)
-            }
+        tasks = [
+            self._insert_batch(batch, i + 1, total_batches)
+            for i, batch in enumerate(batches)
+        ]
 
-            # Esperar a que completen
-            for future in as_completed(futures):
-                batch_idx = futures[future]
-                try:
-                    success, records = future.result()
-                except Exception as e:
-                    print(f"❌ Error inesperado en batch {batch_idx + 1}: {e}")
+        await asyncio.gather(*tasks)
 
-        # Resumen final
         self._print_summary()
 
         return self.stats
@@ -231,7 +220,7 @@ class BulkInserter:
 
 def default_progress_callback(stats: InsertStats):
     """Callback por defecto para mostrar progreso"""
-    if stats.batches_completed % 5 == 0:  # Mostrar cada 5 batches
+    if stats.batches_completed % 5 == 0:
         progress_pct = stats.get_progress_pct()
         rate = stats.get_rate()
         eta = stats.get_eta()
@@ -244,8 +233,8 @@ def default_progress_callback(stats: InsertStats):
         )
 
 
-def insert_bulk_optimized(
-    supabase_client: Client,
+async def insert_bulk_optimized(
+    pool: Pool,
     table_name: str,
     data: List[Dict[str, Any]],
     batch_size: int = 500,
@@ -255,7 +244,7 @@ def insert_bulk_optimized(
     Función de conveniencia para insertar datos en bulk
 
     Args:
-        supabase_client: Cliente de Supabase
+        pool: Pool de conexiones asyncpg
         table_name: Nombre de la tabla
         data: Lista de datos a insertar
         batch_size: Tamaño del batch (default: 500)
@@ -265,11 +254,11 @@ def insert_bulk_optimized(
         InsertStats con estadísticas de la operación
     """
     inserter = BulkInserter(
-        supabase_client=supabase_client,
+        pool=pool,
         table_name=table_name,
         batch_size=batch_size,
         max_workers=max_workers,
         progress_callback=default_progress_callback
     )
 
-    return inserter.insert_bulk(data)
+    return await inserter.insert_bulk(data)

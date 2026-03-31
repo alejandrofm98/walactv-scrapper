@@ -1,8 +1,9 @@
 """
-Script de sincronización IPTV con Supabase
+Script de sincronización IPTV con PostgreSQL
 Descarga, parsea y sincroniza canales, películas y series
 """
 
+import asyncio
 import os
 import requests
 import time
@@ -11,15 +12,15 @@ import traceback
 import sys
 from datetime import datetime
 from pathlib import Path
-from supabase import Client
+import asyncpg
+from typing import Optional
 
-# Agregar el directorio padre al path para importar módulos
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Importar configuración y utilidades
 from config import get_settings
 import utils.constants as CONSTANTS
 from services.bulk_insert import insert_bulk_optimized
+from database import DatabasePG
 
 # Cargar configuración
 settings = get_settings()
@@ -231,18 +232,20 @@ def enriquecer_extinf_con_metadatos(extinf_line: str, content_type: str = None) 
     return f'{attrs_part}{"".join(extra_attrs)},{display_name}'
 
 
-def init_supabase() -> Client:
-    """Inicializa el cliente de Supabase"""
-    return settings.get_supabase_client()
+async def init_postgres() -> asyncpg.Pool:
+    """Inicializa el pool de PostgreSQL"""
+    return await DatabasePG.initialize()
 
 
-def obtener_config_desde_supabase(supabase: Client, key: str) -> str:
+async def obtener_config_desde_postgres(pool: asyncpg.Pool, key: str) -> str:
     """Obtiene un valor de la tabla config."""
-    result = supabase.table('config').select('value').eq('key', key).execute()
-    if result.data and len(result.data) > 0:
-        first_row = result.data[0]
-        if isinstance(first_row, dict):
-            return str(first_row.get('value', '') or '')
+    async with pool.acquire() as conn:
+        result = await conn.fetchrow(
+            "SELECT value FROM config WHERE key = $1",
+            key
+        )
+        if result:
+            return str(result['value'] or '')
     return ''
 
 
@@ -483,11 +486,12 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
     return data_base
 
 
-def contar_registros_tabla(supabase, tabla):
-    """Cuenta cuántos registros hay en una tabla de Supabase"""
+async def contar_registros_tabla(pool: asyncpg.Pool, tabla: str) -> int:
+    """Cuenta cuántos registros hay en una tabla de PostgreSQL"""
     try:
-        result = supabase.table(tabla).select('*', count='exact').limit(1).execute()
-        return result.count if result.count is not None else 0
+        async with pool.acquire() as conn:
+            result = await conn.fetchval(f"SELECT COUNT(*) FROM {tabla}")
+            return result or 0
     except Exception as e:
         print(f"  ⚠️  Error al contar registros en '{tabla}': {e}")
         return 0
@@ -737,50 +741,18 @@ def guardar_m3u_local(contenido_m3u: str, m3u_dir: str = None, provider_url: str
         return None
 
 
-def limpiar_tabla_optimizada(supabase: Client, tabla: str) -> bool:
-    """
-    Limpia una tabla de forma optimizada usando TRUNCATE o DELETE en lotes
-    """
+async def limpiar_tabla_optimizada(pool: asyncpg.Pool, tabla: str) -> bool:
+    """Limpia una tabla de forma optimizada usando TRUNCATE"""
     print(f"  🗑️  Limpiando tabla '{tabla}'...")
 
     try:
-        supabase.rpc('truncate_table', {'table_name': tabla}).execute()
+        async with pool.acquire() as conn:
+            await conn.execute(f"TRUNCATE TABLE {tabla} CASCADE")
         print(f"  ✅ Tabla '{tabla}' limpiada con TRUNCATE")
         return True
-    except Exception:
-        print(f"  ⚠️  TRUNCATE no disponible, usando DELETE en lotes...")
-
-    deleted_count = 0
-    attempt = 0
-
-    while attempt < CONSTANTS.MAX_DELETE_ATTEMPTS:
-        try:
-            result = (
-                supabase.table(tabla)
-                .delete()
-                .limit(CONSTANTS.DELETE_BATCH_LIMIT)
-                .neq('id', '')
-                .execute()
-            )
-
-            if not result.data or len(result.data) == 0:
-                break
-
-            deleted_count += len(result.data)
-
-            if deleted_count % 10000 == 0:
-                print(f"    🗑️  Eliminados {deleted_count:,} registros...")
-
-            time.sleep(CONSTANTS.DELETE_BATCH_SLEEP)
-            attempt += 1
-
-        except Exception as delete_error:
-            print(f"  ❌ Error en borrado: {delete_error}")
-            return False
-
-    print(
-        f"  ✅ Tabla '{tabla}' limpiada ({deleted_count:,} registros eliminados)")
-    return True
+    except Exception as e:
+        print(f"  ❌ Error al limpiar tabla '{tabla}': {e}")
+        return False
 
 
 def parsear_m3u(m3u_content: str) -> list:
@@ -824,11 +796,8 @@ def parsear_m3u(m3u_content: str) -> list:
     return items_temp
 
 
-def sync_to_supabase():
-    """
-    Sincroniza canales, películas y series a Supabase en tablas separadas.
-    ✨ VERSIÓN OPTIMIZADA con inserción paralela
-    """
+async def sync_to_postgres():
+    """Sincroniza canales, películas y series a PostgreSQL"""
     inicio_total = time.time()
     hora_inicio = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -839,19 +808,14 @@ def sync_to_supabase():
     print("=" * 70 + "\n")
 
     print(f"📋 Configuración inicial:\n{settings}")
-    
-    # Nota: La validación completa se hace después de intentar leer de la tabla config
-    # ya que las credenciales IPTV pueden estar almacenadas allí, no en variables de entorno
 
-    # Inicializar Supabase PRIMERO para obtener config
     try:
-        supabase = init_supabase()
-        print("✅ Conectado a Supabase")
+        pool = await init_postgres()
+        print("✅ Conectado a PostgreSQL")
     except Exception as e:
-        print(f"❌ Error al conectar con Supabase: {e}")
+        print(f"❌ Error al conectar con PostgreSQL: {e}")
         return 1
 
-    # Obtener configuración del proveedor desde tabla config
     provider_url: str = ""
     provider_username: str = ""
     provider_password: str = ""
@@ -859,23 +823,19 @@ def sync_to_supabase():
     download_proxies: dict[str, str] | None = None
 
     try:
-        provider_url = obtener_config_desde_supabase(supabase, 'IPTV_BASE_URL')
-        provider_username = obtener_config_desde_supabase(supabase, 'IPTV_USERNAME')
-        provider_password = obtener_config_desde_supabase(supabase, 'IPTV_PASSWORD')
+        provider_url = await obtener_config_desde_postgres(pool, 'IPTV_BASE_URL')
+        provider_username = await obtener_config_desde_postgres(pool, 'IPTV_USERNAME')
+        provider_password = await obtener_config_desde_postgres(pool, 'IPTV_PASSWORD')
 
-        proxy_ip = obtener_config_desde_supabase(supabase, 'PROXY_IP')
-        proxy_port = obtener_config_desde_supabase(supabase, 'PROXY_PORT')
-        proxy_user = obtener_config_desde_supabase(supabase, 'PROXY_USER')
-        proxy_pass = obtener_config_desde_supabase(supabase, 'PROXY_PASS')
+        proxy_ip = await obtener_config_desde_postgres(pool, 'PROXY_IP')
+        proxy_port = await obtener_config_desde_postgres(pool, 'PROXY_PORT')
+        proxy_user = await obtener_config_desde_postgres(pool, 'PROXY_USER')
+        proxy_pass = await obtener_config_desde_postgres(pool, 'PROXY_PASS')
         download_proxies = construir_proxies_requests(
-            proxy_ip,
-            proxy_port,
-            proxy_user,
-            proxy_pass,
+            proxy_ip, proxy_port, proxy_user, proxy_pass,
         )
 
         if provider_url and provider_username and provider_password:
-            # Construir URL completa para descargar playlist
             base_url = provider_url.rstrip('/')
             playlist_url = f"{base_url}/get.php?username={provider_username}&password={provider_password}&type=m3u_plus&output=ts"
             print(f"✅ Configuración del proveedor obtenida desde config")
@@ -886,24 +846,20 @@ def sync_to_supabase():
             else:
                 print("⚠️  Proxy no configurado en config; descarga directa")
         else:
-            # Fallback: usar iptv_source_url desde settings
             playlist_url = str(settings.iptv_source_url) if settings.iptv_source_url else ""
             provider_url = extraer_provider_base_url(playlist_url) if playlist_url else ""
-            print(f"⚠️  Config incompleta en Supabase, usando iptv_source_url")
+            print(f"⚠️  Config incompleta en PostgreSQL, usando iptv_source_url")
 
     except Exception as e:
-        # Fallback: usar iptv_source_url desde settings
         playlist_url = str(settings.iptv_source_url) if settings.iptv_source_url else ""
         provider_url = extraer_provider_base_url(playlist_url) if playlist_url else ""
         print(f"⚠️  Error leyendo config: {e}, usando iptv_source_url")
 
     if not playlist_url:
-        print("❌ Error: URL del proveedor no configurada (ni en config ni en settings)")
+        print("❌ Error: URL del proveedor no configurada")
         return 1
 
-    # Usar URL completa con credenciales para descargar playlist
     url = playlist_url
-
     MAX_RETRIES = 3
     retry_count = 0
     m3u_content = None
@@ -913,71 +869,51 @@ def sync_to_supabase():
     while retry_count < MAX_RETRIES:
         try:
             inicio_descarga = time.time()
-
-            response = requests.get(
-                url,
-                timeout=CONSTANTS.PLAYLIST_DOWNLOAD_TIMEOUT,
-                proxies=download_proxies,
-            )
+            response = requests.get(url, timeout=CONSTANTS.PLAYLIST_DOWNLOAD_TIMEOUT, proxies=download_proxies)
             response.raise_for_status()
             m3u_content = response.text
-
             fin_descarga = time.time()
             duracion_descarga = fin_descarga - inicio_descarga
-
             print(f"✅ Playlist descargada: {len(m3u_content):,} caracteres")
             print(f"  ⏱️  Tiempo de descarga: {duracion_descarga:.2f}s")
             break
-
         except requests.exceptions.HTTPError as e:
             retry_count += 1
             status_code = e.response.status_code if e.response is not None else None
-
             if status_code is not None and 400 <= status_code < 500 and status_code not in [408, 429]:
-                print(f"❌ Error HTTP {status_code}: no se reintenta porque no es transitorio")
+                print(f"❌ Error HTTP {status_code}: no se reintenta")
                 print(f"   URL: {url}")
                 return 1
-
             if retry_count < MAX_RETRIES:
                 print(f"⚠️  Error HTTP (intento {retry_count}/{MAX_RETRIES}): {e}")
-                print(f"   ⏳ Reintentando en 5 segundos...")
                 time.sleep(5)
             else:
                 print(f"❌ Error HTTP después de {MAX_RETRIES} intentos: {e}")
                 return 1
-
         except Exception as e:
             retry_count += 1
             if retry_count < MAX_RETRIES:
                 print(f"⚠️  Error de conexión (intento {retry_count}/{MAX_RETRIES}): {e}")
-                print(f"   ⏳ Reintentando en 5 segundos...")
                 time.sleep(5)
             else:
                 print(f"❌ Error de conexión después de {MAX_RETRIES} intentos: {e}")
                 return 1
 
-    # Guardar archivo M3U
     print("\n" + "=" * 60)
     m3u_info = guardar_m3u_local(m3u_content, provider_url=provider_url)
     print("=" * 60 + "\n")
 
     if not m3u_info:
-        print(
-            "⚠️  No se pudo guardar el archivo M3U, pero continuaremos con Supabase")
+        print("⚠️  No se pudo guardar el archivo M3U, pero continuaremos con PostgreSQL")
 
-    # Parsear contenido
     print("\n📺 FASE 2: Parseando contenido M3U...")
     inicio_parseo = time.time()
-
     items_temp = parsear_m3u(m3u_content)
-
     fin_parseo = time.time()
     duracion_parseo = fin_parseo - inicio_parseo
-
     print(f"✅ Parseados {len(items_temp):,} items en total")
     print(f"  ⏱️  Tiempo de parseo: {duracion_parseo:.2f}s")
 
-    # Clasificar items por tipo
     channels = []
     movies = []
     series = []
@@ -1007,12 +943,10 @@ def sync_to_supabase():
                 stats['channels']['con_logo'] += 1
             else:
                 stats['channels']['sin_logo'] += 1
-
         elif tipo == CONSTANTS.CONTENT_TYPE_MOVIE:
             if not debe_guardarse_en_catalogo(item, tipo):
                 stats['movies']['filtradas'] += 1
                 continue
-
             item_data = procesar_item(item, idx_movie, tipo, provider_username, provider_password)
             movies.append(item_data)
             idx_movie += 1
@@ -1021,12 +955,10 @@ def sync_to_supabase():
                 stats['movies']['con_logo'] += 1
             else:
                 stats['movies']['sin_logo'] += 1
-
         elif tipo == CONSTANTS.CONTENT_TYPE_SERIE:
             if not debe_guardarse_en_catalogo(item, tipo):
                 stats['series']['filtradas'] += 1
                 continue
-
             item_data = procesar_item(item, idx_serie, tipo, provider_username, provider_password)
             series.append(item_data)
             idx_serie += 1
@@ -1043,27 +975,13 @@ def sync_to_supabase():
     print("\n" + "=" * 50)
     print(f"📊 Resumen de clasificación:")
     print(f"  📺 Canales: {stats['channels']['total']:,}")
-    print(f"    - Con logo: {stats['channels']['con_logo']:,}")
-    print(f"    - Sin logo: {stats['channels']['sin_logo']:,}")
     print(f"  🎬 Películas: {stats['movies']['total']:,}")
-    print(f"    - Con logo: {stats['movies']['con_logo']:,}")
-    print(f"    - Sin logo: {stats['movies']['sin_logo']:,}")
-    print(f"    - Filtradas por idioma: {stats['movies']['filtradas']:,}")
     print(f"  📺 Series: {stats['series']['total']:,}")
-    print(f"    - Con logo: {stats['series']['con_logo']:,}")
-    print(f"    - Sin logo: {stats['series']['sin_logo']:,}")
-    print(f"    - Filtradas por idioma: {stats['series']['filtradas']:,}")
 
-    if m3u_info:
-        print(f"  📄 Template M3U:")
-        print(f"    - Tamaño: {m3u_info['size_mb']:.2f} MB")
-        print(f"    - Ubicación: {m3u_info['template_path']}")
-
-    # Verificar estado de la base de datos
     print("\n🔍 Verificando estado de la base de datos...")
-    count_channels_db = contar_registros_tabla(supabase, CONSTANTS.CHANNELS_TABLE)
-    count_movies_db = contar_registros_tabla(supabase, CONSTANTS.MOVIES_TABLE)
-    count_series_db = contar_registros_tabla(supabase, CONSTANTS.SERIES_TABLE)
+    count_channels_db = await contar_registros_tabla(pool, CONSTANTS.CHANNELS_TABLE)
+    count_movies_db = await contar_registros_tabla(pool, CONSTANTS.MOVIES_TABLE)
+    count_series_db = await contar_registros_tabla(pool, CONSTANTS.SERIES_TABLE)
 
     print(f"  📊 Estado actual en BD:")
     print(f"    - Canales: {count_channels_db:,}")
@@ -1074,7 +992,6 @@ def sync_to_supabase():
     print(f"    - Películas: {len(movies):,}")
     print(f"    - Series: {len(series):,}")
 
-    # Verificar si coinciden los números
     channels_match = count_channels_db == len(channels)
     movies_match = count_movies_db == len(movies)
     series_match = count_series_db == len(series)
@@ -1083,60 +1000,14 @@ def sync_to_supabase():
         fin_total = time.time()
         duracion_total = fin_total - inicio_total
         hora_fin = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
         print("\n✅ ¡Los datos ya están sincronizados!")
-        print("  ℹ️  Las cantidades coinciden exactamente.")
-        print("  ⏭️  Saltando sincronización para ahorrar tiempo y recursos.")
-
-        # Actualizar metadata
-        try:
-            metadata = {
-                "ultima_actualizacion": datetime.now().isoformat(),
-                "total_canales": len(channels),
-                "total_movies": len(movies),
-                "total_series": len(series),
-                "m3u_size": int(m3u_info['size_mb'] * 1024 * 1024) if m3u_info else None,
-                "m3u_size_mb": m3u_info['size_mb'] if m3u_info else None,
-                "channels_con_logo": stats['channels']['con_logo'],
-                "channels_sin_logo": stats['channels']['sin_logo'],
-                "movies_con_logo": stats['movies']['con_logo'],
-                "movies_sin_logo": stats['movies']['sin_logo'],
-                "series_con_logo": stats['series']['con_logo'],
-                "series_sin_logo": stats['series']['sin_logo']
-            }
-
-            supabase.table(CONSTANTS.SYNC_METADATA_TABLE).upsert({
-                "id": CONSTANTS.SYNC_METADATA_ID,
-                **metadata
-            }).execute()
-
-            print("  ✅ Metadata actualizada")
-        except Exception:
-            pass
-
-        print(f"\n⏱️  TIEMPOS:")
-        print(f"  🕐 Inicio: {hora_inicio}")
-        print(f"  🕐 Fin: {hora_fin}")
-        print(f"  ⏱️  Duración: {duracion_total:.2f}s")
-        print(
-            f"\n🌐 Archivo M3U template disponible en: {m3u_info['template_path'] if m3u_info else 'N/A'}")
+        print(f"\n⏱️  Duración: {duracion_total:.2f}s")
         return 0
 
-    # Si no coinciden, mostrar diferencias
-    print("\n⚠️  Diferencias detectadas:")
-    if not channels_match:
-        diff = len(channels) - count_channels_db
-        print(f"  📺 Canales: {diff:+,} ({count_channels_db:,} → {len(channels):,})")
-    if not movies_match:
-        diff = len(movies) - count_movies_db
-        print(f"  🎬 Películas: {diff:+,} ({count_movies_db:,} → {len(movies):,})")
-    if not series_match:
-        diff = len(series) - count_series_db
-        print(f"  📺 Series: {diff:+,} ({count_series_db:,} → {len(series):,})")
+    print("\n⚠️  Diferencias detectadas, sincronizando...")
 
-    # Guardar en Supabase
     try:
-        print("\n💾 FASE 4: Guardando contenido en Supabase (MODO OPTIMIZADO)...")
+        print("\n💾 FASE 4: Guardando contenido en PostgreSQL...")
         print("=" * 70)
         inicio_insercion = time.time()
 
@@ -1145,65 +1016,50 @@ def sync_to_supabase():
             print("❌ No hay contenido para insertar.")
             return 1
 
-        print(f"✅ Validado: {total_items:,} items listos para insertar")
-
         tiempo_channels = 0
         tiempo_movies = 0
         tiempo_series = 0
 
-        # 1. Canales
         if not channels_match and len(channels) > 0:
             inicio_channels = time.time()
-            limpiar_tabla_optimizada(supabase, CONSTANTS.CHANNELS_TABLE)
-
-            stats_channels = insert_bulk_optimized(
-                supabase_client=supabase,
+            await limpiar_tabla_optimizada(pool, CONSTANTS.CHANNELS_TABLE)
+            stats_channels = await insert_bulk_optimized(
+                pool=pool,
                 table_name=CONSTANTS.CHANNELS_TABLE,
                 data=channels,
-                batch_size=CONSTANTS.SUPABASE_DEFAULT_BATCH_SIZE,
-                max_workers=CONSTANTS.SUPABASE_DEFAULT_MAX_WORKERS
+                batch_size=CONSTANTS.DB_DEFAULT_BATCH_SIZE,
+                max_workers=CONSTANTS.DB_DEFAULT_MAX_WORKERS
             )
-
             tiempo_channels = time.time() - inicio_channels
         else:
             print(f"  ⏭️  Canales: sin cambios ({count_channels_db:,} registros)")
             stats_channels = None
 
-        # 2. Películas
         if not movies_match and len(movies) > 0:
             inicio_movies = time.time()
-            limpiar_tabla_optimizada(supabase, CONSTANTS.MOVIES_TABLE)
-
-            stats_movies = insert_bulk_optimized(
-                supabase_client=supabase,
+            await limpiar_tabla_optimizada(pool, CONSTANTS.MOVIES_TABLE)
+            stats_movies = await insert_bulk_optimized(
+                pool=pool,
                 table_name=CONSTANTS.MOVIES_TABLE,
                 data=movies,
-                batch_size=CONSTANTS.SUPABASE_DEFAULT_BATCH_SIZE,
-                max_workers=CONSTANTS.SUPABASE_DEFAULT_MAX_WORKERS
+                batch_size=CONSTANTS.DB_DEFAULT_BATCH_SIZE,
+                max_workers=CONSTANTS.DB_DEFAULT_MAX_WORKERS
             )
-
             tiempo_movies = time.time() - inicio_movies
         else:
             print(f"  ⏭️  Películas: sin cambios ({count_movies_db:,} registros)")
             stats_movies = None
 
-        # 3. Series
         if not series_match and len(series) > 0:
             inicio_series = time.time()
-            limpiar_tabla_optimizada(supabase, CONSTANTS.SERIES_TABLE)
-
-            print(f"\n  🚀 Insertando {len(series):,} series con:")
-            print(f"    📦 Batch size: {CONSTANTS.SUPABASE_DEFAULT_BATCH_SIZE:,}")
-            print(f"    👷 Workers: {CONSTANTS.SUPABASE_DEFAULT_MAX_WORKERS}")
-
-            stats_series = insert_bulk_optimized(
-                supabase_client=supabase,
+            await limpiar_tabla_optimizada(pool, CONSTANTS.SERIES_TABLE)
+            stats_series = await insert_bulk_optimized(
+                pool=pool,
                 table_name=CONSTANTS.SERIES_TABLE,
                 data=series,
-                batch_size=CONSTANTS.SUPABASE_DEFAULT_BATCH_SIZE,
-                max_workers=CONSTANTS.SUPABASE_DEFAULT_MAX_WORKERS
+                batch_size=CONSTANTS.DB_DEFAULT_BATCH_SIZE,
+                max_workers=CONSTANTS.DB_DEFAULT_MAX_WORKERS
             )
-
             tiempo_series = time.time() - inicio_series
         else:
             print(f"  ⏭️  Series: sin cambios ({count_series_db:,} registros)")
@@ -1212,48 +1068,63 @@ def sync_to_supabase():
         fin_insercion = time.time()
         duracion_insercion = fin_insercion - inicio_insercion
 
-        # Guardar metadata
-        metadata = {
-            "ultima_actualizacion": datetime.now().isoformat(),
-            "total_canales": stats_channels.inserted_records if stats_channels else count_channels_db,
-            "total_movies": stats_movies.inserted_records if stats_movies else count_movies_db,
-            "total_series": stats_series.inserted_records if stats_series else count_series_db,
-            "m3u_template_path": m3u_info['template_path'] if m3u_info else None,
-            "m3u_template_filename": m3u_info['template_filename'] if m3u_info else None,
-            "m3u_size": int(m3u_info['size_mb'] * 1024 * 1024) if m3u_info else None,
-            "m3u_size_mb": m3u_info['size_mb'] if m3u_info else None,
-            "channels_con_logo": stats['channels']['con_logo'],
-            "channels_sin_logo": stats['channels']['sin_logo'],
-            "movies_con_logo": stats['movies']['con_logo'],
-            "movies_sin_logo": stats['movies']['sin_logo'],
-            "series_con_logo": stats['series']['con_logo'],
-            "series_sin_logo": stats['series']['sin_logo']
-        }
+        async with pool.acquire() as conn:
+            metadata = {
+                "ultima_actualizacion": datetime.now().isoformat(),
+                "total_canales": stats_channels.inserted_records if stats_channels else count_channels_db,
+                "total_movies": stats_movies.inserted_records if stats_movies else count_movies_db,
+                "total_series": stats_series.inserted_records if stats_series else count_series_db,
+                "m3u_template_path": m3u_info['template_path'] if m3u_info else None,
+                "m3u_template_filename": m3u_info['template_filename'] if m3u_info else None,
+                "m3u_size_mb": m3u_info['size_mb'] if m3u_info else None,
+                "channels_con_logo": stats['channels']['con_logo'],
+                "channels_sin_logo": stats['channels']['sin_logo'],
+                "movies_con_logo": stats['movies']['con_logo'],
+                "movies_sin_logo": stats['movies']['sin_logo'],
+                "series_con_logo": stats['series']['con_logo'],
+                "series_sin_logo": stats['series']['sin_logo']
+            }
+            await conn.execute(
+                """
+                INSERT INTO sync_metadata (id, ultima_actualizacion, total_canales, total_movies, total_series,
+                    m3u_template_path, m3u_template_filename, m3u_size_mb,
+                    channels_con_logo, channels_sin_logo, movies_con_logo, movies_sin_logo,
+                    series_con_logo, series_sin_logo)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                ON CONFLICT (id) DO UPDATE SET
+                    ultima_actualizacion = EXCLUDED.ultima_actualizacion,
+                    total_canales = EXCLUDED.total_canales,
+                    total_movies = EXCLUDED.total_movies,
+                    total_series = EXCLUDED.total_series,
+                    m3u_template_path = EXCLUDED.m3u_template_path,
+                    m3u_template_filename = EXCLUDED.m3u_template_filename,
+                    m3u_size_mb = EXCLUDED.m3u_size_mb,
+                    channels_con_logo = EXCLUDED.channels_con_logo,
+                    channels_sin_logo = EXCLUDED.channels_sin_logo,
+                    movies_con_logo = EXCLUDED.movies_con_logo,
+                    movies_sin_logo = EXCLUDED.movies_sin_logo,
+                    series_con_logo = EXCLUDED.series_con_logo,
+                    series_sin_logo = EXCLUDED.series_sin_logo
+                """,
+                CONSTANTS.SYNC_METADATA_ID,
+                metadata['ultima_actualizacion'],
+                metadata['total_canales'],
+                metadata['total_movies'],
+                metadata['total_series'],
+                metadata['m3u_template_path'],
+                metadata['m3u_template_filename'],
+                metadata['m3u_size_mb'],
+                metadata['channels_con_logo'],
+                metadata['channels_sin_logo'],
+                metadata['movies_con_logo'],
+                metadata['movies_sin_logo'],
+                metadata['series_con_logo'],
+                metadata['series_sin_logo']
+            )
 
-        try:
-            supabase.table(CONSTANTS.SYNC_METADATA_TABLE).upsert({
-                "id": CONSTANTS.SYNC_METADATA_ID,
-                **metadata
-            }).execute()
-        except Exception:
-            pass
-
-        # Tiempos finales
         fin_total = time.time()
         duracion_total = fin_total - inicio_total
         hora_fin = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        horas = int(duracion_total // 3600)
-        minutos = int((duracion_total % 3600) // 60)
-        segundos = int(duracion_total % 60)
-
-        duracion_formateada = []
-        if horas > 0:
-            duracion_formateada.append(f"{horas}h")
-        if minutos > 0:
-            duracion_formateada.append(f"{minutos}m")
-        duracion_formateada.append(f"{segundos}s")
-        duracion_str = " ".join(duracion_formateada)
 
         print("\n" + "=" * 70)
         print(f"✅ ¡SINCRONIZACIÓN COMPLETADA CON ÉXITO!")
@@ -1262,59 +1133,25 @@ def sync_to_supabase():
         print(f"  📺 Canales:    {metadata['total_canales']:>10,}")
         print(f"  🎬 Películas:  {metadata['total_movies']:>10,}")
         print(f"  📺 Series:     {metadata['total_series']:>10,}")
-        print(f"  {'─' * 30}")
         print(f"  📊 TOTAL:      {total_items:>10,} items")
         print()
         print(f"⏱️  TIEMPOS:")
         print(f"  🕐 Inicio:     {hora_inicio}")
         print(f"  🕐 Fin:        {hora_fin}")
-        print(f"  ⏱️  Duración:   {duracion_str} ({duracion_total:.2f}s)")
-        print()
-        print(f"⏱️  TIEMPOS POR FASE:")
-        print(f"  📥 Descarga:        {duracion_descarga:>8.2f}s")
-        print(f"  📺 Parseo:          {duracion_parseo:>8.2f}s")
-        print(f"  🔍 Clasificación:   {duracion_clasificacion:>8.2f}s")
-        print(f"  💾 Inserción BD:    {duracion_insercion:>8.2f}s")
-
-        if tiempo_channels > 0 or tiempo_movies > 0 or tiempo_series > 0:
-            print()
-            print(f"⏱️  TIEMPOS POR TABLA:")
-            if tiempo_channels > 0:
-                print(
-                    f"  📺 Canales:    {tiempo_channels:>8.2f}s ({len(channels):,} registros)")
-            if tiempo_movies > 0:
-                print(
-                    f"  🎬 Películas:  {tiempo_movies:>8.2f}s ({len(movies):,} registros)")
-            if tiempo_series > 0:
-                print(
-                    f"  📺 Series:     {tiempo_series:>8.2f}s ({len(series):,} registros)")
-
-        if duracion_total > 0:
-            velocidad = total_items / duracion_total
-            print()
-            print(f"  🚀 Velocidad promedio: {velocidad:.0f} items/segundo")
-
-        print()
-        print(f"🌐 Archivo M3U template disponible en:")
-        print(f"  📄 {m3u_info['template_filename'] if m3u_info else 'N/A'}")
-        print(f"  📁 {m3u_info['template_path'] if m3u_info else 'N/A'}")
+        print(f"  ⏱️  Duración:   {duracion_total:.2f}s")
+        print(f"  📥 Descarga:   {duracion_descarga:.2f}s")
+        print(f"  💾 Inserción:  {duracion_insercion:.2f}s")
         print("=" * 70 + "\n")
         return 0
 
     except Exception as e:
         fin_total = time.time()
         duracion_total = fin_total - inicio_total
-        hora_fin = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        print(f"\n❌ Error al guardar en Supabase: {e}")
-        print(f"\n⏱️  Tiempos hasta el error:")
-        print(f"  Inicio: {hora_inicio}")
-        print(f"  Fin: {hora_fin}")
-        print(f"  Duración: {duracion_total:.2f}s")
+        print(f"\n❌ Error al guardar en PostgreSQL: {e}")
+        print(f"⏱️  Duración hasta error: {duracion_total:.2f}s")
         traceback.print_exc()
         return 1
 
 
 if __name__ == "__main__":
-    import sys
-    sys.exit(sync_to_supabase())
+    sys.exit(asyncio.run(sync_to_postgres()))

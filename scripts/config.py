@@ -1,18 +1,15 @@
 """
 Configuración centralizada para IPTV
-Carga configuración IPTV desde Supabase y variables de entorno locales
+Carga configuración IPTV desde PostgreSQL y variables de entorno locales
 """
 import os
+import asyncio
 import warnings
 from pathlib import Path
 from functools import lru_cache
 from typing import Optional
 from dotenv import load_dotenv
-from supabase import create_client, Client
-
-# Suprimir warnings de storage endpoint
-warnings.filterwarnings('ignore',
-                        message='.*Storage endpoint URL.*trailing slash.*')
+import asyncpg
 
 
 def _load_environment() -> None:
@@ -38,104 +35,109 @@ class Settings:
   Configuración centralizada de la aplicación
 
   - Variables de entorno locales (de .env)
-  - Configuración dinámica (desde Supabase tabla config)
+  - Configuración dinámica (desde PostgreSQL tabla config)
   """
 
-  # ===== Supabase (desde .env) =====
-  supabase_url: str = os.getenv("SUPABASE_URL", "")
-  supabase_key: str = os.getenv("SUPABASE_KEY", "")
+  pg_host: str = os.getenv("PG_HOST", "")
+  pg_port: int = int(os.getenv("PG_PORT", "5432"))
+  pg_user: str = os.getenv("PG_USER", "")
+  pg_password: str = os.getenv("PG_PASSWORD", "")
+  pg_database: str = os.getenv("PG_DATABASE", "postgres")
 
-  # ===== API (desde .env) =====
   api_secret_key: str = os.getenv("API_SECRET_KEY",
                                   "your-secret-key-change-in-production")
 
-  # ===== Configuración dinámica (desde Supabase - cargado dinámicamente) =====
-  # IPTV
   iptv_user: Optional[str] = None
   iptv_pass: Optional[str] = None
   iptv_base_url: Optional[str] = None
-  iptv_source_url: Optional[str] = None  # URL completa generada
+  iptv_source_url: Optional[str] = None
 
-  # Servidor
-  session_timeout_minutes: int = 30  # Default, se sobrescribe desde BD
-  cleanup_interval_minutes: int = 5  # Default, se sobrescribe desde BD
-  public_domain: str = "http://localhost:8000"  # Default, se sobrescribe desde BD
+  session_timeout_minutes: int = 30
+  cleanup_interval_minutes: int = 5
+  public_domain: str = "http://localhost:8000"
 
-  # ===== Estado interno =====
   _config_loaded: bool = False
-  _client_cache: Optional[Client] = None
+  _pool_cache: Optional[asyncpg.Pool] = None
 
   def __init__(self):
-    """Inicializa y carga configuración desde Supabase"""
-    self._ensure_supabase_url()
+    """Inicializa y carga configuración desde PostgreSQL"""
     self._load_config()
 
-  def _ensure_supabase_url(self) -> None:
-    """Asegura que la URL de Supabase termine con /"""
-    if self.supabase_url and not self.supabase_url.endswith('/'):
-      self.supabase_url = self.supabase_url + '/'
+  def _ensure_pg_config(self) -> bool:
+    """Verifica que la configuración PostgreSQL esté completa"""
+    return bool(self.pg_host and self.pg_user and self.pg_password)
 
-  def _load_config(self) -> None:
-    """Carga configuración dinámica desde tabla config en Supabase"""
-    if not self.is_supabase_configured():
+  async def _get_pool(self) -> asyncpg.Pool:
+    """Obtiene o crea el pool de conexiones"""
+    if self._pool_cache is not None:
+      return self._pool_cache
+
+    if not self._ensure_pg_config():
+      raise ValueError(
+        "PostgreSQL no está configurado. Revisa PG_HOST, PG_USER y PG_PASSWORD")
+
+    self._pool_cache = await asyncpg.create_pool(
+      host=self.pg_host,
+      port=self.pg_port,
+      user=self.pg_user,
+      password=self.pg_password,
+      database=self.pg_database,
+      min_size=2,
+      max_size=10,
+    )
+    return self._pool_cache
+
+  async def _load_config(self) -> None:
+    """Carga configuración dinámica desde tabla config en PostgreSQL"""
+    if not self._ensure_pg_config():
       return
 
     try:
-      client = self.get_supabase_client()
-      response = client.table('config').select('key, value').execute()
+      pool = await self._get_pool()
+      async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT key, value FROM config")
 
-      if not response.data:
-        return
+        if not rows:
+          return
 
-      # Crear diccionario de configuración
-      config = {item['key']: item['value'] for item in response.data}
+        config = {row['key']: row['value'] for row in rows}
 
-      # Cargar valores IPTV
-      self.iptv_user = config.get('IPTV_USER')
-      self.iptv_pass = config.get('IPTV_PASS')
-      self.iptv_base_url = config.get('IPTV_BASE_URL')
+        self.iptv_user = config.get('IPTV_USER')
+        self.iptv_pass = config.get('IPTV_PASS')
+        self.iptv_base_url = config.get('IPTV_BASE_URL')
 
-      # Cargar configuración de servidor
-      if 'SESSION_TIMEOUT_MINUTES' in config:
-        self.session_timeout_minutes = int(config['SESSION_TIMEOUT_MINUTES'])
+        if 'SESSION_TIMEOUT_MINUTES' in config:
+          self.session_timeout_minutes = int(config['SESSION_TIMEOUT_MINUTES'])
 
-      if 'CLEANUP_INTERVAL_MINUTES' in config:
-        self.cleanup_interval_minutes = int(config['CLEANUP_INTERVAL_MINUTES'])
+        if 'CLEANUP_INTERVAL_MINUTES' in config:
+          self.cleanup_interval_minutes = int(config['CLEANUP_INTERVAL_MINUTES'])
 
-      if 'PUBLIC_DOMAIN' in config:
-        self.public_domain = config['PUBLIC_DOMAIN']
-      elif os.getenv('PUBLIC_DOMAIN'):
-        # Fallback a variable de entorno
-        self.public_domain = os.getenv('PUBLIC_DOMAIN')
+        if 'PUBLIC_DOMAIN' in config:
+          self.public_domain = config['PUBLIC_DOMAIN']
+        elif os.getenv('PUBLIC_DOMAIN'):
+          self.public_domain = os.getenv('PUBLIC_DOMAIN')
 
-      # Generar URL de playlist
-      if self.iptv_user and self.iptv_pass:
-        self.iptv_source_url = (
-          f"{self.iptv_base_url}/get.php?"
-          f"username={self.iptv_user}&"
-          f"password={self.iptv_pass}&"
-          f"type=m3u_plus&output=ts"
-        )
-        self._config_loaded = True
+        if self.iptv_user and self.iptv_pass and self.iptv_base_url:
+          self.iptv_source_url = (
+            f"{self.iptv_base_url}/get.php?"
+            f"username={self.iptv_user}&"
+            f"password={self.iptv_pass}&"
+            f"type=m3u_plus&output=ts"
+          )
+          self._config_loaded = True
 
     except Exception as e:
-      # Silencioso por defecto, usar validate() para diagnóstico
       pass
 
-  def reload_config(self) -> bool:
-    """
-    Recarga configuración desde Supabase
-
-    Returns:
-        bool: True si se cargó correctamente
-    """
+  async def reload_config(self) -> bool:
+    """Recarga configuración desde PostgreSQL"""
     self._config_loaded = False
-    self._load_config()
+    await self._load_config()
     return self._config_loaded
 
-  def is_supabase_configured(self) -> bool:
-    """Verifica si Supabase está configurado"""
-    return bool(self.supabase_url and self.supabase_key)
+  def is_postgres_configured(self) -> bool:
+    """Verifica si PostgreSQL está configurado"""
+    return self._ensure_pg_config()
 
   def is_iptv_configured(self) -> bool:
     """Verifica si IPTV está configurado"""
@@ -143,60 +145,20 @@ class Settings:
 
   def is_valid(self) -> bool:
     """Verifica que toda la configuración sea válida"""
-    return self.is_supabase_configured() and self.is_iptv_configured()
-
-  def get_supabase_client(self) -> Client:
-    """
-    Obtiene cliente de Supabase (cacheado)
-
-    Returns:
-        Client: Cliente de Supabase configurado
-    """
-    if self._client_cache is not None:
-      return self._client_cache
-
-    if not self.is_supabase_configured():
-      raise ValueError(
-        "Supabase no está configurado. Revisa SUPABASE_URL y SUPABASE_KEY")
-
-    try:
-      # Construir storage URL explícitamente
-      base_url = self.supabase_url.rstrip('/')
-      storage_url = f"{base_url}/storage/v1/"
-
-      try:
-        from supabase import ClientOptions
-        options = ClientOptions(storage={"url": storage_url})
-        client = create_client(self.supabase_url, self.supabase_key, options)
-      except (ImportError, TypeError):
-        client = create_client(self.supabase_url, self.supabase_key)
-
-      self._client_cache = client
-      return client
-
-    except Exception as e:
-      raise RuntimeError(f"Error al crear cliente Supabase: {e}")
+    return self.is_postgres_configured() and self.is_iptv_configured()
 
   def validate(self, verbose: bool = True) -> bool:
-    """
-    Valida la configuración y muestra errores
-
-    Args:
-        verbose: Si True, imprime información de diagnóstico
-
-    Returns:
-        bool: True si la configuración es válida
-    """
+    """Valida la configuración y muestra errores"""
     errors = []
     warnings_list = []
 
-    # Validar Supabase
-    if not self.supabase_url:
-      errors.append("SUPABASE_URL no configurada")
-    if not self.supabase_key:
-      errors.append("SUPABASE_KEY no configurada")
+    if not self.pg_host:
+      errors.append("PG_HOST no configurada")
+    if not self.pg_user:
+      errors.append("PG_USER no configurada")
+    if not self.pg_password:
+      errors.append("PG_PASSWORD no configurada")
 
-    # Validar IPTV
     if not self.iptv_user:
       errors.append("IPTV_USER no encontrado en tabla config")
     if not self.iptv_pass:
@@ -204,7 +166,6 @@ class Settings:
     if not self.iptv_base_url:
       warnings_list.append("IPTV_BASE_URL no configurado")
 
-    # Validaciones adicionales
     if self.api_secret_key == "your-secret-key-change-in-production":
       warnings_list.append(
         "API_SECRET_KEY usando valor por defecto (cámbialo en producción)")
@@ -234,7 +195,7 @@ class Settings:
     return (
       f"Settings(\n"
       f"  Modo: {mode}\n"
-      f"  Supabase: {'✓' if self.is_supabase_configured() else '✗'}\n"
+      f"  PostgreSQL: {'✓' if self.is_postgres_configured() else '✗'}\n"
       f"  IPTV User: {self.iptv_user or '✗'}\n"
       f"  IPTV Config: {'✓' if self.is_iptv_configured() else '✗'}\n"
       f"  Session Timeout: {self.session_timeout_minutes}min\n"

@@ -4,22 +4,22 @@ Script para poblar las tablas de mapeo desde los archivos JSON:
 - mapeo_canales_futbol_en_tv.json: mapeo de futbolenlatv a canales walactv
 - canales.json: lista de canales con sus variaciones de calidad
 
-Nuevo esquema simplificado:
+Esquema simplificado:
 - channel_mappings: source_name (futbolenlatv) + display_name (web)
 - channel_variants: channel_id de la tabla channels + quality + priority
 """
 
+import asyncio
 import json
 import re
 import sys
 from pathlib import Path
 from typing import Optional
 
-# Añadir el directorio scripts al path
 scripts_dir = Path(__file__).parent
 sys.path.insert(0, str(scripts_dir))
 
-from database import SupabaseDB, ChannelMappingManager
+from database import DatabasePG, ChannelMappingManager
 
 
 def load_json_files():
@@ -56,59 +56,73 @@ def extraer_calidad(nombre_iptv: str) -> str:
     return 'HD'
 
 
-def buscar_channel_id_por_nombre(supabase, nombre_iptv: str) -> Optional[str]:
+async def buscar_channel_id_por_nombre(pool, nombre_iptv: str) -> Optional[str]:
     """Busca en la tabla channels por nombre exacto y retorna el ID"""
     try:
-        result = supabase.table('channels').select('id').eq('nombre', nombre_iptv).execute()
-        if result.data and len(result.data) > 0:
-            return result.data[0]['id']
-        return None
+        async with pool.acquire() as conn:
+            result = await conn.fetchrow(
+                "SELECT id FROM channels WHERE nombre = $1",
+                nombre_iptv
+            )
+            if result:
+                return result['id']
+            return None
     except Exception as e:
         print(f"   ⚠️  Error buscando channel '{nombre_iptv}': {e}")
         return None
 
 
-def buscar_channels_por_patron(supabase, variante: dict) -> list:
+async def buscar_channels_por_patron(pool, variante: dict) -> list:
     """Busca channels por patrón dinámico usando nombre/grupo."""
     try:
-        query = supabase.table('channels').select('id, nombre, grupo')
+        async with pool.acquire() as conn:
+            grupo_contains = variante.get('grupo_contains')
+            nombre_contains = variante.get('nombre_contains')
 
-        grupo_contains = variante.get('grupo_contains')
-        nombre_contains = variante.get('nombre_contains')
+            if grupo_contains and nombre_contains:
+                rows = await conn.fetch(
+                    "SELECT id, nombre, grupo FROM channels WHERE grupo ILIKE $1 AND nombre ILIKE $2",
+                    f"%{grupo_contains}%", f"%{nombre_contains}%"
+                )
+            elif grupo_contains:
+                rows = await conn.fetch(
+                    "SELECT id, nombre, grupo FROM channels WHERE grupo ILIKE $1",
+                    f"%{grupo_contains}%"
+                )
+            elif nombre_contains:
+                rows = await conn.fetch(
+                    "SELECT id, nombre, grupo FROM channels WHERE nombre ILIKE $1",
+                    f"%{nombre_contains}%"
+                )
+            else:
+                return []
 
-        if grupo_contains:
-            query = query.ilike('grupo', f"%{grupo_contains}%")
+            if not rows:
+                return []
 
-        if nombre_contains:
-            query = query.ilike('nombre', f"%{nombre_contains}%")
+            nombre_regex = variante.get('nombre_regex')
+            grupo_regex = variante.get('grupo_regex')
 
-        result = query.execute()
-        if not result.data:
-            return []
+            channels = []
+            for row in rows:
+                nombre = row.get('nombre', '')
+                grupo = row.get('grupo', '')
 
-        nombre_regex = variante.get('nombre_regex')
-        grupo_regex = variante.get('grupo_regex')
+                if nombre_regex and not re.search(nombre_regex, nombre, re.IGNORECASE):
+                    continue
 
-        channels = []
-        for row in result.data:
-            nombre = row.get('nombre', '')
-            grupo = row.get('grupo', '')
+                if grupo_regex and not re.search(grupo_regex, grupo, re.IGNORECASE):
+                    continue
 
-            if nombre_regex and not re.search(nombre_regex, nombre, re.IGNORECASE):
-                continue
+                channels.append(row)
 
-            if grupo_regex and not re.search(grupo_regex, grupo, re.IGNORECASE):
-                continue
-
-            channels.append(row)
-
-        return channels
+            return channels
     except Exception as e:
         print(f"   ⚠️  Error buscando channels por patrón: {e}")
         return []
 
 
-def procesar_mapping(supabase, source_name: str, display_name: str, variantes: list, stats: dict):
+async def procesar_mapping(pool, source_name: str, display_name: str, variantes: list, stats: dict):
     """Procesa un mapping individual y guarda sus variantes."""
     print(f"\n📝 Procesando: {source_name} -> {display_name}")
 
@@ -125,7 +139,7 @@ def procesar_mapping(supabase, source_name: str, display_name: str, variantes: l
     for var in variantes:
         if isinstance(var, dict) and 'nombre' in var:
             nombre_iptv = var['nombre']
-            channel_id = buscar_channel_id_por_nombre(supabase, nombre_iptv)
+            channel_id = await buscar_channel_id_por_nombre(pool, nombre_iptv)
 
             if channel_id:
                 channel_ids.append(channel_id)
@@ -137,7 +151,7 @@ def procesar_mapping(supabase, source_name: str, display_name: str, variantes: l
                 stats['variantes_omitidas'] += 1
 
         elif isinstance(var, dict) and ('nombre_regex' in var or 'grupo_regex' in var):
-            channels = buscar_channels_por_patron(supabase, var)
+            channels = await buscar_channels_por_patron(pool, var)
 
             if channels:
                 for channel in channels:
@@ -156,7 +170,7 @@ def procesar_mapping(supabase, source_name: str, display_name: str, variantes: l
 
     if channel_ids:
         try:
-            mapping_id = ChannelMappingManager.upsert_mapping(
+            mapping_id = await ChannelMappingManager.upsert_mapping(
                 source_name=source_name,
                 display_name=display_name,
                 channel_ids=channel_ids,
@@ -176,7 +190,7 @@ def procesar_mapping(supabase, source_name: str, display_name: str, variantes: l
     else:
         print(f"   ⚠️  No se encontraron channel_ids, creando mapeo vacío")
         try:
-            mapping_id = ChannelMappingManager.upsert_mapping(
+            mapping_id = await ChannelMappingManager.upsert_mapping(
                 source_name=source_name,
                 display_name=display_name
             )
@@ -187,11 +201,10 @@ def procesar_mapping(supabase, source_name: str, display_name: str, variantes: l
             stats['errores'] += 1
 
 
-def main():
+async def main():
     print("🚀 Iniciando poblamiento de tablas de mapeo (Esquema Simplificado)...")
     print()
     
-    # Cargar archivos JSON
     mapeo_futbolenlatv, canales_data = load_json_files()
     if not mapeo_futbolenlatv or not canales_data:
         print("❌ Error cargando archivos JSON")
@@ -201,14 +214,12 @@ def main():
     print(f"📄 Cargado canales.json: {len(canales_data)} canales")
     print()
     
-    # Inicializar conexión a Supabase
     try:
-        supabase = SupabaseDB.initialize()
+        pool = await DatabasePG.initialize()
     except Exception as e:
-        print(f"❌ Error conectando a Supabase: {e}")
+        print(f"❌ Error conectando a PostgreSQL: {e}")
         return
     
-    # Estadísticas
     stats = {
         'mapeos_insertados': 0,
         'mapeos_actualizados': 0,
@@ -220,12 +231,11 @@ def main():
     print("📊 Procesando mapeos...")
     print("-" * 80)
     
-    # Procesar cada entrada del mapeo
     display_names_procesados = set()
 
     for source_name, display_name in mapeo_futbolenlatv.items():
         variantes = canales_data.get(display_name, [])
-        procesar_mapping(supabase, source_name, display_name, variantes, stats)
+        await procesar_mapping(pool, source_name, display_name, variantes, stats)
         display_names_procesados.add(display_name)
 
     extras = [display_name for display_name in canales_data.keys() if display_name not in display_names_procesados]
@@ -236,9 +246,8 @@ def main():
 
     for display_name in extras:
         variantes = canales_data.get(display_name, [])
-        procesar_mapping(supabase, display_name, display_name, variantes, stats)
+        await procesar_mapping(pool, display_name, display_name, variantes, stats)
     
-    # Resumen final
     print("\n" + "=" * 80)
     print("📊 RESUMEN DE INSERCIONES")
     print("=" * 80)
@@ -254,4 +263,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

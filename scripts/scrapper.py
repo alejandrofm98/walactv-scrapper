@@ -57,8 +57,7 @@ class ScrapperFutbolenlatv:
             
         self.canales = []
         try:
-            # Nuevo sistema simplificado: source_name -> [channel_ids]
-            self.mapeos = ChannelMappingManager.get_all_mappings_with_channels()
+            self.mapeos = ChannelMappingManager.get_all_mappings_with_channels_sync()
         except Exception as e:
             print(f"Error cargando mapeos: {e}")
             self.mapeos = {}

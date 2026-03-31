@@ -1,6 +1,6 @@
 """
-Módulo de base de datos usando Supabase con esquema simplificado
-Tablas: channel_mappings y channel_variants (reemplazan 4 tablas antiguas)
+Módulo de base de datos usando PostgreSQL con asyncpg
+Esquema: channel_mappings y channel_variants (reemplazan 4 tablas antiguas)
 """
 import json
 import os
@@ -9,90 +9,105 @@ from datetime import datetime, date
 from typing import Dict, Optional, Any, List
 from uuid import UUID
 
-# Cargar variables de entorno desde .env si existe (para desarrollo local)
+import asyncpg
+from asyncpg import Pool
+
 try:
     from dotenv import load_dotenv
-
     env_path = pathlib.Path(__file__).parent.parent / 'docker' / '.env'
-    env_loaded = False
     if env_path.exists():
         load_dotenv(env_path)
-        env_loaded = True
-
-    if not env_loaded:
-        print("ℹ️  No se encontró archivo .env (puede estar en variables de entorno del sistema)")
-
 except ImportError:
     print("⚠️  python-dotenv no instalado, usando solo variables de entorno del sistema")
 
-# Importar Supabase
-try:
-    from supabase import create_client, Client
-except ImportError:
-    print("❌ Error: supabase no está instalado. Ejecuta: pip install supabase")
-    raise
 
-
-class SupabaseDB:
+class DatabasePG:
     """
-    Cliente singleton de Supabase
+    Cliente singleton de PostgreSQL usando asyncpg
     """
-    _instance: Optional[Client] = None
-    _supabase_url: Optional[str] = None
-    _supabase_key: Optional[str] = None
+    _pool: Optional[Pool] = None
+    _host: Optional[str] = None
+    _port: Optional[int] = None
+    _user: Optional[str] = None
+    _password: Optional[str] = None
+    _database: Optional[str] = None
 
     @classmethod
-    def initialize(cls) -> Client:
-        """Inicializa el cliente de Supabase"""
-        if cls._instance is not None:
-            return cls._instance
+    async def initialize(cls) -> Pool:
+        """Inicializa el pool de conexiones PostgreSQL"""
+        if cls._pool is not None:
+            return cls._pool
 
-        cls._supabase_url = os.getenv('SUPABASE_URL')
-        cls._supabase_key = os.getenv('SUPABASE_KEY')
+        cls._host = os.getenv('PG_HOST')
+        cls._port = int(os.getenv('PG_PORT', '5432'))
+        cls._user = os.getenv('PG_USER')
+        cls._password = os.getenv('PG_PASSWORD')
+        cls._database = os.getenv('PG_DATABASE', 'postgres')
 
-        if not cls._supabase_url or not cls._supabase_key:
+        if not cls._host or not cls._user or not cls._password:
             raise ValueError(
-                "❌ No se encontraron las variables de entorno SUPABASE_URL o SUPABASE_KEY.\n"
+                "❌ No se encontraron las variables de entorno PostgreSQL.\n"
                 "Asegúrate de tener un archivo .env con:\n"
-                "SUPABASE_URL=https://tu-proyecto.supabase.co\n"
-                "SUPABASE_KEY=tu-api-key"
+                "PG_HOST=tu-host\n"
+                "PG_USER=tu-user\n"
+                "PG_PASSWORD=tu-password\n"
+                "PG_DATABASE=tu-db"
             )
 
         try:
-            cls._instance = create_client(cls._supabase_url, cls._supabase_key)
-            print("🔥 Supabase inicializado correctamente")
-            return cls._instance
+            cls._pool = await asyncpg.create_pool(
+                host=cls._host,
+                port=cls._port,
+                user=cls._user,
+                password=cls._password,
+                database=cls._database,
+                min_size=5,
+                max_size=20,
+            )
+            print("🔥 PostgreSQL inicializado correctamente")
+            return cls._pool
         except Exception as e:
-            print(f"❌ Error al conectar con Supabase: {e}")
+            print(f"❌ Error al conectar con PostgreSQL: {e}")
             raise
 
     @classmethod
-    def get_client(cls) -> Client:
-        """Obtiene el cliente de Supabase (inicializa si es necesario)"""
-        if cls._instance is None:
-            return cls.initialize()
-        return cls._instance
+    async def get_pool(cls) -> Pool:
+        """Obtiene el pool de conexiones (inicializa si es necesario)"""
+        if cls._pool is None:
+            await cls.initialize()
+        return cls._pool
+
+    @classmethod
+    async def close(cls):
+        """Cierra el pool de conexiones"""
+        if cls._pool is not None:
+            await cls._pool.close()
+            cls._pool = None
 
     @classmethod
     def reset(cls):
         """Resetea la instancia (útil para testing)"""
-        cls._instance = None
+        cls._pool = None
 
 
 class ConfigManager:
     """
-    Gestor de configuración usando la tabla config de Supabase
+    Gestor de configuración usando la tabla config de PostgreSQL
     """
 
     @staticmethod
-    def get_config(key: str) -> Optional[str]:
+    async def get_config(key: str) -> Optional[str]:
         """Obtiene un valor de configuración por su key"""
         try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('config').select('value').eq('key', key).execute()
-            if result.data and len(result.data) > 0:
-                return result.data[0]['value']
-            return None
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                result = await conn.fetchrow(
+                    "SELECT value FROM config WHERE key = $1",
+                    key
+                )
+                if result:
+                    return result['value']
+                return None
         except Exception as e:
             print(f"❌ Error obteniendo config '{key}': {e}")
             return None
@@ -105,153 +120,195 @@ class ChannelMappingManager:
     """
 
     @staticmethod
-    def upsert_mapping(source_name: str, display_name: str, channel_ids: List[str] = None, qualities: List[str] = None) -> Optional[int]:
+    def get_all_mappings_with_channels_sync() -> Dict[str, List[str]]:
+        """Versión sincronica para compatibilidad con código sync"""
+        import asyncio
+        return asyncio.run(ChannelMappingManager.get_all_mappings_with_channels())
+
+    @staticmethod
+    async def upsert_mapping(
+        source_name: str,
+        display_name: str,
+        channel_ids: List[str] = None,
+        qualities: List[str] = None
+    ) -> Optional[int]:
         """
         Inserta o actualiza un mapeo completo con sus variantes
-        
-        Args:
-            source_name: Nombre en futbolenlatv (ej: "DAZN 1 HD")
-            display_name: Nombre en la web (ej: "DAZN 1")
-            channel_ids: Lista de IDs de la tabla channels (ej: ["dazn1_fhd", "dazn1_hd"])
-            qualities: Lista de calidades (ej: ["FHD", "HD"])
-        
-        Returns:
-            ID del mapeo creado/actualizado
         """
         try:
-            supabase = SupabaseDB.get_client()
-            
-            # 1. Insertar o actualizar mapeo
-            mapping_data = {
-                'source_name': source_name,
-                'display_name': display_name
-            }
-            
-            result = supabase.table('channel_mappings').upsert(
-                mapping_data, 
-                on_conflict='source_name'
-            ).execute()
-            
-            if not result.data:
-                return None
-                
-            mapping_id = result.data[0]['id']
-            
-            # 2. Si hay channel_ids, actualizar variantes
-            if channel_ids:
-                # Eliminar variantes antiguas
-                supabase.table('channel_variants').delete().eq('mapping_id', mapping_id).execute()
-                
-                # Insertar nuevas variantes
-                variants = []
-                for i, channel_id in enumerate(channel_ids):
-                    quality = qualities[i] if qualities and i < len(qualities) else 'HD'
-                    variants.append({
-                        'mapping_id': mapping_id,
-                        'channel_id': channel_id,
-                        'quality': quality,
-                        'priority': i
-                    })
-                
-                if variants:
-                    supabase.table('channel_variants').insert(variants).execute()
-            
-            return mapping_id
-            
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    mapping_data = {
+                        'source_name': source_name,
+                        'display_name': display_name
+                    }
+
+                    result = await conn.fetchrow(
+                        """
+                        INSERT INTO channel_mappings (source_name, display_name)
+                        VALUES ($1, $2)
+                        ON CONFLICT (source_name) DO UPDATE
+                        SET display_name = EXCLUDED.display_name
+                        RETURNING id
+                        """,
+                        source_name, display_name
+                    )
+
+                    if not result:
+                        return None
+
+                    mapping_id = result['id']
+
+                    if channel_ids:
+                        await conn.execute(
+                            "DELETE FROM channel_variants WHERE mapping_id = $1",
+                            mapping_id
+                        )
+
+                        variants = []
+                        for i, channel_id in enumerate(channel_ids):
+                            quality = qualities[i] if qualities and i < len(qualities) else 'HD'
+                            variants.append({
+                                'mapping_id': mapping_id,
+                                'channel_id': channel_id,
+                                'quality': quality,
+                                'priority': i
+                            })
+
+                        if variants:
+                            await conn.executemany(
+                                """
+                                INSERT INTO channel_variants (mapping_id, channel_id, quality, priority)
+                                VALUES ($1.mapping_id, $1.channel_id, $1.quality, $1.priority)
+                                """,
+                                [tuple(v.values()) for v in variants]
+                            )
+
+                    return mapping_id
+
         except Exception as e:
             print(f"❌ Error guardando mapeo '{source_name}': {e}")
             return None
 
     @staticmethod
-    def get_mapping_by_source(source_name: str) -> Optional[Dict]:
+    async def get_mapping_by_source(source_name: str) -> Optional[Dict]:
         """Obtiene un mapeo por su nombre de origen (futbolenlatv)"""
         try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('channel_mappings').select('*').eq('source_name', source_name).execute()
-            
-            if result.data and len(result.data) > 0:
-                mapping = result.data[0]
-                # Obtener variantes
-                variants = supabase.table('channel_variants').select('*').eq('mapping_id', mapping['id']).order('priority').execute()
-                mapping['variants'] = variants.data or []
-                return mapping
-            return None
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                result = await conn.fetchrow(
+                    "SELECT * FROM channel_mappings WHERE source_name = $1",
+                    source_name
+                )
+
+                if result:
+                    mapping = dict(result)
+                    variants = await conn.fetch(
+                        "SELECT * FROM channel_variants WHERE mapping_id = $1 ORDER BY priority",
+                        mapping['id']
+                    )
+                    mapping['variants'] = [dict(v) for v in variants]
+                    return mapping
+                return None
         except Exception as e:
             print(f"❌ Error obteniendo mapeo '{source_name}': {e}")
             return None
 
     @staticmethod
-    def get_channel_ids_from_source(source_name: str) -> List[str]:
+    async def get_channel_ids_from_source(source_name: str) -> List[str]:
         """Obtiene lista de channel_ids desde un nombre de origen"""
         try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('channel_mappings').select('id').eq('source_name', source_name).execute()
-            
-            if not result.data:
-                return []
-            
-            mapping_id = result.data[0]['id']
-            variants = supabase.table('channel_variants').select('channel_id').eq('mapping_id', mapping_id).order('priority').execute()
-            
-            return [v['channel_id'] for v in variants.data if v['channel_id']]
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                result = await conn.fetchrow(
+                    "SELECT id FROM channel_mappings WHERE source_name = $1",
+                    source_name
+                )
+
+                if not result:
+                    return []
+
+                variants = await conn.fetch(
+                    "SELECT channel_id FROM channel_variants WHERE mapping_id = $1 ORDER BY priority",
+                    result['id']
+                )
+
+                return [v['channel_id'] for v in variants if v['channel_id']]
         except Exception as e:
             print(f"❌ Error obteniendo channel_ids para '{source_name}': {e}")
             return []
 
     @staticmethod
-    def get_all_mappings() -> List[Dict]:
+    async def get_all_mappings() -> List[Dict]:
         """Obtiene todos los mapeos con sus variantes"""
         try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('channel_mappings').select('*').execute()
-            
-            if not result.data:
-                return []
-            
-            mappings = result.data
-            for mapping in mappings:
-                variants = supabase.table('channel_variants').select('*').eq('mapping_id', mapping['id']).order('priority').execute()
-                mapping['variants'] = variants.data or []
-            
-            return mappings
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                rows = await conn.fetch("SELECT * FROM channel_mappings")
+
+                if not rows:
+                    return []
+
+                mappings = [dict(row) for row in rows]
+                for mapping in mappings:
+                    variants = await conn.fetch(
+                        "SELECT * FROM channel_variants WHERE mapping_id = $1 ORDER BY priority",
+                        mapping['id']
+                    )
+                    mapping['variants'] = [dict(v) for v in variants]
+
+                return mappings
         except Exception as e:
             print(f"❌ Error obteniendo mapeos: {e}")
             return []
 
     @staticmethod
-    def get_all_mappings_simple() -> Dict[str, str]:
+    async def get_all_mappings_simple() -> Dict[str, str]:
         """
         Obtiene mapeo simple: source_name -> display_name
-        Útil para compatibilidad con código antiguo
         """
         try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('channel_mappings').select('source_name, display_name').execute()
-            
-            if result.data:
-                return {m['source_name']: m['display_name'] for m in result.data}
-            return {}
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT source_name, display_name FROM channel_mappings"
+                )
+
+                if rows:
+                    return {row['source_name']: row['display_name'] for row in rows}
+                return {}
         except Exception as e:
             print(f"❌ Error obteniendo mapeos simples: {e}")
             return {}
 
     @staticmethod
-    def get_all_mappings_with_channels() -> Dict[str, List[str]]:
+    async def get_all_mappings_with_channels() -> Dict[str, List[str]]:
         """
         Obtiene mapeo completo: source_name -> [channel_id, channel_id, ...]
-        Útil para resolver canales
         """
         try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('channel_mappings').select('*, channel_variants(channel_id, priority)').execute()
-            
-            if result.data:
-                mappings = {}
-                for m in result.data:
-                    channel_ids = [v['channel_id'] for v in m.get('channel_variants', []) if v['channel_id']]
-                    mappings[m['source_name']] = channel_ids
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT cm.source_name, cv.channel_id
+                    FROM channel_mappings cm
+                    LEFT JOIN channel_variants cv ON cm.id = cv.mapping_id
+                    ORDER BY cm.source_name, cv.priority
+                    """
+                )
+
+                mappings: Dict[str, List[str]] = {}
+                for row in rows:
+                    source_name = row['source_name']
+                    channel_id = row['channel_id']
+                    if source_name not in mappings:
+                        mappings[source_name] = []
+                    if channel_id:
+                        mappings[source_name].append(channel_id)
+
                 return mappings
-            return {}
         except Exception as e:
             print(f"❌ Error obteniendo mapeos con canales: {e}")
             return {}
@@ -263,60 +320,145 @@ class CalendarioAcestreamManager:
     """
 
     @staticmethod
-    def upsert_partido(fecha: date, hora: str, equipos: str, competicion: str = None,
-                       canales: List[str] = None, categoria: str = None) -> bool:
+    async def upsert_partido(
+        fecha: date,
+        hora: str,
+        equipos: str,
+        competicion: str = None,
+        canales: List[str] = None,
+        categoria: str = None
+    ) -> bool:
         """Inserta o actualiza un partido del calendario"""
         try:
-            supabase = SupabaseDB.get_client()
-            data = {
-                'fecha': fecha.isoformat(),
-                'hora': hora,
-                'equipos': equipos,
-                'competicion': competicion,
-                'canales': canales or [],
-                'categoria': categoria
-            }
-            
-            # Buscar si existe
-            existing = supabase.table('calendario').select('id').eq('fecha', fecha.isoformat()).eq('hora', hora).eq('equipos', equipos).execute()
-            
-            if existing.data and len(existing.data) > 0:
-                # Actualizar
-                partido_id = existing.data[0]['id']
-                result = supabase.table('calendario').update(data).eq('id', partido_id).execute()
-            else:
-                # Insertar
-                result = supabase.table('calendario').insert(data).execute()
-            
-            return bool(result.data)
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                data = {
+                    'fecha': fecha.isoformat(),
+                    'hora': hora,
+                    'equipos': equipos,
+                    'competicion': competicion,
+                    'canales': canales or [],
+                    'categoria': categoria
+                }
+
+                existing = await conn.fetchrow(
+                    "SELECT id FROM calendario WHERE fecha = $1 AND hora = $2 AND equipos = $3",
+                    fecha.isoformat(), hora, equipos
+                )
+
+                if existing:
+                    await conn.execute(
+                        """
+                        UPDATE calendario
+                        SET hora = $1, competicion = $2, canales = $3, categoria = $4
+                        WHERE id = $5
+                        """,
+                        hora, competicion, canales or [], categoria, existing['id']
+                    )
+                else:
+                    await conn.execute(
+                        """
+                        INSERT INTO calendario (fecha, hora, equipos, competicion, canales, categoria)
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                        """,
+                        fecha.isoformat(), hora, equipos, competicion, canales or [], categoria
+                    )
+
+                return True
         except Exception as e:
             print(f"❌ Error guardando partido '{equipos}': {e}")
             return False
 
     @staticmethod
-    def get_partidos_by_fecha(fecha: date) -> List[Dict]:
+    async def get_partidos_by_fecha(fecha: date) -> List[Dict]:
         """Obtiene partidos de una fecha específica"""
         try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('calendario').select('*').eq('fecha', fecha.isoformat()).order('hora').execute()
-            return result.data or []
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT * FROM calendario WHERE fecha = $1 ORDER BY hora",
+                    fecha.isoformat()
+                )
+                return [dict(row) for row in rows]
         except Exception as e:
             print(f"❌ Error obteniendo partidos de {fecha}: {e}")
             return []
 
     @staticmethod
-    def get_partidos_with_channels(fecha: date) -> List[Dict]:
+    async def get_partidos_with_channels(fecha: date) -> List[Dict]:
         """Obtiene partidos con canales resueltos usando la función SQL"""
         try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.rpc('get_eventos_fecha_con_channels', {'p_fecha': fecha.isoformat()}).execute()
-            return result.data or []
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT * FROM get_eventos_fecha_con_channels($1)",
+                    fecha.isoformat()
+                )
+                return [dict(row) for row in rows]
         except Exception as e:
             print(f"❌ Error obteniendo partidos con canales: {e}")
             return []
 
 
-# Clases de compatibilidad hacia atrás
+class ReplayManager:
+    """
+    Gestor de replays UFC y otras repeticiones externas
+    """
+
+    @staticmethod
+    async def upsert_replays(replays: List[Dict[str, Any]]) -> int:
+        """
+        Inserta o actualiza replays usando el slug como clave única.
+        """
+        if not replays:
+            return 0
+
+        try:
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    inserted = 0
+                    for replay in replays:
+                        result = await conn.fetchrow(
+                            """
+                            INSERT INTO replays (
+                                slug, source_site, title, event_name, event_type,
+                                event_date, post_url, featured_image_url, description,
+                                video_sources, match_card
+                            )
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                            ON CONFLICT (slug) DO UPDATE SET
+                                source_site = EXCLUDED.source_site,
+                                title = EXCLUDED.title,
+                                event_name = EXCLUDED.event_name,
+                                event_type = EXCLUDED.event_type,
+                                event_date = EXCLUDED.event_date,
+                                post_url = EXCLUDED.post_url,
+                                featured_image_url = EXCLUDED.featured_image_url,
+                                description = EXCLUDED.description,
+                                video_sources = EXCLUDED.video_sources,
+                                match_card = EXCLUDED.match_card
+                            RETURNING slug
+                            """,
+                            replay.get('slug'),
+                            replay.get('source_site'),
+                            replay.get('title'),
+                            replay.get('event_name'),
+                            replay.get('event_type'),
+                            replay.get('event_date'),
+                            replay.get('post_url'),
+                            replay.get('featured_image_url'),
+                            replay.get('description'),
+                            json.dumps(replay.get('video_sources', [])),
+                            replay.get('match_card')
+                        )
+                        if result:
+                            inserted += 1
+                    return inserted
+        except Exception as e:
+            print(f"❌ Error guardando replays: {e}")
+            return 0
+
 
 class Database:
     """
@@ -328,7 +470,7 @@ class Database:
         self.document_name = document_name
         self.json_document = json_document
 
-    def add_data_firebase(self) -> bool:
+    async def add_data_firebase(self) -> bool:
         """Guarda datos manteniendo compatibilidad"""
         try:
             if not self.json_document:
@@ -337,13 +479,14 @@ class Database:
             data = json.loads(self.json_document)
 
             if self.table_name == 'mapeo_canales':
-                # Migrar datos antiguos al nuevo formato
                 for source_name, info in data.items():
                     if isinstance(info, dict):
                         display_name = info.get('display_name', source_name)
                         channel_ids = info.get('channel_ids', [])
                         qualities = info.get('qualities', [])
-                        ChannelMappingManager.upsert_mapping(source_name, display_name, channel_ids, qualities)
+                        await ChannelMappingManager.upsert_mapping(
+                            source_name, display_name, channel_ids, qualities
+                        )
                 return True
 
             elif self.table_name == 'calendario':
@@ -352,10 +495,10 @@ class Database:
                     fecha = datetime.strptime(fecha_str, '%d/%m/%Y').date()
                 except:
                     fecha = date.today()
-                
+
                 for key, partido in data.items():
                     if isinstance(partido, dict):
-                        CalendarioAcestreamManager.upsert_partido(
+                        await CalendarioAcestreamManager.upsert_partido(
                             fecha=fecha,
                             hora=partido.get('hora', '00:00'),
                             equipos=partido.get('equipos', ''),
@@ -371,14 +514,14 @@ class Database:
             print(f"❌ Error en add_data_firebase: {e}")
             return False
 
-    def get_doc_firebase(self):
+    async def get_doc_firebase(self):
         """Obtiene documento manteniendo compatibilidad"""
-        from database import SupabaseDocumentSnapshot
-        
+        from database import PGDocumentSnapshot
+
         try:
             if self.table_name == 'mapeo_canales':
-                mappings = ChannelMappingManager.get_all_mappings_simple()
-                return SupabaseDocumentSnapshot(mappings, exists=True)
+                mappings = await ChannelMappingManager.get_all_mappings_simple()
+                return PGDocumentSnapshot(mappings, exists=True)
 
             elif self.table_name == 'calendario':
                 fecha_str = self.document_name.replace('calendario_', '').replace('.', '/')
@@ -386,8 +529,8 @@ class Database:
                     fecha = datetime.strptime(fecha_str, '%d/%m/%Y').date()
                 except:
                     fecha = date.today()
-                
-                partidos = CalendarioAcestreamManager.get_partidos_by_fecha(fecha)
+
+                partidos = await CalendarioAcestreamManager.get_partidos_by_fecha(fecha)
                 data = {}
                 for idx, partido in enumerate(partidos, 1):
                     data[str(idx)] = {
@@ -397,23 +540,22 @@ class Database:
                         'canales': partido['canales'],
                         'categoria': partido.get('categoria', '')
                     }
-                return SupabaseDocumentSnapshot(data, exists=len(data) > 0)
+                return PGDocumentSnapshot(data, exists=len(data) > 0)
 
-            return SupabaseDocumentSnapshot({}, exists=False)
+            return PGDocumentSnapshot({}, exists=False)
 
         except Exception as e:
             print(f"❌ Error en get_doc_firebase: {e}")
-            return SupabaseDocumentSnapshot({}, exists=False)
+            return PGDocumentSnapshot({}, exists=False)
 
     def check_if_document_exist(self) -> bool:
         """Verifica existencia manteniendo compatibilidad"""
-        snapshot = self.get_doc_firebase()
-        return snapshot.exists()
+        return False
 
 
-class SupabaseDocumentSnapshot:
+class PGDocumentSnapshot:
     """
-    Clase de compatibilidad que simula DocumentSnapshot de Firebase
+    Clase de compatibilidad que simula DocumentSnapshot
     """
 
     def __init__(self, data: Dict, exists: bool = True):
@@ -450,24 +592,30 @@ class DataManagerSupabase:
     @staticmethod
     def obtener_mapeo_canales() -> Dict[str, List[str]]:
         """Obtiene mapeo de canales: source_name -> [channel_ids]"""
-        return ChannelMappingManager.get_all_mappings_with_channels()
+        return ChannelMappingManager.get_all_mappings_with_channels_sync()
 
     @staticmethod
-    def obtener_mapeo_web(fuente: str = 'futbolenlatv') -> Dict[str, str]:
+    async def obtener_mapeo_web(fuente: str = 'futbolenlatv') -> Dict[str, str]:
         """Obtiene mapeo web: source_name -> display_name"""
-        return ChannelMappingManager.get_all_mappings_simple()
+        return await ChannelMappingManager.get_all_mappings_simple()
 
     @staticmethod
-    def guardar_calendario(eventos: Dict, fecha_str: str) -> bool:
+    def guardar_calendario_sync(eventos: Dict, fecha_str: str) -> bool:
+        """Guarda calendario de partidos (sync)"""
+        import asyncio
+        return asyncio.run(DataManagerSupabase.guardar_calendario_async(eventos, fecha_str))
+
+    @staticmethod
+    async def guardar_calendario_async(eventos: Dict, fecha_str: str) -> bool:
         """Guarda calendario de partidos"""
         try:
             fecha = datetime.strptime(fecha_str, '%d/%m/%Y').date()
         except:
             fecha = date.today()
-        
+
         for key, partido in eventos.items():
             if isinstance(partido, dict):
-                CalendarioAcestreamManager.upsert_partido(
+                await CalendarioAcestreamManager.upsert_partido(
                     fecha=fecha,
                     hora=partido.get('hora', '00:00'),
                     equipos=partido.get('equipos', ''),
@@ -478,14 +626,19 @@ class DataManagerSupabase:
         return True
 
     @staticmethod
-    def obtener_calendario(fecha_str: str) -> Dict:
+    def guardar_calendario(eventos: Dict, fecha_str: str) -> bool:
+        """Wrapper sync para guardar_calendario_async"""
+        return DataManagerSupabase.guardar_calendario_sync(eventos, fecha_str)
+
+    @staticmethod
+    async def obtener_calendario(fecha_str: str) -> Dict:
         """Obtiene calendario de partidos"""
         try:
             fecha = datetime.strptime(fecha_str, '%d/%m/%Y').date()
         except:
             fecha = date.today()
-        
-        partidos = CalendarioAcestreamManager.get_partidos_by_fecha(fecha)
+
+        partidos = await CalendarioAcestreamManager.get_partidos_by_fecha(fecha)
         data = {}
         for idx, partido in enumerate(partidos, 1):
             data[str(idx)] = {
@@ -498,45 +651,14 @@ class DataManagerSupabase:
         return data
 
 
-class ReplayManager:
-    """
-    Gestor de replays UFC y otras repeticiones externas
-    """
-
-    @staticmethod
-    def upsert_replays(replays: List[Dict[str, Any]]) -> int:
-        """
-        Inserta o actualiza replays usando el slug como clave única.
-
-        Args:
-            replays: Lista de replays normalizados para Supabase
-
-        Returns:
-            int: Número de registros procesados
-        """
-        if not replays:
-            return 0
-
-        try:
-            supabase = SupabaseDB.get_client()
-            result = supabase.table('replays').upsert(
-                replays,
-                on_conflict='slug'
-            ).execute()
-            return len(result.data or replays)
-        except Exception as e:
-            print(f"❌ Error guardando replays: {e}")
-            return 0
-
-
-# Exportar todo
 __all__ = [
-    'SupabaseDB',
+    'DatabasePG',
     'ConfigManager',
     'ChannelMappingManager',
     'CalendarioAcestreamManager',
     'ReplayManager',
     'Database',
     'DataManagerSupabase',
-    'SupabaseDocumentSnapshot'
+    'PGDocumentSnapshot',
+    'ChannelMappingManager',
 ]

@@ -2,10 +2,17 @@
 Constantes globales de configuración para IPTV Sync
 """
 
-# ===== Supabase =====
-SUPABASE_ENV_URL = "SUPABASE_URL"
-SUPABASE_ENV_KEY = "SUPABASE_KEY"
-SUPABASE_CONFIG_TABLE = "config"
+# ===== PostgreSQL =====
+PG_ENV_HOST = "PG_HOST"
+PG_ENV_PORT = "PG_PORT"
+PG_ENV_USER = "PG_USER"
+PG_ENV_PASSWORD = "PG_PASSWORD"
+PG_ENV_DATABASE = "PG_DATABASE"
+PG_POOL_MIN_SIZE = 5
+PG_POOL_MAX_SIZE = 20
+
+# ===== Config table =====
+CONFIG_TABLE = "config"
 
 # ===== IPTV (keys en tabla config) =====
 IPTV_USERNAME_KEY = "IPTV_USERNAME"
@@ -26,9 +33,9 @@ DOCKER_ENV_VALUE = "true"
 DOCKER_ENV_PATH = "/.dockerenv"
 
 
-SUPABASE_DEFAULT_BATCH_SIZE = 5000
-SUPABASE_DEFAULT_MAX_WORKERS = 1
-SUPABASE_DEFAULT_MAX_RETRIES = 3
+DB_DEFAULT_BATCH_SIZE = 5000
+DB_DEFAULT_MAX_WORKERS = 1
+DB_DEFAULT_MAX_RETRIES = 3
 
 # ===== Tablas de Base de Datos =====
 CHANNELS_TABLE = "channels"

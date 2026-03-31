@@ -16,6 +16,7 @@ import requests
 from bs4 import BeautifulSoup, Tag
 
 from config import get_settings
+from database import DatabasePG
 
 
 class WatchWrestlingUfcScraper:
@@ -199,7 +200,7 @@ class WatchWrestlingUfcScraper:
             "match_card": match_card,
         }
 
-    def sincronizar_replays(self, limite: Optional[int] = None) -> int:
+    async def sincronizar_replays(self, limite: Optional[int] = None) -> int:
         """Scrapea y persiste los replays UFC."""
         posts = self.obtener_posts_ufc(limite=limite)
         if not posts:
@@ -218,34 +219,18 @@ class WatchWrestlingUfcScraper:
         total_fuentes = sum(replay.get("source_scan_total", 0) for replay in replays)
         total_streams = sum(replay.get("source_scan_resolved", 0) for replay in replays)
         total_descartadas = sum(replay.get("source_scan_skipped", 0) for replay in replays)
-        total_embed = sum(
-            1
-            for replay in replays
-            for group in replay.get("video_sources", [])
-            for source in group.get("sources", [])
-            if source.get("web_embed_url")
-        )
-        total_m3u = sum(
-            1
-            for replay in replays
-            for group in replay.get("video_sources", [])
-            for source in group.get("sources", [])
-            if source.get("stream_url")
-        )
 
         self._log_info(f"Posts UFC encontrados: {len(posts)}")
         self._log_info(f"Replays normalizados: {len(replays)}")
         self._log_info(f"Fuentes detectadas: {total_fuentes}")
         self._log_info(f"Fuentes resueltas: {total_streams}")
-        self._log_info(f"Fuentes con embed: {total_embed}")
-        self._log_info(f"Fuentes con m3u: {total_m3u}")
         self._log_info(f"Fuentes no recogidas: {total_descartadas}")
 
-        guardados = self._guardar_replays(replays)
+        guardados = await self._guardar_replays(replays)
         if guardados:
-            print(f"✅ Replays guardados/actualizados en Supabase: {guardados}")
+            print(f"✅ Replays guardados/actualizados en PostgreSQL: {guardados}")
         else:
-            print("⚠️  No se pudo guardar ningun replay en Supabase")
+            print("⚠️  No se pudo guardar ningun replay en PostgreSQL")
 
         return guardados
 
@@ -260,7 +245,7 @@ class WatchWrestlingUfcScraper:
             self._log_info(f"  OBTENIDA {item['group']} / {item['label']}{suffix}")
 
     @staticmethod
-    def _guardar_replays(replays: List[Dict[str, Any]]) -> int:
+    async def _guardar_replays(replays: List[Dict[str, Any]]) -> int:
         if not replays:
             return 0
 
@@ -281,12 +266,43 @@ class WatchWrestlingUfcScraper:
             payload.append(replay_copy)
 
         try:
-            supabase = get_settings().get_supabase_client()
-            result = supabase.table("replays").upsert(
-                payload,
-                on_conflict="slug",
-            ).execute()
-            return len(result.data or payload)
+            pool = await DatabasePG.initialize()
+            async with pool.acquire() as conn:
+                inserted = 0
+                async with conn.transaction():
+                    for replay_data in payload:
+                        await conn.execute(
+                            """
+                            INSERT INTO replays (slug, source_site, title, event_name, event_type,
+                                event_date, post_url, featured_image_url, description,
+                                video_sources, match_card)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                            ON CONFLICT (slug) DO UPDATE SET
+                                source_site = EXCLUDED.source_site,
+                                title = EXCLUDED.title,
+                                event_name = EXCLUDED.event_name,
+                                event_type = EXCLUDED.event_type,
+                                event_date = EXCLUDED.event_date,
+                                post_url = EXCLUDED.post_url,
+                                featured_image_url = EXCLUDED.featured_image_url,
+                                description = EXCLUDED.description,
+                                video_sources = EXCLUDED.video_sources,
+                                match_card = EXCLUDED.match_card
+                            """,
+                            replay_data.get('slug'),
+                            replay_data.get('source_site'),
+                            replay_data.get('title'),
+                            replay_data.get('event_name'),
+                            replay_data.get('event_type'),
+                            replay_data.get('event_date'),
+                            replay_data.get('post_url'),
+                            replay_data.get('featured_image_url'),
+                            replay_data.get('description'),
+                            json.dumps(replay_data.get('video_sources', [])),
+                            replay_data.get('match_card')
+                        )
+                        inserted += 1
+                return inserted
         except Exception as e:
             print(f"❌ Error guardando replays: {e}")
             return 0
@@ -1327,10 +1343,6 @@ class WatchWrestlingUfcScraper:
             return value
 
 
-# ──────────────────────────────────────────────────────────────────
-# CLI
-# ──────────────────────────────────────────────────────────────────
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sincroniza replays UFC desde watch-wrestling.eu")
     parser.add_argument(
@@ -1342,11 +1354,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> int:
+async def main() -> int:
     args = parse_args()
     scraper = WatchWrestlingUfcScraper()
     try:
-        guardados = scraper.sincronizar_replays(limite=args.limit)
+        guardados = await scraper.sincronizar_replays(limite=args.limit)
         return 0 if guardados >= 0 else 1
     except Exception as e:
         print(f"❌ Error sincronizando replays UFC: {e}")
@@ -1354,4 +1366,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import sys
+    import asyncio
+    sys.exit(asyncio.run(main()))
