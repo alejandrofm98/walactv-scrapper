@@ -5,15 +5,15 @@ Descarga, parsea y sincroniza canales, películas y series
 
 import asyncio
 import os
-import requests
-import time
 import re
-import traceback
 import sys
+import time
+import traceback
 from datetime import datetime
 from pathlib import Path
+
 import asyncpg
-from typing import Optional
+import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

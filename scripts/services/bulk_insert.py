@@ -8,15 +8,7 @@ import time
 from typing import List, Dict, Any, Optional, Callable
 from dataclasses import dataclass
 from asyncpg import Pool
-import sys
-import os
-
-# Agregar directorio scripts al path para imports relativos
-_scripts_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _scripts_dir not in sys.path:
-    sys.path.insert(0, _scripts_dir)
-
-from utils import constants as CONSTANTS
+from scripts.utils import constants as CONSTANTS
 
 
 @dataclass
