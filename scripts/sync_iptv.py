@@ -1133,7 +1133,6 @@ async def sync_to_postgres():
                         print(f"  ✅ {content_type}: {result.get('total', 0):,} items, {result.get('gz_size_mb', 0):.2f} MB")
         except Exception as json_err:
             print(f"⚠️  Error generando JSONs para cache: {json_err}")
-            import traceback
             traceback.print_exc()
 
         fin_total = time.time()

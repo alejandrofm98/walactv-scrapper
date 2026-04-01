@@ -124,10 +124,10 @@ class BulkInserter:
                         columns = list(batch[0].keys())
                         placeholders = ', '.join([f'${i+1}' for i in range(len(columns))])
                         query = f"INSERT INTO {self.table_name} ({', '.join(columns)}) VALUES ({placeholders})"
-                        
+
                         for row in batch:
                             values = tuple(row[col] for col in columns)
-                            await conn.execute(query, values)
+                            await conn.execute(query, *values)
 
                         records_inserted = len(batch)
 
