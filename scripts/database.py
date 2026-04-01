@@ -166,23 +166,14 @@ class ChannelMappingManager:
                             mapping_id
                         )
 
-                        variants = []
                         for i, channel_id in enumerate(channel_ids):
                             quality = qualities[i] if qualities and i < len(qualities) else 'HD'
-                            variants.append({
-                                'mapping_id': mapping_id,
-                                'channel_id': channel_id,
-                                'quality': quality,
-                                'priority': i
-                            })
-
-                        if variants:
-                            await conn.executemany(
+                            await conn.execute(
                                 """
                                 INSERT INTO channel_variants (mapping_id, channel_id, quality, priority)
-                                VALUES ($1.mapping_id, $1.channel_id, $1.quality, $1.priority)
+                                VALUES ($1, $2, $3, $4)
                                 """,
-                                [tuple(v.values()) for v in variants]
+                                mapping_id, channel_id, quality, i
                             )
 
                     return mapping_id
