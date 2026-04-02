@@ -996,6 +996,18 @@ async def sync_to_postgres():
     movies_match = count_movies_db == len(movies)
     series_match = count_series_db == len(series)
 
+    # Generar JSONs para cache del cliente TV (siempre, antes del chequeo)
+    try:
+        from generate_content_json import generar_todos_json
+        print("\n📦 Generando JSONs para cache TV...")
+        json_results = await generar_todos_json()
+        if json_results:
+            for content_type, result in json_results.items():
+                if result:
+                    print(f"  ✅ {content_type}: {result.get('total', 0):,} items, {result.get('gz_size_mb', 0):.2f} MB")
+    except Exception as json_err:
+        print(f"⚠️  Error generando JSONs para cache: {json_err}")
+
     if channels_match and movies_match and series_match:
         fin_total = time.time()
         duracion_total = fin_total - inicio_total
@@ -1121,19 +1133,6 @@ async def sync_to_postgres():
                 metadata['series_con_logo'],
                 metadata['series_sin_logo']
             )
-
-        # Generar JSONs para cache del cliente TV
-        try:
-            from generate_content_json import generar_todos_json
-            print("\n📦 Generando JSONs para cache TV...")
-            json_results = await generar_todos_json()
-            if json_results:
-                for content_type, result in json_results.items():
-                    if result:
-                        print(f"  ✅ {content_type}: {result.get('total', 0):,} items, {result.get('gz_size_mb', 0):.2f} MB")
-        except Exception as json_err:
-            print(f"⚠️  Error generando JSONs para cache: {json_err}")
-            traceback.print_exc()
 
         fin_total = time.time()
         duracion_total = fin_total - inicio_total
