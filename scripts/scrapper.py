@@ -70,7 +70,7 @@ class ScrapperFutbolenlatv:
                                             canales = EXCLUDED.canales,
                                             categoria = EXCLUDED.categoria
                                         """,
-                                        fecha_date.isoformat(),
+                                        fecha_date,
                                         partido.get('hora', '00:00'),
                                         partido.get('equipos', ''),
                                         partido.get('competicion', ''),
