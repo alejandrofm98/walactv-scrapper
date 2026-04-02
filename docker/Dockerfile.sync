@@ -13,7 +13,9 @@ RUN apk add --no-cache \
 
 # Copiar e instalar requirements
 COPY docker/config/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt || \
+    pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt || \
+    pip install --no-cache-dir --timeout 600 --retries 10 -r requirements.txt
 
 # Copiar código necesario
 COPY scripts/config.py scripts/

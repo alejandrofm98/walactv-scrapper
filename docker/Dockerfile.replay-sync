@@ -13,7 +13,9 @@ RUN apk add --no-cache \
     echo "Europe/Madrid" > /etc/timezone
 
 COPY docker/config/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt || \
+    pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt || \
+    pip install --no-cache-dir --timeout 600 --retries 10 -r requirements.txt
 
 COPY scripts/config.py scripts/
 COPY scripts/sync_replays.py scripts/
