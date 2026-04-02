@@ -101,11 +101,17 @@ class ScrapperFutbolenlatv:
             self.soup = None
             
         self.canales = []
-        try:
-            self.mapeos = ChannelMappingManager.get_all_mappings_with_channels_sync()
-        except Exception as e:
-            print(f"Error cargando mapeos: {e}")
-            self.mapeos = {}
+        self._mapeos_cache = None
+
+    def _get_mapeos(self):
+        """Carga lazy de mapeos - evita asyncio.run() dentro de un event loop"""
+        if self._mapeos_cache is None:
+            try:
+                self._mapeos_cache = ChannelMappingManager.get_all_mappings_with_channels_sync()
+            except Exception as e:
+                print(f"Error cargando mapeos: {e}")
+                self._mapeos_cache = {}
+        return self._mapeos_cache
 
     def existe_fecha(self, fecha):
         if not self.soup:
@@ -213,7 +219,7 @@ class ScrapperFutbolenlatv:
 
             canales_disponibles = [
                 canal for canal in canales_preferidos
-                if canal in self.mapeos
+                if canal in self._get_mapeos()
             ]
 
             if canales_disponibles:
@@ -255,7 +261,7 @@ class ScrapperFutbolenlatv:
             canal_lower = canal_title.lower()
             encontrado = False
 
-            for source_name in self.mapeos.keys():
+            for source_name in self._get_mapeos().keys():
                 if source_name.lower() == canal_lower:
                     encontrado = True
                     if source_name not in self.canales:
