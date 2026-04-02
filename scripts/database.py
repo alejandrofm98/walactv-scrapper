@@ -410,6 +410,13 @@ class ReplayManager:
                 async with conn.transaction():
                     inserted = 0
                     for replay in replays:
+                        event_date = replay.get('event_date')
+                        if isinstance(event_date, str):
+                            try:
+                                event_date = datetime.strptime(event_date[:10], '%Y-%m-%d').date()
+                            except (ValueError, TypeError):
+                                event_date = None
+
                         result = await conn.fetchrow(
                             """
                             INSERT INTO replays (
@@ -436,7 +443,7 @@ class ReplayManager:
                             replay.get('title'),
                             replay.get('event_name'),
                             replay.get('event_type'),
-                            replay.get('event_date'),
+                            event_date,
                             replay.get('post_url'),
                             replay.get('featured_image_url'),
                             replay.get('description'),

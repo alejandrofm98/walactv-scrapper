@@ -281,7 +281,7 @@ class WatchWrestlingUfcScraper:
                         event_date = None
                         if isinstance(event_date_str, str):
                             try:
-                                event_date = datetime.strptime(event_date_str, '%Y-%m-%d').date()
+                                event_date = datetime.strptime(event_date_str[:10], '%Y-%m-%d').date()
                             except (ValueError, TypeError):
                                 event_date = None
 
