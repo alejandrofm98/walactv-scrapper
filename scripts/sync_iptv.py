@@ -809,6 +809,9 @@ async def sync_to_postgres():
 
     print(f"📋 Configuración inicial:\n{settings}")
 
+    await settings._load_config()
+    print("✅ Configuración cargada desde PostgreSQL")
+
     try:
         pool = await init_postgres()
         print("✅ Conectado a PostgreSQL")
@@ -997,16 +1000,22 @@ async def sync_to_postgres():
     series_match = count_series_db == len(series)
 
     # Generar JSONs para cache del cliente TV (siempre, antes del chequeo)
+    generar_todos_json = None
     try:
         from generate_content_json import generar_todos_json
-        print("\n📦 Generando JSONs para cache TV...")
-        json_results = await generar_todos_json()
-        if json_results:
-            for content_type, result in json_results.items():
-                if result:
-                    print(f"  ✅ {content_type}: {result.get('total', 0):,} items, {result.get('gz_size_mb', 0):.2f} MB")
-    except Exception as json_err:
-        print(f"⚠️  Error generando JSONs para cache: {json_err}")
+    except ImportError as import_err:
+        print(f"⚠️  Módulo generate_content_json no disponible: {import_err}")
+
+    if generar_todos_json:
+        try:
+            print("\n📦 Generando JSONs para cache TV...")
+            json_results = await generar_todos_json()
+            if json_results:
+                for content_type, result in json_results.items():
+                    if result:
+                        print(f"  ✅ {content_type}: {result.get('total', 0):,} items, {result.get('gz_size_mb', 0):.2f} MB")
+        except Exception as json_err:
+            print(f"⚠️  Error generando JSONs: {json_err}")
 
     if channels_match and movies_match and series_match:
         fin_total = time.time()

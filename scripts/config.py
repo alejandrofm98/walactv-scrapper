@@ -60,8 +60,8 @@ class Settings:
   _pool_cache: Optional[asyncpg.Pool] = None
 
   def __init__(self):
-    """Inicializa y carga configuración desde PostgreSQL"""
-    self._load_config()
+    """Inicializa configuración (sin carga async)"""
+    pass
 
   def _ensure_pg_config(self) -> bool:
     """Verifica que la configuración PostgreSQL esté completa"""
