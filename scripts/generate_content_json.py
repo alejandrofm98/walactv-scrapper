@@ -80,7 +80,7 @@ async def generar_channels_json(pool=None, close_pool=True):
             })
 
         total = len(canales)
-        generated_at = datetime.now().isoformat() + "Z"
+        generated_at = datetime.now()
 
         # Construir payload
         payload = {
@@ -196,7 +196,7 @@ async def generar_movies_json(pool=None, close_pool=True):
             })
 
         total = len(movies)
-        generated_at = datetime.now().isoformat() + "Z"
+        generated_at = datetime.now()
 
         payload = {
             "movies": movies,
@@ -313,7 +313,7 @@ async def generar_series_json(pool=None, close_pool=True):
             })
 
         total = len(series)
-        generated_at = datetime.now().isoformat() + "Z"
+        generated_at = datetime.now()
 
         payload = {
             "series": series,
@@ -375,18 +375,24 @@ async def generar_series_json(pool=None, close_pool=True):
             await DatabasePG.close()
 
 
-async def generar_todos_json():
+async def generar_todos_json(pool=None, close_pool=True):
     """
     Genera los tres archivos JSON (channels, movies, series).
     Usa un solo pool de conexiones para eficiencia.
+    
+    Args:
+        pool: Pool de conexiones existente (opcional)
+        close_pool: Si True, cierra el pool al terminar
     """
     print("\n" + "=" * 60)
     print("📦 GENERANDO TODOS LOS JSONS PARA CACHE TV")
     print("=" * 60)
 
-    pool = None
+    pool_to_close = None
     try:
-        pool = await DatabasePG.get_pool()
+        if pool is None:
+            pool = await DatabasePG.get_pool()
+            pool_to_close = pool
 
         results = {}
 
@@ -413,7 +419,7 @@ async def generar_todos_json():
         return None
 
     finally:
-        if pool:
+        if pool_to_close and close_pool:
             await DatabasePG.close()
 
 

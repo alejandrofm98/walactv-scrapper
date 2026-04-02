@@ -1009,7 +1009,7 @@ async def sync_to_postgres():
     if generar_todos_json:
         try:
             print("\n📦 Generando JSONs para cache TV...")
-            json_results = await generar_todos_json()
+            json_results = await generar_todos_json(pool=pool, close_pool=False)
             if json_results:
                 for content_type, result in json_results.items():
                     if result:
