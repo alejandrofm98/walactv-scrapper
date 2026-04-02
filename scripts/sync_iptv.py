@@ -1082,7 +1082,7 @@ async def sync_to_postgres():
 
         async with pool.acquire() as conn:
             metadata = {
-                "ultima_actualizacion": datetime.now().isoformat(),
+                "ultima_actualizacion": datetime.now(),
                 "total_canales": stats_channels.inserted_records if stats_channels else count_channels_db,
                 "total_movies": stats_movies.inserted_records if stats_movies else count_movies_db,
                 "total_series": stats_series.inserted_records if stats_series else count_series_db,
