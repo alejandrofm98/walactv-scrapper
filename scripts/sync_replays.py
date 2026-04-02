@@ -276,6 +276,19 @@ class WatchWrestlingUfcScraper:
                 inserted = 0
                 async with conn.transaction():
                     for replay_data in payload:
+                        # Convertir event_date string a date object
+                        event_date_str = replay_data.get('event_date')
+                        event_date = None
+                        if isinstance(event_date_str, str):
+                            try:
+                                event_date = datetime.strptime(event_date_str, '%Y-%m-%d').date()
+                            except (ValueError, TypeError):
+                                event_date = None
+
+                        match_card = replay_data.get('match_card', [])
+                        if isinstance(match_card, list):
+                            match_card = json.dumps(match_card)
+
                         await conn.execute(
                             """
                             INSERT INTO replays (slug, source_site, title, event_name, event_type,
@@ -299,12 +312,12 @@ class WatchWrestlingUfcScraper:
                             replay_data.get('title'),
                             replay_data.get('event_name'),
                             replay_data.get('event_type'),
-                            replay_data.get('event_date'),
+                            event_date,
                             replay_data.get('post_url'),
                             replay_data.get('featured_image_url'),
                             replay_data.get('description'),
                             json.dumps(replay_data.get('video_sources', [])),
-                            replay_data.get('match_card')
+                            match_card
                         )
                         inserted += 1
                 return inserted
