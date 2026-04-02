@@ -287,8 +287,8 @@ async def generar_series_json(pool=None, close_pool=True):
                 COALESCE(provider_id, '') as provider_id,
                 COALESCE(logo, '') as logo,
                 COALESCE(country, '') as country,
-                COALESCE(temporada, 0) as temporada,
-                COALESCE(episodio, 0) as episodio,
+                COALESCE(temporada, '0') as temporada,
+                COALESCE(episodio, '0') as episodio,
                 COALESCE(serie_name, '') as serie_name,
                 COALESCE(nombre_normalizado, '') as nombre_normalizado,
                 COALESCE(grupo_normalizado, '') as grupo_normalizado

@@ -148,6 +148,13 @@ CREATE TABLE IF NOT EXISTS series (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+ALTER TABLE sync_metadata ADD COLUMN IF NOT EXISTS channels_generated_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE sync_metadata ADD COLUMN IF NOT EXISTS channels_json_size_mb NUMERIC(10,2);
+ALTER TABLE sync_metadata ADD COLUMN IF NOT EXISTS movies_generated_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE sync_metadata ADD COLUMN IF NOT EXISTS movies_json_size_mb NUMERIC(10,2);
+ALTER TABLE sync_metadata ADD COLUMN IF NOT EXISTS series_generated_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE sync_metadata ADD COLUMN IF NOT EXISTS series_json_size_mb NUMERIC(10,2);
+
 ALTER TABLE channels ADD COLUMN IF NOT EXISTS nombre_normalizado VARCHAR(255);
 ALTER TABLE channels ADD COLUMN IF NOT EXISTS grupo_normalizado VARCHAR(255);
 ALTER TABLE channels ADD COLUMN IF NOT EXISTS stream_url TEXT;
