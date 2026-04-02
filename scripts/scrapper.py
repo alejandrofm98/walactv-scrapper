@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
-from database import Database, DataManagerSupabase, ChannelMappingManager
+from database import Database, DataManagerSupabase, ChannelMappingManager, DatabasePG
 
 def limpia_html(html_canal):
     html_canal = html_canal.replace("&gt", "")
@@ -38,6 +38,51 @@ class ScrapperFutbolenlatv:
     @staticmethod
     def guarda_partidos(eventos, fecha):
         DataManagerSupabase.guardar_calendario(eventos, fecha)
+
+    @staticmethod
+    async def guarda_partidos_async(todos_eventos):
+        """
+        Guarda todos los eventos de todas las fechas en un solo batch.
+        Esto evita llamar asyncio.run() múltiples veces y cierra el pool correctamente.
+        """
+        try:
+            # Inicializar pool una sola vez
+            pool = await DatabasePG.initialize()
+
+            async with pool.acquire() as conn:
+                for fecha_str, partidos in todos_eventos.items():
+                    for fecha in fecha_str if isinstance(fecha_str, list) else [fecha_str]:
+                        try:
+                            fecha_date = datetime.strptime(fecha, '%d/%m/%Y').date()
+                        except ValueError:
+                            continue
+
+                        for key, partido in partidos.items():
+                            if isinstance(partido, dict):
+                                try:
+                                    await conn.execute(
+                                        """
+                                        INSERT INTO calendario (fecha, hora, equipos, competicion, canales, categoria)
+                                        VALUES ($1, $2, $3, $4, $5, $6)
+                                        ON CONFLICT (fecha, hora, equipos) DO UPDATE SET
+                                            hora = EXCLUDED.hora,
+                                            competicion = EXCLUDED.competicion,
+                                            canales = EXCLUDED.canales,
+                                            categoria = EXCLUDED.categoria
+                                        """,
+                                        fecha_date.isoformat(),
+                                        partido.get('hora', '00:00'),
+                                        partido.get('equipos', ''),
+                                        partido.get('competicion', ''),
+                                        partido.get('canales', []),
+                                        partido.get('categoria', '')
+                                    )
+                                except Exception as e:
+                                    print(f"❌ Error guardando partido '{partido.get('equipos', '')}': {e}")
+
+        except Exception as e:
+            print(f"❌ Error general guardando calendario: {e}")
+            raise
 
     @staticmethod
     def obtener_fechas():

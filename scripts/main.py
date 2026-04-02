@@ -1,37 +1,39 @@
-import schedule
-import time
+import asyncio
 import traceback
 from scrapper import ScrapperFutbolenlatv
 
-def main():
+
+async def main():
     """
-    Tarea principal: 
+    Tarea principal:
     1. Obtener calendario de Futbolenlatv
     2. Guardar en base de datos
     """
     try:
         print("Iniciando obtencion calendario...")
-        
+
         # 1. Obtener fechas y calendario
         fechas = ScrapperFutbolenlatv.obtener_fechas()
         print(f"Fechas a procesar: {fechas}")
-        
+
         scraper = ScrapperFutbolenlatv()
-        
+
+        # Recopilar todos los partidos de todas las fechas
+        todos_eventos = {}
         for fecha in fechas:
             print(f"Procesando fecha: {fecha}")
-            # Obtener partidos de futbolenlatv
             partidos = scraper.obtener_partidos(fecha)
-            
+
             if partidos:
                 print(f"Encontrados {len(partidos)} partidos para {fecha}")
-                
-                # 3. Guardar calendario
-                # Usamos el método estático de ScrapperFutbolenlatv que ya sabe guardar
-                ScrapperFutbolenlatv.guarda_partidos(partidos, fecha)
-                print(f"Calendario guardado para {fecha}")
+                todos_eventos[fecha] = partidos
             else:
                 print(f"No hay partidos para {fecha}")
+
+        # 3. Guardar todos los calendarios en un solo batch
+        if todos_eventos:
+            await ScrapperFutbolenlatv.guarda_partidos_async(todos_eventos)
+            print("Calendario guardado para todas las fechas")
 
         print("Job finalizado.")
 
@@ -39,6 +41,7 @@ def main():
         print(f"Error en job: {e}")
         traceback.print_exc()
 
+
 if __name__ == '__main__':
     # Ejecutar una vez al inicio
-    main()
+    asyncio.run(main())

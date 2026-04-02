@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt || 
     pip install --no-cache-dir --timeout 600 --retries 10 -r requirements.txt
 
 COPY scripts/config.py scripts/
+COPY scripts/database.py scripts/
 COPY scripts/sync_replays.py scripts/
 COPY scripts/utils/ scripts/utils/
 
