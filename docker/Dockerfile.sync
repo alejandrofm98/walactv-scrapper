@@ -22,6 +22,7 @@ COPY scripts/config.py scripts/
 COPY scripts/database.py scripts/
 COPY scripts/sync_iptv.py scripts/
 COPY scripts/poblar_mapeo_canales.py scripts/
+COPY scripts/generate_content_json.py scripts/
 COPY scripts/utils/ scripts/utils/
 COPY scripts/services/ scripts/services/
 COPY resources/ resources/
