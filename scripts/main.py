@@ -1,28 +1,34 @@
 import asyncio
 import traceback
+from database import DatabasePG, ChannelMappingManager
 from scrapper import ScrapperFutbolenlatv
-from database import ChannelMappingManager
 
 
-def main():
+async def main():
     """
     Tarea principal:
-    1. Obtener calendario de Futbolenlatv
-    2. Guardar en base de datos
+    1. Inicializar pool de conexiones
+    2. Cargar mapeos de canales
+    3. Obtener calendario de Futbolenlatv
+    4. Guardar en base de datos
     """
     try:
         print("Iniciando obtencion calendario...")
 
-        # Cargar mapeos ANTES de entrar en contexto async
+        # 1. Inicializar pool de conexiones PRIMERO
+        print("Inicializando pool de conexiones...")
+        await DatabasePG.initialize()
+
+        # 2. Cargar mapeos usando version async (reutiliza el pool)
         print("Cargando mapeos de canales...")
         try:
-            mapeos = ChannelMappingManager.get_all_mappings_with_channels_sync()
+            mapeos = await ChannelMappingManager.get_all_mappings_with_channels()
         except Exception as e:
             print(f"⚠️  Error cargando mapeos: {e}")
             mapeos = {}
         print(f"✅ Mapeos cargados: {len(mapeos)} canales")
 
-        # 1. Obtener fechas y calendario
+        # 3. Obtener fechas y calendario
         fechas = ScrapperFutbolenlatv.obtener_fechas()
         print(f"Fechas a procesar: {fechas}")
 
@@ -40,10 +46,9 @@ def main():
             else:
                 print(f"No hay partidos para {fecha}")
 
-        # 3. Guardar todos los calendarios en un solo batch
+        # 4. Guardar todos los calendarios en un solo batch
         if todos_eventos:
-            import asyncio
-            asyncio.run(ScrapperFutbolenlatv.guarda_partidos_async(todos_eventos))
+            await ScrapperFutbolenlatv.guarda_partidos_async(todos_eventos)
             print("Calendario guardado para todas las fechas")
 
         print("Job finalizado.")
@@ -51,7 +56,9 @@ def main():
     except Exception as e:
         print(f"Error en job: {e}")
         traceback.print_exc()
+    finally:
+        await DatabasePG.close()
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
