@@ -27,6 +27,13 @@ from utils.constants import (
 )
 
 
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
+
 async def generar_channels_json(pool=None, close_pool=True):
     """
     Genera el archivo channels.json.gz con todos los canales.
@@ -46,12 +53,10 @@ async def generar_channels_json(pool=None, close_pool=True):
 
     pool_to_close = None
     try:
-        # Obtener o crear pool
         if pool is None:
             pool = await DatabasePG.get_pool()
             pool_to_close = pool
 
-        # Query para obtener todos los canales con campos necesarios
         query = """
             SELECT
                 id,
@@ -82,33 +87,28 @@ async def generar_channels_json(pool=None, close_pool=True):
         total = len(canales)
         generated_at = datetime.now()
 
-        # Construir payload
         payload = {
             "channels": canales,
             "total": total,
             "generated_at": generated_at
         }
 
-        # Guardar JSON
         json_dir = Path(__file__).parent.parent / "data" / "json"
         json_dir.mkdir(parents=True, exist_ok=True)
 
         json_path = json_dir / "channels.json"
         gz_path = json_dir / "channels.json.gz"
 
-        # Escribir JSON
         with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+            json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
 
-        # Escribir gzip
         with open(gz_path, 'wb') as f:
             with gzip.open(f, 'wt', encoding='utf-8') as gz:
-                gz.write(json.dumps(payload, ensure_ascii=False))
+                gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
 
         json_size_mb = json_path.stat().st_size / (1024 * 1024)
         gz_size_mb = gz_path.stat().st_size / (1024 * 1024)
 
-        # Actualizar sync_metadata con generated_at
         await pool.execute("""
             INSERT INTO sync_metadata (id, channels_generated_at, channels_json_size_mb)
             VALUES ($1, $2, $3)
@@ -211,11 +211,11 @@ async def generar_movies_json(pool=None, close_pool=True):
         gz_path = json_dir / "movies.json.gz"
 
         with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+            json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
 
         with open(gz_path, 'wb') as f:
             with gzip.open(f, 'wt', encoding='utf-8') as gz:
-                gz.write(json.dumps(payload, ensure_ascii=False))
+                gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
 
         json_size_mb = json_path.stat().st_size / (1024 * 1024)
         gz_size_mb = gz_path.stat().st_size / (1024 * 1024)
@@ -328,11 +328,11 @@ async def generar_series_json(pool=None, close_pool=True):
         gz_path = json_dir / "series.json.gz"
 
         with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+            json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
 
         with open(gz_path, 'wb') as f:
             with gzip.open(f, 'wt', encoding='utf-8') as gz:
-                gz.write(json.dumps(payload, ensure_ascii=False))
+                gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
 
         json_size_mb = json_path.stat().st_size / (1024 * 1024)
         gz_size_mb = gz_path.stat().st_size / (1024 * 1024)
@@ -379,7 +379,7 @@ async def generar_todos_json(pool=None, close_pool=True):
     """
     Genera los tres archivos JSON (channels, movies, series).
     Usa un solo pool de conexiones para eficiencia.
-    
+
     Args:
         pool: Pool de conexiones existente (opcional)
         close_pool: Si True, cierra el pool al terminar
@@ -396,7 +396,6 @@ async def generar_todos_json(pool=None, close_pool=True):
 
         results = {}
 
-        # Generar en orden: channels, movies, series
         result_channels = await generar_channels_json(pool, close_pool=False)
         results['channels'] = result_channels
 
