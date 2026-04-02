@@ -807,9 +807,9 @@ async def sync_to_postgres():
     print(f"⏰ Hora de inicio: {hora_inicio}")
     print("=" * 70 + "\n")
 
-    print(f"📋 Configuración inicial:\n{settings}")
-
     await settings._load_config()
+
+    print(f"📋 Configuración inicial:\n{settings}")
     print("✅ Configuración cargada desde PostgreSQL")
 
     try:

@@ -54,7 +54,7 @@ class Settings:
 
   session_timeout_minutes: int = 30
   cleanup_interval_minutes: int = 5
-  public_domain: str = "http://localhost:8000"
+  public_domain: str = os.getenv("PUBLIC_DOMAIN", "http://localhost:8000")
 
   _config_loaded: bool = False
   _pool_cache: Optional[asyncpg.Pool] = None
@@ -127,7 +127,7 @@ class Settings:
           self._config_loaded = True
 
     except Exception as e:
-      pass
+      print(f"⚠️ Error cargando config desde PostgreSQL: {e}")
 
   async def reload_config(self) -> bool:
     """Recarga configuración desde PostgreSQL"""
