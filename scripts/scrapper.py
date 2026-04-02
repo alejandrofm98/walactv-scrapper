@@ -90,7 +90,7 @@ class ScrapperFutbolenlatv:
         tomorrow = (datetime.now() + timedelta(days=1)).strftime("%d/%m/%Y")
         return [today, tomorrow]
 
-    def __init__(self):
+    def __init__(self, mapeos=None):
         self.url = "https://www.futbolenlatv.es/deporte"
         try:
             response = requests.get(self.url, timeout=30)
@@ -101,17 +101,11 @@ class ScrapperFutbolenlatv:
             self.soup = None
             
         self.canales = []
-        self._mapeos_cache = None
+        self._mapeos_cache = mapeos if mapeos is not None else {}
 
     def _get_mapeos(self):
-        """Carga lazy de mapeos - evita asyncio.run() dentro de un event loop"""
-        if self._mapeos_cache is None:
-            try:
-                self._mapeos_cache = ChannelMappingManager.get_all_mappings_with_channels_sync()
-            except Exception as e:
-                print(f"Error cargando mapeos: {e}")
-                self._mapeos_cache = {}
-        return self._mapeos_cache
+        """Retorna los mapeos (ya cargados o vacíos si no se proporcionaron)"""
+        return self._mapeos_cache if self._mapeos_cache is not None else {}
 
     def existe_fecha(self, fecha):
         if not self.soup:
