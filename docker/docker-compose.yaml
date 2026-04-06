@@ -50,6 +50,7 @@ services:
       - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-https://localhost}
     volumes:
       - walactv-m3u:/app/data/m3u
+      - iptv-data:/app/data
     networks:
       - dokploy-network
 
@@ -92,3 +93,5 @@ volumes:
     external: true
   walactv-m3u:  # 👈 Nuevo volumen para archivos M3U
     driver: local
+  iptv-data:
+    external: true
