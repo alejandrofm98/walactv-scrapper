@@ -498,7 +498,7 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
     # Si es serie, añadir temporada, episodio y serie_name
     if tipo == CONSTANTS.CONTENT_TYPE_SERIE:
         temporada, episodio = extraer_temporada_episodio(item['name'])
-        serie_name = extraer_serie_name(item['name'])
+        serie_name = extraer_serie_name(metadata['name_normalized'])
         data_base['temporada'] = temporada
         data_base['episodio'] = episodio
         data_base['serie_name'] = serie_name
