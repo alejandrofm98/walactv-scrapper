@@ -150,6 +150,24 @@ def quitar_prefijo_idioma(texto: str, language: str | None) -> str:
     return re.sub(pattern, '', cleaned, count=1, flags=re.IGNORECASE).strip()
 
 
+def limpiar_etiquetas_calidad(texto: str) -> str:
+    """Elimina etiquetas de calidad del título: [UHD], (HQ), (LQ), 4K, FHD, HD, etc."""
+    if not texto:
+        return ''
+
+    cleaned = re.sub(
+        r'\s*[\[\(]\s*(UHD|FHD|HD|SD|4K|HEVC|H265|HQ|LQ)\s*[\]\)]\s*',
+        ' ', texto, flags=re.IGNORECASE
+    )
+    cleaned = re.sub(
+        r'\b(UHD|FHD|HD|SD|4K|HEVC|H265|HQ|LQ)\b',
+        '', cleaned, flags=re.IGNORECASE
+    )
+    cleaned = re.sub(r'\s*\[\s*\]\s*', ' ', cleaned)
+    cleaned = re.sub(r'\s*\(\s*\)\s*', ' ', cleaned)
+    return re.sub(r'\s+', ' ', cleaned).strip()
+
+
 def normalizar_grupo(group_title: str, language: str | None) -> str:
     if not group_title:
         return ''
@@ -179,6 +197,8 @@ def construir_metadatos_normalizados(name: str, group_title: str, content_type: 
         language = extraer_idioma_desde_grupo(group_title) or extraer_idioma_desde_nombre(name)
 
     name_normalized = quitar_prefijo_idioma(name, language)
+    if content_type != CONSTANTS.CONTENT_TYPE_CHANNEL:
+        name_normalized = limpiar_etiquetas_calidad(name_normalized)
     group_normalized = normalizar_grupo(group_title, language)
 
     return {

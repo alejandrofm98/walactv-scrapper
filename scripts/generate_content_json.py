@@ -88,7 +88,7 @@ async def generar_channels_json(pool=None, close_pool=True):
         generated_at = datetime.now()
 
         payload = {
-            "channels": canales,
+            "items": canales,
             "total": total,
             "generated_at": generated_at
         }
@@ -174,6 +174,7 @@ async def generar_movies_json(pool=None, close_pool=True):
             SELECT
                 id,
                 COALESCE(provider_id, '') as provider_id,
+                COALESCE(nombre, '') as nombre,
                 COALESCE(logo, '') as logo,
                 COALESCE(country, '') as country,
                 COALESCE(nombre_normalizado, '') as nombre_normalizado,
@@ -189,6 +190,7 @@ async def generar_movies_json(pool=None, close_pool=True):
             movies.append({
                 "id": str(row['id']),
                 "provider_id": row['provider_id'],
+                "nombre": row['nombre'],
                 "logo": row['logo'],
                 "country": row['country'],
                 "nombre_normalizado": row['nombre_normalizado'],
@@ -199,7 +201,7 @@ async def generar_movies_json(pool=None, close_pool=True):
         generated_at = datetime.now()
 
         payload = {
-            "movies": movies,
+            "items": movies,
             "total": total,
             "generated_at": generated_at
         }
@@ -316,7 +318,7 @@ async def generar_series_json(pool=None, close_pool=True):
         generated_at = datetime.now()
 
         payload = {
-            "series": series,
+            "items": series,
             "total": total,
             "generated_at": generated_at
         }
