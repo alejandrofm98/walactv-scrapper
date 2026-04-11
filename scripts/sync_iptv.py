@@ -172,7 +172,7 @@ def extraer_año(nombre: str) -> int | None:
     """Extrae año de (2017) o (2015-2020) → retorna el último año"""
     if not nombre:
         return None
-    match = re.search(r'\((?:19|20)\d{2}(?:-(\d{4}))?\)', nombre)
+    match = re.search(r'\(((?:19|20)\d{2})(?:-(\d{4}))?\)', nombre)
     if match:
         year = match.group(2) or match.group(1)
         return int(year)
