@@ -22,3 +22,4 @@
 /.idea/vcs.xml
 /scripts/.idea/vcs.xml
 /.idea/walactv-scrapper.iml
+/.playwright-cli/

@@ -174,9 +174,8 @@ def extraer_año(nombre: str) -> int | None:
         return None
     match = re.search(r'\((?:19|20)\d{2}(?:-(\d{4}))?\)', nombre)
     if match:
-        if match.group(2):
-            return int(match.group(2))
-        return int(match.group(1))
+        year = match.group(2) or match.group(1)
+        return int(year)
     return None
 
 
