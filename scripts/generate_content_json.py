@@ -179,9 +179,9 @@ async def generar_movies_json(pool=None, close_pool=True):
                 COALESCE(country, '') as country,
                 COALESCE(nombre_normalizado, '') as nombre_normalizado,
                 COALESCE(grupo_normalizado, '') as grupo_normalizado,
-                año
+                year
             FROM movies
-            ORDER BY año DESC, nombre_normalizado ASC
+            ORDER BY year DESC, nombre_normalizado ASC
         """
 
         rows = await pool.fetch(query)
@@ -196,7 +196,7 @@ async def generar_movies_json(pool=None, close_pool=True):
                 "country": row['country'],
                 "nombre_normalizado": row['nombre_normalizado'],
                 "grupo_normalizado": row['grupo_normalizado'],
-                "año": row['año']
+                "year": row['year']
             })
 
         total = len(movies)
@@ -298,7 +298,7 @@ async def generar_series_json(pool=None, close_pool=True):
                 COALESCE(grupo_normalizado, '') as grupo_normalizado,
                 año
             FROM series
-            ORDER BY serie_name ASC, año DESC, temporada ASC, episodio ASC
+            ORDER BY serie_name ASC, year DESC, temporada ASC, episodio ASC
         """
 
         rows = await pool.fetch(query)
@@ -315,7 +315,7 @@ async def generar_series_json(pool=None, close_pool=True):
                 "serie_name": row['serie_name'],
                 "nombre_normalizado": row['nombre_normalizado'],
                 "grupo_normalizado": row['grupo_normalizado'],
-                "año": row['año']
+                "year": row['year']
             })
 
         total = len(series)

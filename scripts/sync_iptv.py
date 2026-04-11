@@ -218,7 +218,7 @@ def construir_metadatos_normalizados(name: str, group_title: str, content_type: 
         'name_normalized': name_normalized,
         'group_normalized': group_normalized,
         'series_name_normalized': extraer_serie_name_normalizado(name_normalized),
-        'año': extraer_año(name_normalized),
+        'year': extraer_año(name_normalized),
     }
 
 
@@ -515,9 +515,9 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
         data_base['temporada'] = temporada
         data_base['episodio'] = episodio
         data_base['serie_name'] = serie_name
-        data_base['año'] = metadata.get('año')
+        data_base['year'] = metadata.get('year')
     else:
-        data_base['año'] = metadata.get('año')
+        data_base['year'] = metadata.get('year')
 
     return data_base
 
