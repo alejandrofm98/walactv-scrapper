@@ -296,7 +296,7 @@ async def generar_series_json(pool=None, close_pool=True):
                 COALESCE(serie_name, '') as serie_name,
                 COALESCE(nombre_normalizado, '') as nombre_normalizado,
                 COALESCE(grupo_normalizado, '') as grupo_normalizado,
-                año
+                year
             FROM series
             ORDER BY serie_name ASC, year DESC, temporada ASC, episodio ASC
         """
