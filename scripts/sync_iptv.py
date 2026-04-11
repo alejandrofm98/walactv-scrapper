@@ -515,8 +515,9 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
         data_base['episodio'] = episodio
         data_base['serie_name'] = serie_name
         data_base['year'] = metadata.get('year')
-    else:
+    elif tipo == CONSTANTS.CONTENT_TYPE_MOVIE:
         data_base['year'] = metadata.get('year')
+    # canales: NO incluir year (la tabla channels no tiene esa columna)
 
     return data_base
 
