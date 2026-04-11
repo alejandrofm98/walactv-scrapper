@@ -126,6 +126,7 @@ CREATE TABLE IF NOT EXISTS movies (
     grupo_normalizado TEXT,
     country VARCHAR(10),
     tvg_id VARCHAR(100),
+    año INT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -145,6 +146,7 @@ CREATE TABLE IF NOT EXISTS series (
     tvg_id VARCHAR(100),
     temporada VARCHAR(10),
     episodio VARCHAR(10),
+    año INT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

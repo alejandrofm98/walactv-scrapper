@@ -168,6 +168,18 @@ def limpiar_etiquetas_calidad(texto: str) -> str:
     return re.sub(r'\s+', ' ', cleaned).strip()
 
 
+def extraer_año(nombre: str) -> int | None:
+    """Extrae año de (2017) o (2015-2020) → retorna el último año"""
+    if not nombre:
+        return None
+    match = re.search(r'\((?:19|20)\d{2}(?:-(\d{4}))?\)', nombre)
+    if match:
+        if match.group(2):
+            return int(match.group(2))
+        return int(match.group(1))
+    return None
+
+
 def normalizar_grupo(group_title: str, language: str | None) -> str:
     if not group_title:
         return ''
@@ -206,6 +218,7 @@ def construir_metadatos_normalizados(name: str, group_title: str, content_type: 
         'name_normalized': name_normalized,
         'group_normalized': group_normalized,
         'series_name_normalized': extraer_serie_name_normalizado(name_normalized),
+        'año': extraer_año(name_normalized),
     }
 
 
@@ -502,6 +515,9 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
         data_base['temporada'] = temporada
         data_base['episodio'] = episodio
         data_base['serie_name'] = serie_name
+        data_base['año'] = metadata.get('año')
+    else:
+        data_base['año'] = metadata.get('año')
 
     return data_base
 
