@@ -27,9 +27,10 @@ COPY scripts/utils/ scripts/utils/
 COPY scripts/services/ scripts/services/
 COPY resources/ resources/
 COPY docker/entrypoint-sync.sh /app/entrypoint.sh
+COPY docker/run-sync.sh /app/run-sync.sh
 
-# Hacer el entrypoint ejecutable
-RUN chmod +x /app/entrypoint.sh
+# Hacer ejecutables
+RUN chmod +x /app/entrypoint.sh /app/run-sync.sh
 
 # Variables de entorno
 ENV DOCKER_CONTAINER=true \
