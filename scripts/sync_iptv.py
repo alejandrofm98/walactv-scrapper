@@ -526,11 +526,10 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
         "grupo_normalizado": metadata['group_normalized'],
         "country": country,
         "nombre_normalizado": metadata['name_normalized'],
-        "nombre_dedup_key": metadata.get('dedup_key', ''),
         "tvg_id": item.get('tvg_id', '')
     }
 
-    # Si es serie, añadir temporada, episodio y serie_name
+    # Si es serie, añadir temporada, episodio, serie_name y nombre_dedup_key
     if tipo == CONSTANTS.CONTENT_TYPE_SERIE:
         temporada, episodio = extraer_temporada_episodio(item['name'])
         serie_name = extraer_serie_name(metadata['name_normalized'])
@@ -538,9 +537,11 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
         data_base['episodio'] = episodio
         data_base['serie_name'] = serie_name
         data_base['year'] = metadata.get('year')
+        data_base['nombre_dedup_key'] = metadata.get('dedup_key', '')
     elif tipo == CONSTANTS.CONTENT_TYPE_MOVIE:
         data_base['year'] = metadata.get('year')
-    # canales: NO incluir year (la tabla channels no tiene esa columna)
+        data_base['nombre_dedup_key'] = metadata.get('dedup_key', '')
+    # canales: NO incluir year ni nombre_dedup_key (la tabla channels no tiene esas columnas)
 
     return data_base
 
