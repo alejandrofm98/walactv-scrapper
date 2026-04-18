@@ -227,9 +227,17 @@ def _compute_dedup_key(text: str) -> str:
     if not text:
         return ''
     result = text
+    # Quitar corchetes con contenido ≤15 chars
+    result = re.sub(r'\[[^\]]{1,15}\]', '', result)
+    result = result.replace('[', '').replace(']', '')
+    # Quitar paréntesis con contenido ≤15 chars
     result = re.sub(r'\([^)]{1,15}\)', '', result)
     result = result.replace('(', '').replace(')', '')
+    # Quitar apóstrofes
+    result = result.replace("'", '').replace("'", '').replace("'", '')
+    # Lowercase + quitar acentos
     result = unicodedata.normalize('NFKD', result).encode('ascii', 'ignore').decode('ascii').lower()
+    # Quitar caracteres especiales excepto espacios y dígitos
     result = re.sub(r'[^a-z0-9\s]', '', result)
     result = re.sub(r'\s+', ' ', result).strip()
     return result
