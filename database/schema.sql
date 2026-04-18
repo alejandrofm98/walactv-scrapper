@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS movies (
     provider_id VARCHAR(50),
     nombre TEXT NOT NULL,
     nombre_normalizado TEXT,
+    nombre_dedup_key TEXT,
     logo TEXT,
     url TEXT NOT NULL,
     stream_url TEXT,
@@ -136,6 +137,7 @@ CREATE TABLE IF NOT EXISTS series (
     provider_id VARCHAR(50),
     nombre TEXT NOT NULL,
     nombre_normalizado TEXT,
+    nombre_dedup_key TEXT,
     serie_name VARCHAR(255),
     logo TEXT,
     url TEXT NOT NULL,
@@ -163,14 +165,18 @@ ALTER TABLE channels ADD COLUMN IF NOT EXISTS stream_url TEXT;
 ALTER TABLE movies ADD COLUMN IF NOT EXISTS nombre_normalizado TEXT;
 ALTER TABLE movies ADD COLUMN IF NOT EXISTS grupo_normalizado TEXT;
 ALTER TABLE movies ADD COLUMN IF NOT EXISTS stream_url TEXT;
+ALTER TABLE movies ADD COLUMN IF NOT EXISTS nombre_dedup_key TEXT;
 ALTER TABLE series ADD COLUMN IF NOT EXISTS nombre_normalizado TEXT;
 ALTER TABLE series ADD COLUMN IF NOT EXISTS grupo_normalizado TEXT;
 ALTER TABLE series ADD COLUMN IF NOT EXISTS stream_url TEXT;
+ALTER TABLE series ADD COLUMN IF NOT EXISTS nombre_dedup_key TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_movies_grupo_normalizado ON movies(grupo_normalizado);
 CREATE INDEX IF NOT EXISTS idx_movies_nombre_normalizado ON movies(nombre_normalizado);
+CREATE INDEX IF NOT EXISTS idx_movies_nombre_dedup_key ON movies(nombre_dedup_key);
 CREATE INDEX IF NOT EXISTS idx_series_grupo_normalizado ON series(grupo_normalizado);
 CREATE INDEX IF NOT EXISTS idx_series_nombre_normalizado ON series(nombre_normalizado);
+CREATE INDEX IF NOT EXISTS idx_series_nombre_dedup_key ON series(nombre_dedup_key);
 
 -- ==========================================
 -- 6. Tabla de replays externos

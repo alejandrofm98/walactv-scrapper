@@ -9,6 +9,7 @@ import re
 import sys
 import time
 import traceback
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -218,7 +219,20 @@ def construir_metadatos_normalizados(name: str, group_title: str, content_type: 
         'group_normalized': group_normalized,
         'series_name_normalized': extraer_serie_name_normalizado(name_normalized),
         'year': extraer_año(name_normalized),
+        'dedup_key': _compute_dedup_key(name_normalized),
     }
+
+
+def _compute_dedup_key(text: str) -> str:
+    if not text:
+        return ''
+    result = text
+    result = re.sub(r'\([^)]{1,15}\)', '', result)
+    result = result.replace('(', '').replace(')', '')
+    result = unicodedata.normalize('NFKD', result).encode('ascii', 'ignore').decode('ascii').lower()
+    result = re.sub(r'[^a-z0-9\s]', '', result)
+    result = re.sub(r'\s+', ' ', result).strip()
+    return result
 
 
 def extraer_metadatos_normalizados_m3u(extinf_line: str) -> dict:
@@ -504,6 +518,7 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
         "grupo_normalizado": metadata['group_normalized'],
         "country": country,
         "nombre_normalizado": metadata['name_normalized'],
+        "nombre_dedup_key": metadata.get('dedup_key', ''),
         "tvg_id": item.get('tvg_id', '')
     }
 

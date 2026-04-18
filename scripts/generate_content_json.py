@@ -179,6 +179,7 @@ async def generar_movies_json(pool=None, close_pool=True):
                 COALESCE(country, '') as country,
                 COALESCE(nombre_normalizado, '') as nombre_normalizado,
                 COALESCE(grupo_normalizado, '') as grupo_normalizado,
+                COALESCE(nombre_dedup_key, '') as nombre_dedup_key,
                 year
             FROM movies
             ORDER BY year DESC, nombre_normalizado ASC
@@ -196,6 +197,7 @@ async def generar_movies_json(pool=None, close_pool=True):
                 "country": row['country'],
                 "nombre_normalizado": row['nombre_normalizado'],
                 "grupo_normalizado": row['grupo_normalizado'],
+                "nombre_dedup_key": row['nombre_dedup_key'],
                 "year": row['year']
             })
 
