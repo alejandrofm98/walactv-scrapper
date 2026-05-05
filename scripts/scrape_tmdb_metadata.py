@@ -701,7 +701,7 @@ class TMDBScraper:
             if not series:
                 logger.info("No hay más series")
                 break
-            current_ids = {s["provider_id"] for s in series}
+            current_ids = {s["series_key"] for s in series if s.get("series_key")}
             if current_ids and current_ids.issubset(seen_series_ids):
                 logger.info("Todos los items del lote ya fueron procesados, deteniendo.")
                 break
