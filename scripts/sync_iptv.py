@@ -22,6 +22,7 @@ from config import get_settings
 import utils.constants as CONSTANTS
 from services.bulk_insert import insert_bulk_optimized
 from database import DatabasePG
+from utils.series_keys import build_series_key
 
 # Cargar configuración
 settings = get_settings()
@@ -235,6 +236,8 @@ def _compute_dedup_key(text: str) -> str:
     result = result.replace('(', '').replace(')', '')
     # Quitar apóstrofes
     result = result.replace("'", '').replace("'", '').replace("'", '')
+    # Quitar patrones de temporada/episodio (SXX EXX) para series
+    result = re.sub(r'\s+[sS]\d+\s+[eE]\d+.*$', '', result)
     # Lowercase + quitar acentos
     result = unicodedata.normalize('NFKD', result).encode('ascii', 'ignore').decode('ascii').lower()
     # Quitar caracteres especiales excepto espacios y dígitos
@@ -533,9 +536,14 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
     if tipo == CONSTANTS.CONTENT_TYPE_SERIE:
         temporada, episodio = extraer_temporada_episodio(item['name'])
         serie_name = extraer_serie_name(metadata['name_normalized'])
+        # Fallback: si no se pudo extraer serie_name, usar nombre_normalizado limpio
+        if not serie_name:
+            serie_name = metadata['name_normalized']
+        series_key = build_series_key(serie_name, metadata['name_normalized'])
         data_base['temporada'] = temporada
         data_base['episodio'] = episodio
         data_base['serie_name'] = serie_name
+        data_base['series_key'] = series_key
         data_base['year'] = metadata.get('year')
         data_base['nombre_dedup_key'] = metadata.get('dedup_key', '')
     elif tipo == CONSTANTS.CONTENT_TYPE_MOVIE:

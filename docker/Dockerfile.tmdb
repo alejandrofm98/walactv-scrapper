@@ -1,0 +1,32 @@
+FROM python:3.12-alpine
+
+WORKDIR /app
+
+# Instalar dependencias del sistema
+RUN apk add --no-cache \
+    build-base \
+    curl \
+    tzdata \
+    linux-headers \
+    postgresql-dev \
+    && cp /usr/share/zoneinfo/Europe/Madrid /etc/localtime \
+    && echo "Europe/Madrid" > /etc/timezone
+
+# Copiar requirements
+COPY docker/config/requirements-tmdb.txt .
+RUN pip install --no-cache-dir -r requirements-tmdb.txt
+
+# Copiar código del scraper
+COPY scripts/scrape_tmdb_metadata.py scripts/
+COPY docker/entrypoint-tmdb.sh /app/entrypoint.sh
+
+# Hacer ejecutables
+RUN chmod +x /app/entrypoint.sh
+
+# Variables de entorno
+ENV DOCKER_CONTAINER=true \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/scripts:$PYTHONPATH
+
+# Comando por defecto
+CMD ["/app/entrypoint.sh"]

@@ -88,8 +88,27 @@ networks:
   iptv-network:
     driver: bridge
 
+  walactv-sync-tmdb-metadata:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tmdb
+    container_name: walactv-sync-tmdb-metadata
+    restart: unless-stopped
+    entrypoint: ["/app/entrypoint.sh"]
+    env_file:
+      - .env
+    environment:
+      - DOCKER_CONTAINER=true
+      - PYTHONUNBUFFERED=1
+    networks:
+      - dokploy-network
+
 volumes:
   walactv-logos:
+    external: true
+  walactv-m3u:
+    driver: local
+  iptv-data:
     external: true
   walactv-m3u:  # 👈 Nuevo volumen para archivos M3U
     driver: local

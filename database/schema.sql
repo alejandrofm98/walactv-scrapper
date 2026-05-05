@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS series (
     nombre_normalizado TEXT,
     nombre_dedup_key TEXT,
     serie_name VARCHAR(255),
+    series_key TEXT,
     logo TEXT,
     url TEXT NOT NULL,
     stream_url TEXT,
@@ -170,6 +171,7 @@ ALTER TABLE series ADD COLUMN IF NOT EXISTS nombre_normalizado TEXT;
 ALTER TABLE series ADD COLUMN IF NOT EXISTS grupo_normalizado TEXT;
 ALTER TABLE series ADD COLUMN IF NOT EXISTS stream_url TEXT;
 ALTER TABLE series ADD COLUMN IF NOT EXISTS nombre_dedup_key TEXT;
+ALTER TABLE series ADD COLUMN IF NOT EXISTS series_key TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_movies_grupo_normalizado ON movies(grupo_normalizado);
 CREATE INDEX IF NOT EXISTS idx_movies_nombre_normalizado ON movies(nombre_normalizado);
@@ -177,6 +179,7 @@ CREATE INDEX IF NOT EXISTS idx_movies_nombre_dedup_key ON movies(nombre_dedup_ke
 CREATE INDEX IF NOT EXISTS idx_series_grupo_normalizado ON series(grupo_normalizado);
 CREATE INDEX IF NOT EXISTS idx_series_nombre_normalizado ON series(nombre_normalizado);
 CREATE INDEX IF NOT EXISTS idx_series_nombre_dedup_key ON series(nombre_dedup_key);
+CREATE INDEX IF NOT EXISTS idx_series_series_key ON series(series_key);
 
 -- ==========================================
 -- 6. Tabla de replays externos
@@ -385,3 +388,94 @@ BEGIN
     RETURN v_mapping_id;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ==========================================
+-- Tabla: Metadatos de TMDB para películas y series
+-- ==========================================
+CREATE TABLE IF NOT EXISTS content_metadata (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider_id VARCHAR(50) NOT NULL,
+    content_type VARCHAR(20) NOT NULL CHECK (content_type IN ('movie', 'series')),
+    tmdb_id VARCHAR(20),
+    overview_es TEXT,
+    overview_en TEXT,
+    vote_average FLOAT,
+    vote_count INT,
+    title VARCHAR(255),
+    original_title VARCHAR(255),
+    release_date DATE,
+    year INT,
+    runtime_minutes INT,
+    genres TEXT[],
+    poster_path VARCHAR(255),
+    backdrop_path VARCHAR(255),
+    tagline VARCHAR(500),
+    popularity FLOAT,
+    status VARCHAR(50),
+    tmdb_data JSONB,
+    scraped_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    not_found BOOLEAN DEFAULT FALSE,
+    last_error TEXT,
+    retry_count INT DEFAULT 0,
+    UNIQUE(provider_id, content_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_metadata_provider ON content_metadata(provider_id, content_type);
+CREATE INDEX IF NOT EXISTS idx_metadata_tmdb ON content_metadata(tmdb_id);
+CREATE INDEX IF NOT EXISTS idx_metadata_not_found ON content_metadata(not_found);
+CREATE INDEX IF NOT EXISTS idx_metadata_year ON content_metadata(year);
+
+-- ==========================================
+-- Tabla: Metadatos TMDB a nivel serie
+-- ==========================================
+CREATE TABLE IF NOT EXISTS series_metadata (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    series_key TEXT NOT NULL UNIQUE,
+    tmdb_id VARCHAR(20),
+    overview_es TEXT,
+    overview_en TEXT,
+    vote_average FLOAT,
+    vote_count INT,
+    title VARCHAR(255),
+    original_title VARCHAR(255),
+    release_date DATE,
+    year INT,
+    genres TEXT[],
+    poster_path VARCHAR(255),
+    backdrop_path VARCHAR(255),
+    tagline VARCHAR(500),
+    popularity FLOAT,
+    status VARCHAR(50),
+    tmdb_data JSONB,
+    scraped_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    not_found BOOLEAN DEFAULT FALSE,
+    last_error TEXT,
+    retry_count INT DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_series_metadata_series_key ON series_metadata(series_key);
+CREATE INDEX IF NOT EXISTS idx_series_metadata_tmdb ON series_metadata(tmdb_id);
+CREATE INDEX IF NOT EXISTS idx_series_metadata_not_found ON series_metadata(not_found);
+
+-- Trigger para actualizar updated_at
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS update_content_metadata_updated_at ON content_metadata;
+CREATE TRIGGER update_content_metadata_updated_at
+    BEFORE UPDATE ON content_metadata
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_series_metadata_updated_at ON series_metadata;
+CREATE TRIGGER update_series_metadata_updated_at
+    BEFORE UPDATE ON series_metadata
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
