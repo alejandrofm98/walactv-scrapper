@@ -76,17 +76,12 @@ services:
       - walactv-futboltv
       - walactv-sync-iptv
       - walactv-sync-replays
+      - walactv-sync-tmdb-metadata
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     command: daemon --config /ofelia.config.ini
     networks:
       - dokploy-network
-
-networks:
-  dokploy-network:
-    external: true
-  iptv-network:
-    driver: bridge
 
   walactv-sync-tmdb-metadata:
     build:
@@ -103,14 +98,16 @@ networks:
     networks:
       - dokploy-network
 
+networks:
+  dokploy-network:
+    external: true
+  iptv-network:
+    driver: bridge
+
 volumes:
   walactv-logos:
     external: true
   walactv-m3u:
-    driver: local
-  iptv-data:
-    external: true
-  walactv-m3u:  # 👈 Nuevo volumen para archivos M3U
     driver: local
   iptv-data:
     external: true
