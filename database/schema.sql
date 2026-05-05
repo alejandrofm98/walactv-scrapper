@@ -390,12 +390,11 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ==========================================
--- Tabla: Metadatos de TMDB para películas y series
+-- Tabla: Metadatos de TMDB para películas
 -- ==========================================
-CREATE TABLE IF NOT EXISTS content_metadata (
+CREATE TABLE IF NOT EXISTS movies_metadata (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     provider_id VARCHAR(50) NOT NULL,
-    content_type VARCHAR(20) NOT NULL CHECK (content_type IN ('movie', 'series')),
     tmdb_id VARCHAR(20),
     overview_es TEXT,
     overview_en TEXT,
@@ -418,13 +417,13 @@ CREATE TABLE IF NOT EXISTS content_metadata (
     not_found BOOLEAN DEFAULT FALSE,
     last_error TEXT,
     retry_count INT DEFAULT 0,
-    UNIQUE(provider_id, content_type)
+    UNIQUE(provider_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_metadata_provider ON content_metadata(provider_id, content_type);
-CREATE INDEX IF NOT EXISTS idx_metadata_tmdb ON content_metadata(tmdb_id);
-CREATE INDEX IF NOT EXISTS idx_metadata_not_found ON content_metadata(not_found);
-CREATE INDEX IF NOT EXISTS idx_metadata_year ON content_metadata(year);
+CREATE INDEX IF NOT EXISTS idx_movies_metadata_provider ON movies_metadata(provider_id);
+CREATE INDEX IF NOT EXISTS idx_movies_metadata_tmdb ON movies_metadata(tmdb_id);
+CREATE INDEX IF NOT EXISTS idx_movies_metadata_not_found ON movies_metadata(not_found);
+CREATE INDEX IF NOT EXISTS idx_movies_metadata_year ON movies_metadata(year);
 
 -- ==========================================
 -- Tabla: Metadatos TMDB a nivel serie
@@ -468,9 +467,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS update_content_metadata_updated_at ON content_metadata;
-CREATE TRIGGER update_content_metadata_updated_at
-    BEFORE UPDATE ON content_metadata
+DROP TRIGGER IF EXISTS update_movies_metadata_updated_at ON movies_metadata;
+CREATE TRIGGER update_movies_metadata_updated_at
+    BEFORE UPDATE ON movies_metadata
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 

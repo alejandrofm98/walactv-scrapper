@@ -78,7 +78,6 @@ def _or_none(value: Any) -> Any:
 @dataclass
 class ScrapeResult:
     provider_id: str
-    content_type: str
     tmdb_id: Optional[str] = None
     overview_es: Optional[str] = None
     overview_en: Optional[str] = None
@@ -339,9 +338,9 @@ class TMDBScraper:
         sql = """
         SELECT m.provider_id, m.nombre, m.year, m.nombre_normalizado
         FROM movies m
-        LEFT JOIN content_metadata cm
-            ON m.provider_id = cm.provider_id AND cm.content_type = 'movie'
-        WHERE cm.id IS NULL
+        LEFT JOIN movies_metadata mm
+            ON m.provider_id = mm.provider_id
+        WHERE mm.id IS NULL
         ORDER BY m.year DESC NULLS LAST
         LIMIT %s
         """
@@ -365,10 +364,10 @@ class TMDBScraper:
         sql = """
         SELECT m.provider_id, m.nombre, m.year, m.nombre_normalizado
         FROM movies m
-        INNER JOIN content_metadata cm
-            ON m.provider_id = cm.provider_id AND cm.content_type = 'movie'
-        WHERE cm.not_found = TRUE
-        ORDER BY cm.retry_count ASC, m.year DESC NULLS LAST
+        INNER JOIN movies_metadata mm
+            ON m.provider_id = mm.provider_id
+        WHERE mm.not_found = TRUE
+        ORDER BY mm.retry_count ASC, m.year DESC NULLS LAST
         LIMIT %s
         """
         return self.db.execute_query(sql, (limit,))
@@ -417,16 +416,16 @@ class TMDBScraper:
             return
 
         sql = """
-        INSERT INTO content_metadata (
-            provider_id, content_type, tmdb_id,
+        INSERT INTO movies_metadata (
+            provider_id, tmdb_id,
             overview_es, overview_en, vote_average, vote_count,
             title, original_title, release_date, year, runtime_minutes,
             genres, poster_path, backdrop_path, tagline, popularity, status,
             tmdb_data, not_found, last_error
         ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
-        ON CONFLICT (provider_id, content_type) DO UPDATE SET
+        ON CONFLICT (provider_id) DO UPDATE SET
             tmdb_id = EXCLUDED.tmdb_id,
             overview_es = EXCLUDED.overview_es,
             overview_en = EXCLUDED.overview_en,
@@ -446,13 +445,13 @@ class TMDBScraper:
             tmdb_data = EXCLUDED.tmdb_data,
             not_found = EXCLUDED.not_found,
             last_error = EXCLUDED.last_error,
-            retry_count = content_metadata.retry_count + 1,
+            retry_count = movies_metadata.retry_count + 1,
             updated_at = NOW()
         """
 
         try:
             self.db.execute_command(sql, (
-                result.provider_id, result.content_type, result.tmdb_id,
+                result.provider_id, result.tmdb_id,
                 result.overview_es, result.overview_en, result.vote_average,
                 result.vote_count, result.title, result.original_title,
                 result.release_date, result.year, result.runtime_minutes,
@@ -476,7 +475,7 @@ class TMDBScraper:
         search_title, search_year = extract_search_title(nombre)
         if not search_title:
             return ScrapeResult(
-                provider_id=provider_id, content_type="movie",
+                provider_id=provider_id,
                 not_found=True, error="No se pudo extraer título"
             )
 
@@ -487,7 +486,7 @@ class TMDBScraper:
         if not search_result:
             logger.info(f"   ❌ No encontrado en TMDB: '{search_title}' ({effective_year})")
             return ScrapeResult(
-                provider_id=provider_id, content_type="movie",
+                provider_id=provider_id,
                 not_found=True, error=f"No encontrado (búsqueda: '{search_title}')"
             )
 
@@ -495,7 +494,7 @@ class TMDBScraper:
         details = self._get_movie_details(tmdb_id)
         if not details:
             return ScrapeResult(
-                provider_id=provider_id, content_type="movie",
+                provider_id=provider_id,
                 tmdb_id=tmdb_id, not_found=True, error="Sin detalles"
             )
 
@@ -506,7 +505,7 @@ class TMDBScraper:
         overview_es = _or_none(data.get("overview")) or _or_none(data.get("overview_en"))
 
         return ScrapeResult(
-            provider_id=provider_id, content_type="movie", tmdb_id=tmdb_id,
+            provider_id=provider_id, tmdb_id=tmdb_id,
             overview_es=overview_es, overview_en=_or_none(data.get("overview_en")),
             vote_average=data.get("vote_average"), vote_count=data.get("vote_count"),
             title=data.get("title"), original_title=data.get("original_title"),
