@@ -200,7 +200,13 @@ def extract_search_title(nombre: str) -> Tuple[str, Optional[int]]:
 
 def extract_series_search_info(nombre: str, serie_name: str) -> Tuple[str, Optional[int]]:
     if serie_name:
-        return clean_series_name(serie_name), None
+        cleaned = serie_name.strip()
+        year_match = re.search(r'\((\d{4})(?:\s*-\s*\d{4})?\)', cleaned)
+        year = int(year_match.group(1)) if year_match else None
+        search_title = clean_series_name(serie_name)
+        if year:
+            search_title = search_title.removesuffix(f" {year}")
+        return search_title, year
     cleaned, year = extract_search_title(nombre)
     cleaned = re.sub(r'\s+[Ss]\d{1,2}\s*[Ee]\d{1,2}\s*$', '', cleaned)
     cleaned = re.sub(r'\s+[Ss]\d{1,2}\s*$', '', cleaned)
@@ -566,7 +572,6 @@ class TMDBScraper:
             title=data.get("name"), original_title=data.get("original_name"),
             release_date=first_air_date,
             year=int(first_air_date[:4]) if first_air_date else year,
-            runtime_minutes=None,
             genres=[g["name"] for g in data.get("genres", [])],
             poster_path=data.get("poster_path"), backdrop_path=data.get("backdrop_path"),
             tagline=data.get("tagline"), popularity=data.get("popularity"),
