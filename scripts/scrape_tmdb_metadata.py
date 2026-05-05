@@ -26,10 +26,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from contextlib import contextmanager
 
-from dotenv import load_dotenv
-
-env_path = Path(__file__).parent.parent / "docker" / ".env"
-load_dotenv(env_path)
+try:
+    from dotenv import load_dotenv
+    env_path = Path(__file__).parent.parent / "docker" / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    logger = logging.getLogger(__name__)
+    logger.warning("python-dotenv no instalado, usando solo variables de entorno del sistema")
 
 import requests
 import psycopg2
