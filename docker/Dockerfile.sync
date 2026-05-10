@@ -12,7 +12,7 @@ RUN apk add --no-cache \
     echo "Europe/Madrid" > /etc/timezone
 
 # Copiar e instalar requirements
-COPY docker/config/requirements.txt .
+COPY docker/config/requirements-sync-iptv.txt requirements.txt
 RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt || \
     pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt || \
     pip install --no-cache-dir --timeout 600 --retries 10 -r requirements.txt
