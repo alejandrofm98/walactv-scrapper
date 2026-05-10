@@ -20,6 +20,10 @@ services:
     command: ["python", "main.py"]
     env_file:
       - .env
+    environment:
+      - IMAGES_DIR=/app/data/images
+    volumes:
+      - iptv-data:/app/data
     networks:
       - dokploy-network
 
@@ -31,6 +35,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      - IMAGES_DIR=/app/data/images
+    volumes:
+      - iptv-data:/app/data
     networks:
       - dokploy-network
     command: ["sh", "-c", "while true; do sleep 3600; done"]
