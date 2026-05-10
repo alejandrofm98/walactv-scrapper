@@ -2,7 +2,8 @@ import re
 from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
-from database import Database, DataManagerSupabase, ChannelMappingManager, DatabasePG
+from database import DataManagerSupabase, DatabasePG
+from services.football_logos import FootballLogosResolver
 
 def limpia_html(html_canal):
     html_canal = html_canal.replace("&gt", "")
@@ -50,6 +51,16 @@ class ScrapperFutbolenlatv:
             pool = await DatabasePG.initialize()
 
             async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    ALTER TABLE calendario
+                    ADD COLUMN IF NOT EXISTS imagen_evento TEXT,
+                    ADD COLUMN IF NOT EXISTS subtitulo_competicion TEXT,
+                    DROP COLUMN IF EXISTS imagen_local,
+                    DROP COLUMN IF EXISTS imagen_visitante
+                    """
+                )
+
                 for fecha_str, partidos in todos_eventos.items():
                     for fecha in fecha_str if isinstance(fecha_str, list) else [fecha_str]:
                         try:
@@ -62,20 +73,27 @@ class ScrapperFutbolenlatv:
                                 try:
                                     await conn.execute(
                                         """
-                                        INSERT INTO calendario (fecha, hora, equipos, competicion, canales, categoria)
-                                        VALUES ($1, $2, $3, $4, $5, $6)
+                                        INSERT INTO calendario (
+                                            fecha, hora, equipos, competicion, canales, categoria,
+                                            imagen_evento, subtitulo_competicion
+                                        )
+                                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                                         ON CONFLICT (fecha, hora, equipos) DO UPDATE SET
                                             hora = EXCLUDED.hora,
                                             competicion = EXCLUDED.competicion,
                                             canales = EXCLUDED.canales,
-                                            categoria = EXCLUDED.categoria
+                                            categoria = EXCLUDED.categoria,
+                                            imagen_evento = EXCLUDED.imagen_evento,
+                                            subtitulo_competicion = EXCLUDED.subtitulo_competicion
                                         """,
                                         fecha_date,
                                         partido.get('hora', '00:00'),
                                         partido.get('equipos', ''),
                                         partido.get('competicion', ''),
                                         partido.get('canales', []),
-                                        partido.get('categoria', '')
+                                        partido.get('categoria', ''),
+                                        partido.get('imagen_evento', ''),
+                                        partido.get('subtitulo_competicion', '')
                                     )
                                 except Exception as e:
                                     print(f"❌ Error guardando partido '{partido.get('equipos', '')}': {e}")
@@ -102,6 +120,91 @@ class ScrapperFutbolenlatv:
             
         self.canales = []
         self._mapeos_cache = mapeos if mapeos is not None else {}
+        self._football_logos_resolver = FootballLogosResolver()
+
+    @staticmethod
+    def _mejorar_url_futbolenlatv(url):
+        if not url:
+            return ""
+        return url.replace("/img/32/", "/img/")
+
+    def _extraer_info_imagen_equipo(self, td):
+        if not td:
+            return "", ""
+
+        img = td.find("img")
+        nombre = ""
+        url = ""
+
+        if img:
+            nombre = (img.get("alt") or img.get("title") or "").strip()
+            url = img.get("src") or img.get("alt-img") or ""
+
+        if not nombre:
+            nombre = td.text.strip()
+
+        return nombre, self._mejorar_url_futbolenlatv(url)
+
+    def _generar_imagen_evento_futbol(
+        self,
+        fecha,
+        hora,
+        nombre_local,
+        nombre_visitante,
+        fallback_local,
+        fallback_visitante,
+    ):
+        if not nombre_local or not nombre_visitante:
+            return ""
+
+        logo_local_descargado = self._football_logos_resolver.resolver_logo(nombre_local)
+        logo_visitante_descargado = self._football_logos_resolver.resolver_logo(nombre_visitante)
+        logo_local = logo_local_descargado or fallback_local
+        logo_visitante = logo_visitante_descargado or fallback_visitante
+        if not logo_local or not logo_visitante:
+            return ""
+
+        try:
+            fecha_slug = datetime.strptime(fecha, "%d/%m/%Y").strftime("%Y-%m-%d")
+        except ValueError:
+            fecha_slug = re.sub(r"[^a-z0-9]+", "-", (fecha or "").lower()).strip("-")
+
+        try:
+            from services.event_images import generar_imagen_evento
+
+            imagen_evento = generar_imagen_evento(
+                nombre_local=nombre_local,
+                nombre_visitante=nombre_visitante,
+                logo_local=logo_local,
+                logo_visitante=logo_visitante,
+                fecha_slug=fecha_slug,
+                hora=hora,
+            )
+            self._football_logos_resolver.eliminar_logo_temporal(logo_local_descargado)
+            self._football_logos_resolver.eliminar_logo_temporal(logo_visitante_descargado)
+            return imagen_evento
+        except Exception as e:
+            print(f"⚠️ Error generando imagen evento '{nombre_local} vs {nombre_visitante}': {e}")
+            return ""
+
+    @staticmethod
+    def _extraer_competicion(detalles_td):
+        if not detalles_td:
+            return "", ""
+
+        label = detalles_td.find("label")
+        if label:
+            competicion = (label.get("title") or label.text or "").strip()
+        else:
+            competicion = detalles_td.text.strip()
+
+        contenedor = detalles_td.find("span", {"class": "ajusteDoslineas"})
+        subtitulo_tag = contenedor.find("span", title=True) if contenedor else None
+        subtitulo = ""
+        if subtitulo_tag:
+            subtitulo = (subtitulo_tag.get("title") or subtitulo_tag.text or "").strip()
+
+        return competicion, subtitulo
 
     def _get_mapeos(self):
         """Retorna los mapeos (ya cargados o vacíos si no se proporcionaron)"""
@@ -153,7 +256,8 @@ class ScrapperFutbolenlatv:
 
                     # Manejo seguro de 'detalles'
                     detalles_td = tr.find("td", {"class": "detalles"})
-                    competicion = detalles_td.text.strip() if detalles_td else ""
+                    competicion, subtitulo_competicion = self._extraer_competicion(detalles_td)
+                    texto_competicion = f"{competicion} {subtitulo_competicion}".strip()
 
                     # Extraer categoría desde la imagen
                     categoria = "Otros"
@@ -164,6 +268,10 @@ class ScrapperFutbolenlatv:
 
                     if len(tds) > 2:
                         equipos = tds[2].text.strip()
+                        local_td = tr.find("td", {"class": "local"})
+                        visitante_td = tr.find("td", {"class": "visitante"})
+                        nombre_local, fallback_local = self._extraer_info_imagen_equipo(local_td)
+                        nombre_visitante, fallback_visitante = self._extraer_info_imagen_equipo(visitante_td)
 
                         # Ajustar equipos si hay columna extra
                         if num_columnas == self.COLUMNAS_EVENTO_NORMAL and len(tds) > 3:
@@ -172,17 +280,30 @@ class ScrapperFutbolenlatv:
                         # Verificar si tiene canales mapeados
                         if self.existe_mapeo(
                             tds[num_columnas - 1],
-                            competicion=competicion,
+                            competicion=texto_competicion,
                             categoria=categoria,
                             equipos=equipos,
                         ):
+                            imagen_evento = ""
+                            if categoria == "Fútbol":
+                                imagen_evento = self._generar_imagen_evento_futbol(
+                                    fecha,
+                                    hora,
+                                    nombre_local,
+                                    nombre_visitante,
+                                    fallback_local,
+                                    fallback_visitante,
+                                )
+
                             cont += 1
                             eventos[cont] = {
                                 "hora": hora,
                                 "competicion": competicion,
+                                "subtitulo_competicion": subtitulo_competicion,
                                 "categoria": categoria,
                                 "equipos": equipos,
-                                "canales": self.canales
+                                "canales": self.canales,
+                                "imagen_evento": imagen_evento
                             }
             return eventos
         except Exception as e:

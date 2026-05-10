@@ -92,15 +92,17 @@ CREATE INDEX IF NOT EXISTS idx_variants_channel ON channel_variants(channel_id);
 CREATE INDEX IF NOT EXISTS idx_variants_priority ON channel_variants(priority);
 
 -- ==========================================
--- 4. Tabla de calendario (sin cambios)
+-- 4. Tabla de calendario
 -- ==========================================
 CREATE TABLE IF NOT EXISTS calendario (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     fecha DATE NOT NULL,
     hora TEXT NOT NULL,
     competicion TEXT,
+    subtitulo_competicion TEXT,
     categoria TEXT,
     equipos TEXT NOT NULL,
+    imagen_evento TEXT,
     canales TEXT[],                         -- Array de source_names
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -109,7 +111,6 @@ CREATE TABLE IF NOT EXISTS calendario (
 
 CREATE INDEX IF NOT EXISTS idx_calendario_fecha ON calendario(fecha);
 CREATE INDEX IF NOT EXISTS idx_calendario_categoria ON calendario(categoria);
-
 -- ==========================================
 -- 5. Tablas de películas y series (sin cambios)
 -- ==========================================
@@ -242,8 +243,10 @@ RETURNS TABLE (
     fecha DATE,
     hora TEXT,
     competicion TEXT,
+    subtitulo_competicion TEXT,
     categoria TEXT,
     equipos TEXT,
+    imagen_evento TEXT,
     canales_original TEXT[],
     canales_resueltos JSONB
 ) AS $$
@@ -254,8 +257,10 @@ BEGIN
         c.fecha,
         c.hora,
         c.competicion,
+        c.subtitulo_competicion,
         c.categoria,
         c.equipos,
+        c.imagen_evento,
         c.canales as canales_original,
         COALESCE(
             jsonb_agg(
@@ -274,7 +279,8 @@ BEGIN
     LEFT JOIN channel_mappings cm ON cm.source_name = canal_nombre
     LEFT JOIN channel_variants cv ON cv.mapping_id = cm.id
     WHERE c.id = p_calendario_id
-    GROUP BY c.id, c.fecha, c.hora, c.competicion, c.categoria, c.equipos, c.canales;
+    GROUP BY c.id, c.fecha, c.hora, c.competicion, c.subtitulo_competicion,
+        c.categoria, c.equipos, c.imagen_evento, c.canales;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -287,8 +293,10 @@ RETURNS TABLE (
     fecha DATE,
     hora TEXT,
     competicion TEXT,
+    subtitulo_competicion TEXT,
     categoria TEXT,
     equipos TEXT,
+    imagen_evento TEXT,
     canales_original TEXT[],
     canales_resueltos JSONB
 ) AS $$
@@ -299,8 +307,10 @@ BEGIN
         c.fecha,
         c.hora,
         c.competicion,
+        c.subtitulo_competicion,
         c.categoria,
         c.equipos,
+        c.imagen_evento,
         c.canales as canales_original,
         COALESCE(
             jsonb_agg(
@@ -319,7 +329,8 @@ BEGIN
     LEFT JOIN channel_mappings cm ON cm.source_name = canal_nombre
     LEFT JOIN channel_variants cv ON cv.mapping_id = cm.id
     WHERE c.fecha = p_fecha
-    GROUP BY c.id, c.fecha, c.hora, c.competicion, c.categoria, c.equipos, c.canales
+    GROUP BY c.id, c.fecha, c.hora, c.competicion, c.subtitulo_competicion,
+        c.categoria, c.equipos, c.imagen_evento, c.canales
     ORDER BY c.hora;
 END;
 $$ LANGUAGE plpgsql;

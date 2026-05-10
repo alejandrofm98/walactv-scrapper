@@ -2,6 +2,7 @@ import asyncio
 import traceback
 from database import DatabasePG, ChannelMappingManager
 from scrapper import ScrapperFutbolenlatv
+from services.event_images import limpiar_imagenes_eventos
 
 
 async def main():
@@ -50,6 +51,13 @@ async def main():
         if todos_eventos:
             await ScrapperFutbolenlatv.guarda_partidos_async(todos_eventos)
             print("Calendario guardado para todas las fechas")
+
+        try:
+            borradas = limpiar_imagenes_eventos()
+            if borradas:
+                print(f"🧹 Imágenes de eventos antiguas borradas: {borradas}")
+        except Exception as e:
+            print(f"⚠️ Error limpiando imágenes de eventos: {e}")
 
         print("Job finalizado.")
 

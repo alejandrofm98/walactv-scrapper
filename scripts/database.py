@@ -317,19 +317,33 @@ class CalendarioAcestreamManager:
         equipos: str,
         competicion: str = None,
         canales: List[str] = None,
-        categoria: str = None
+        categoria: str = None,
+        imagen_evento: str = None,
+        subtitulo_competicion: str = None
     ) -> bool:
         """Inserta o actualiza un partido del calendario"""
         try:
             pool = await DatabasePG.get_pool()
             async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    ALTER TABLE calendario
+                    ADD COLUMN IF NOT EXISTS imagen_evento TEXT,
+                    ADD COLUMN IF NOT EXISTS subtitulo_competicion TEXT,
+                    DROP COLUMN IF EXISTS imagen_local,
+                    DROP COLUMN IF EXISTS imagen_visitante
+                    """
+                )
+
                 data = {
                     'fecha': fecha.isoformat(),
                     'hora': hora,
                     'equipos': equipos,
                     'competicion': competicion,
                     'canales': canales or [],
-                    'categoria': categoria
+                    'categoria': categoria,
+                    'imagen_evento': imagen_evento,
+                    'subtitulo_competicion': subtitulo_competicion
                 }
 
                 existing = await conn.fetchrow(
@@ -341,18 +355,24 @@ class CalendarioAcestreamManager:
                     await conn.execute(
                         """
                         UPDATE calendario
-                        SET hora = $1, competicion = $2, canales = $3, categoria = $4
-                        WHERE id = $5
+                        SET hora = $1, competicion = $2, canales = $3, categoria = $4,
+                            imagen_evento = $5, subtitulo_competicion = $6
+                        WHERE id = $7
                         """,
-                        hora, competicion, canales or [], categoria, existing['id']
+                        hora, competicion, canales or [], categoria,
+                        imagen_evento, subtitulo_competicion, existing['id']
                     )
                 else:
                     await conn.execute(
                         """
-                        INSERT INTO calendario (fecha, hora, equipos, competicion, canales, categoria)
-                        VALUES ($1, $2, $3, $4, $5, $6)
+                        INSERT INTO calendario (
+                            fecha, hora, equipos, competicion, canales, categoria,
+                            imagen_evento, subtitulo_competicion
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                         """,
-                        fecha.isoformat(), hora, equipos, competicion, canales or [], categoria
+                        fecha.isoformat(), hora, equipos, competicion, canales or [], categoria,
+                        imagen_evento, subtitulo_competicion
                     )
 
                 return True
@@ -502,7 +522,9 @@ class Database:
                             equipos=partido.get('equipos', ''),
                             competicion=partido.get('competicion', ''),
                             canales=partido.get('canales', []),
-                            categoria=partido.get('categoria', '')
+                            categoria=partido.get('categoria', ''),
+                            imagen_evento=partido.get('imagen_evento', ''),
+                            subtitulo_competicion=partido.get('subtitulo_competicion', '')
                         )
                 return True
 
@@ -536,7 +558,9 @@ class Database:
                         'equipos': partido['equipos'],
                         'competicion': partido['competicion'],
                         'canales': partido['canales'],
-                        'categoria': partido.get('categoria', '')
+                        'categoria': partido.get('categoria', ''),
+                        'imagen_evento': partido.get('imagen_evento', ''),
+                        'subtitulo_competicion': partido.get('subtitulo_competicion', '')
                     }
                 return PGDocumentSnapshot(data, exists=len(data) > 0)
 
@@ -619,7 +643,9 @@ class DataManagerSupabase:
                     equipos=partido.get('equipos', ''),
                     competicion=partido.get('competicion', ''),
                     canales=partido.get('canales', []),
-                    categoria=partido.get('categoria', '')
+                    categoria=partido.get('categoria', ''),
+                    imagen_evento=partido.get('imagen_evento', ''),
+                    subtitulo_competicion=partido.get('subtitulo_competicion', '')
                 )
         return True
 
@@ -644,7 +670,9 @@ class DataManagerSupabase:
                 'equipos': partido['equipos'],
                 'competicion': partido['competicion'],
                 'canales': partido['canales'],
-                'categoria': partido.get('categoria', '')
+                'categoria': partido.get('categoria', ''),
+                'imagen_evento': partido.get('imagen_evento', ''),
+                'subtitulo_competicion': partido.get('subtitulo_competicion', '')
             }
         return data
 
