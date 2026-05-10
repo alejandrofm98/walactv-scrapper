@@ -12,8 +12,12 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 if not (PROJECT_DIR / "resources").exists():
     PROJECT_DIR = BASE_DIR
-FONT_DIR = Path("/usr/share/fonts/truetype/dejavu")
 PLEX_DIR = Path("/usr/share/fonts/truetype/ibm-plex")
+FONT_PATHS = (
+    PLEX_DIR / "IBMPlexSansCondensed-Bold.ttf",
+    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    Path("/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"),
+)
 IMAGES_DIR = Path(os.getenv("IMAGES_DIR", PROJECT_DIR / "resources" / "images"))
 PUBLIC_DOMAIN = os.getenv("PUBLIC_DOMAIN", "").rstrip("/")
 IMAGES_BASE_URL = (os.getenv("IMAGES_BASE_URL") or (f"{PUBLIC_DOMAIN}/images" if PUBLIC_DOMAIN else "")).rstrip("/")
@@ -83,10 +87,8 @@ def generar_imagen_evento(
     img = Image.alpha_composite(img, grad)
 
     draw = ImageDraw.Draw(img)
-    bold_path = PLEX_DIR / "IBMPlexSansCondensed-Bold.ttf"
-    if not bold_path.exists():
-        bold_path = FONT_DIR / "DejaVuSans-Bold.ttf"
-    font_vs = ImageFont.truetype(bold_path, 38)
+    bold_path = next((path for path in FONT_PATHS if path.exists()), None)
+    font_vs = ImageFont.truetype(bold_path, 38) if bold_path else ImageFont.load_default()
 
     logo_size = 190
     home_logo = cargar_logo(logo_local, (logo_size, logo_size))

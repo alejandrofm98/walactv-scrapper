@@ -4,6 +4,7 @@ WORKDIR /app
 
 RUN apk add --no-cache \
     build-base \
+    font-dejavu \
     linux-headers \
     python3-dev \
     tzdata && \
