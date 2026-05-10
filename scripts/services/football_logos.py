@@ -26,7 +26,18 @@ SITEMAP_NS = {
 
 STOPWORDS = {
     "afc", "athletic", "ca", "cd", "cf", "club", "de", "fc", "femenino",
-    "football", "fs", "sc", "team", "women",
+    "football", "fs", "team", "women",
+}
+
+COMPETICION_PAISES = {
+    "premier league": ("england",),
+    "la liga ea sports": ("spain",),
+    "laliga ea sports": ("spain",),
+    "serie a italiana": ("italy",),
+    "laliga hypermotion": ("spain",),
+    "saudi pro league": ("saudi-arabia",),
+    "liga f": ("spain",),
+    "primera division argentina": ("argentina",),
 }
 
 
@@ -46,6 +57,8 @@ def normalizar_texto(texto: str) -> str:
     texto = "".join(c for c in texto if not unicodedata.combining(c))
     texto = texto.lower().replace("&", " and ")
     texto = re.sub(r"\bat\.?\b", " atletico ", texto)
+    texto = re.sub(r"\butd\b", " united ", texto)
+    texto = re.sub(r"\bjeddah\s+club\b", " ", texto)
     texto = re.sub(r"\([^)]*\)", " ", texto)
     texto = re.sub(r"[^a-z0-9]+", " ", texto)
     return re.sub(r"\s+", " ", texto).strip()
@@ -57,6 +70,14 @@ def crear_slug(texto: str) -> str:
 
 def tokens_relevantes(texto: str) -> set[str]:
     return {token for token in normalizar_texto(texto).split() if token not in STOPWORDS}
+
+
+def inferir_paises_preferidos(contexto: str = "") -> tuple[str, ...]:
+    contexto_normalizado = normalizar_texto(contexto)
+    for competicion, paises in COMPETICION_PAISES.items():
+        if competicion in contexto_normalizado:
+            return paises
+    return ()
 
 
 def descargar_texto(url: str) -> str:
@@ -123,7 +144,7 @@ def parsear_sitemap(xml: str) -> list[CandidatoLogo]:
     return candidatos
 
 
-def calcular_score(busqueda: str, candidato: CandidatoLogo) -> float:
+def calcular_score(busqueda: str, candidato: CandidatoLogo, paises_preferidos: tuple[str, ...] = ()) -> float:
     busqueda_normalizada = normalizar_texto(busqueda)
     tokens_busqueda = tokens_relevantes(busqueda)
     if not busqueda_normalizada or not tokens_busqueda:
@@ -148,14 +169,25 @@ def calcular_score(busqueda: str, candidato: CandidatoLogo) -> float:
         score -= 12
     if "unofficial" in candidato.nombre_normalizado or "white" in candidato.nombre_normalizado:
         score -= 20
+    if "historical" in candidato.nombre_normalizado or "logo-history" in candidato.pagina_url:
+        score -= 30
+    if paises_preferidos:
+        if candidato.pais in paises_preferidos:
+            score += 35
+        else:
+            score -= 15
 
     return round(max(score, 0.0), 2)
 
 
-def buscar_candidatos(nombre_equipo: str, candidatos: list[CandidatoLogo]) -> list[CandidatoLogo]:
+def buscar_candidatos(
+    nombre_equipo: str,
+    candidatos: list[CandidatoLogo],
+    paises_preferidos: tuple[str, ...] = (),
+) -> list[CandidatoLogo]:
     puntuados = [
         CandidatoLogo(c.nombre, c.nombre_normalizado, c.tokens, c.pais, c.pagina_url, c.imagen_url,
-                      calcular_score(nombre_equipo, c))
+                      calcular_score(nombre_equipo, c, paises_preferidos))
         for c in candidatos
     ]
     return sorted((c for c in puntuados if c.score > 0), key=lambda c: c.score, reverse=True)
@@ -191,7 +223,7 @@ class FootballLogosResolver:
             self._candidatos = parsear_sitemap(descargar_texto(SITEMAP_URL))
         return self._candidatos
 
-    def resolver_logo(self, nombre_equipo: str) -> str:
+    def resolver_logo(self, nombre_equipo: str, contexto: str = "") -> str:
         if not nombre_equipo:
             return ""
 
@@ -199,7 +231,8 @@ class FootballLogosResolver:
         if salida.exists() and salida.stat().st_size > 0:
             return str(salida)
 
-        candidatos = buscar_candidatos(nombre_equipo, self._obtener_candidatos())
+        paises_preferidos = inferir_paises_preferidos(contexto)
+        candidatos = buscar_candidatos(nombre_equipo, self._obtener_candidatos(), paises_preferidos)
         if not candidatos:
             return ""
 

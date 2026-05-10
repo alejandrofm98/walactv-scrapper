@@ -153,12 +153,19 @@ class ScrapperFutbolenlatv:
         nombre_visitante,
         fallback_local,
         fallback_visitante,
+        contexto_competicion="",
     ):
         if not nombre_local or not nombre_visitante:
             return ""
 
-        logo_local_descargado = self._football_logos_resolver.resolver_logo(nombre_local)
-        logo_visitante_descargado = self._football_logos_resolver.resolver_logo(nombre_visitante)
+        logo_local_descargado = self._football_logos_resolver.resolver_logo(
+            nombre_local,
+            contexto=contexto_competicion,
+        )
+        logo_visitante_descargado = self._football_logos_resolver.resolver_logo(
+            nombre_visitante,
+            contexto=contexto_competicion,
+        )
         logo_local = logo_local_descargado or fallback_local
         logo_visitante = logo_visitante_descargado or fallback_visitante
         if not logo_local or not logo_visitante:
@@ -293,6 +300,7 @@ class ScrapperFutbolenlatv:
                                     nombre_visitante,
                                     fallback_local,
                                     fallback_visitante,
+                                    texto_competicion,
                                 )
 
                             cont += 1
