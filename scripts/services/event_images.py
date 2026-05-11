@@ -153,22 +153,15 @@ def generar_imagen_evento_tenis(
     img = img.convert("RGBA")
     draw = ImageDraw.Draw(img)
     bold_path = next((path for path in FONT_PATHS if path.exists()), None)
-    font_vs = ImageFont.truetype(bold_path, 38) if bold_path else ImageFont.load_default()
+    font_vs = ImageFont.truetype(bold_path, 44) if bold_path else ImageFont.load_default()
 
-    flag_size = (190, 130)
+    flag_size = (260, 170)
     home_flag = cargar_logo(bandera_local, flag_size)
     away_flag = cargar_logo(bandera_visitante, flag_size)
 
-    shadow = Image.new("RGBA", (230, 170), (0, 0, 0, 0))
-    shadow_draw = ImageDraw.Draw(shadow)
-    shadow_draw.rounded_rectangle((20, 20, 210, 150), radius=16, fill=(0, 0, 0, 125))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(14))
-
-    home_x = W // 2 - 250
-    away_x = W // 2 + 60
-    flag_y = 122
-    img.paste(shadow, (home_x - 20, flag_y - 20), shadow)
-    img.paste(shadow, (away_x - 20, flag_y - 20), shadow)
+    home_x = W // 2 - 315
+    away_x = W // 2 + 55
+    flag_y = 95
     img.paste(home_flag, (home_x, flag_y), home_flag)
     img.paste(away_flag, (away_x, flag_y), away_flag)
     draw.text(
