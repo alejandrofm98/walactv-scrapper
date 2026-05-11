@@ -53,6 +53,17 @@ def cargar_logo(origen, size=(190, 190)):
     return lienzo
 
 
+def cargar_bandera(origen, size=(260, 170)):
+    if str(origen).startswith(("http://", "https://")):
+        request = Request(str(origen), headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(request, timeout=20) as response:
+            bandera = Image.open(BytesIO(response.read())).convert("RGBA")
+    else:
+        bandera = Image.open(origen).convert("RGBA")
+
+    return ImageOps.fit(bandera, size, method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+
+
 def generar_imagen_evento(
     nombre_local: str,
     nombre_visitante: str,
@@ -156,8 +167,8 @@ def generar_imagen_evento_tenis(
     font_vs = ImageFont.truetype(bold_path, 44) if bold_path else ImageFont.load_default()
 
     flag_size = (260, 170)
-    home_flag = cargar_logo(bandera_local, flag_size)
-    away_flag = cargar_logo(bandera_visitante, flag_size)
+    home_flag = cargar_bandera(bandera_local, flag_size)
+    away_flag = cargar_bandera(bandera_visitante, flag_size)
 
     home_x = W // 2 - 315
     away_x = W // 2 + 55
