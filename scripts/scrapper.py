@@ -78,8 +78,16 @@ class ScrapperFutbolenlatv:
                         except ValueError:
                             continue
 
-                        for key, partido in partidos.items():
-                            if isinstance(partido, dict):
+                        partidos_validos = [
+                            partido for partido in partidos.values() if isinstance(partido, dict)
+                        ]
+                        if not partidos_validos:
+                            continue
+
+                        async with conn.transaction():
+                            await conn.execute("DELETE FROM calendario WHERE fecha = $1", fecha_date)
+
+                            for partido in partidos_validos:
                                 try:
                                     await conn.execute(
                                         """

@@ -635,18 +635,40 @@ class DataManagerSupabase:
         except:
             fecha = date.today()
 
-        for key, partido in eventos.items():
-            if isinstance(partido, dict):
-                await CalendarioAcestreamManager.upsert_partido(
-                    fecha=fecha,
-                    hora=partido.get('hora', '00:00'),
-                    equipos=partido.get('equipos', ''),
-                    competicion=partido.get('competicion', ''),
-                    canales=partido.get('canales', []),
-                    categoria=partido.get('categoria', ''),
-                    imagen_evento=partido.get('imagen_evento', ''),
-                    subtitulo_competicion=partido.get('subtitulo_competicion', '')
-                )
+        partidos_validos = [partido for partido in eventos.values() if isinstance(partido, dict)]
+        if not partidos_validos:
+            return True
+
+        pool = await DatabasePG.get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute("DELETE FROM calendario WHERE fecha = $1", fecha)
+
+                for partido in partidos_validos:
+                    await conn.execute(
+                        """
+                        INSERT INTO calendario (
+                            fecha, hora, equipos, competicion, canales, categoria,
+                            imagen_evento, subtitulo_competicion
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        ON CONFLICT (fecha, hora, equipos) DO UPDATE SET
+                            hora = EXCLUDED.hora,
+                            competicion = EXCLUDED.competicion,
+                            canales = EXCLUDED.canales,
+                            categoria = EXCLUDED.categoria,
+                            imagen_evento = EXCLUDED.imagen_evento,
+                            subtitulo_competicion = EXCLUDED.subtitulo_competicion
+                        """,
+                        fecha,
+                        partido.get('hora', '00:00'),
+                        partido.get('equipos', ''),
+                        partido.get('competicion', ''),
+                        partido.get('canales', []),
+                        partido.get('categoria', ''),
+                        partido.get('imagen_evento', ''),
+                        partido.get('subtitulo_competicion', '')
+                    )
         return True
 
     @staticmethod
