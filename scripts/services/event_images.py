@@ -150,8 +150,39 @@ def generar_imagen_evento_tenis(
         bg = ImageOps.fit(bg, (W, H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
         img.paste(bg)
 
+    img = img.convert("RGBA")
+    draw = ImageDraw.Draw(img)
+    bold_path = next((path for path in FONT_PATHS if path.exists()), None)
+    font_vs = ImageFont.truetype(bold_path, 38) if bold_path else ImageFont.load_default()
+
+    flag_size = (190, 130)
+    home_flag = cargar_logo(bandera_local, flag_size)
+    away_flag = cargar_logo(bandera_visitante, flag_size)
+
+    shadow = Image.new("RGBA", (230, 170), (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.rounded_rectangle((20, 20, 210, 150), radius=16, fill=(0, 0, 0, 125))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(14))
+
+    home_x = W // 2 - 250
+    away_x = W // 2 + 60
+    flag_y = 122
+    img.paste(shadow, (home_x - 20, flag_y - 20), shadow)
+    img.paste(shadow, (away_x - 20, flag_y - 20), shadow)
+    img.paste(home_flag, (home_x, flag_y), home_flag)
+    img.paste(away_flag, (away_x, flag_y), away_flag)
+    draw.text(
+        (W // 2, flag_y + flag_size[1] // 2),
+        "VS",
+        font=font_vs,
+        fill="#f8fafc",
+        anchor="mm",
+        stroke_width=2,
+        stroke_fill=(0, 0, 0, 170),
+    )
+
     salida_dir.mkdir(parents=True, exist_ok=True)
-    img.save(salida, quality=95)
+    img.convert("RGB").save(salida, quality=95)
     return url_publica_imagen(salida)
 
 
