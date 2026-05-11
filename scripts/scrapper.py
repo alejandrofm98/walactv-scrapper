@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 from database import DataManagerSupabase, DatabasePG
+from services.event_images import borrar_imagenes_eventos_fechas
 from services.football_logos import FootballLogosResolver
 from services.tennis_flags import TennisFlagsResolver
 
@@ -32,6 +33,14 @@ class ScrapperFutbolenlatv:
 
     COLUMNAS_EVENTO_NORMAL = 5
     COLUMNAS_EVENTO_DIFERENTE = 4
+    REQUEST_HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+    }
 
     @staticmethod
     def generate_document_name(fecha):
@@ -112,7 +121,7 @@ class ScrapperFutbolenlatv:
     def __init__(self, mapeos=None):
         self.url = "https://www.futbolenlatv.es/deporte"
         try:
-            response = requests.get(self.url, timeout=30)
+            response = requests.get(self.url, headers=self.REQUEST_HEADERS, timeout=30)
             response.raise_for_status()
             self.soup = BeautifulSoup(response.text, "html.parser")
         except Exception as e:
@@ -160,25 +169,35 @@ class ScrapperFutbolenlatv:
         if not nombre_local or not nombre_visitante:
             return ""
 
-        logo_local_descargado = self._football_logos_resolver.resolver_logo(
-            nombre_local,
-            contexto=contexto_competicion,
-        )
-        logo_visitante_descargado = self._football_logos_resolver.resolver_logo(
-            nombre_visitante,
-            contexto=contexto_competicion,
-        )
-        logo_local = logo_local_descargado or fallback_local
-        logo_visitante = logo_visitante_descargado or fallback_visitante
-        if not logo_local or not logo_visitante:
-            return ""
-
         try:
             fecha_slug = datetime.strptime(fecha, "%d/%m/%Y").strftime("%Y-%m-%d")
         except ValueError:
             fecha_slug = re.sub(r"[^a-z0-9]+", "-", (fecha or "").lower()).strip("-")
 
+        logo_local_descargado = ""
+        logo_visitante_descargado = ""
         try:
+            try:
+                logo_local_descargado = self._football_logos_resolver.resolver_logo(
+                    nombre_local,
+                    contexto=contexto_competicion,
+                )
+            except Exception as e:
+                print(f"⚠️ Error descargando logo '{nombre_local}', usando fallback: {e}")
+
+            try:
+                logo_visitante_descargado = self._football_logos_resolver.resolver_logo(
+                    nombre_visitante,
+                    contexto=contexto_competicion,
+                )
+            except Exception as e:
+                print(f"⚠️ Error descargando logo '{nombre_visitante}', usando fallback: {e}")
+
+            logo_local = logo_local_descargado or fallback_local
+            logo_visitante = logo_visitante_descargado or fallback_visitante
+            if not logo_local or not logo_visitante:
+                return ""
+
             from services.event_images import generar_imagen_evento
 
             imagen_evento = generar_imagen_evento(
@@ -310,7 +329,14 @@ class ScrapperFutbolenlatv:
         if not self.existe_fecha(fecha):
             print(f"No se encontró tabla para la fecha {fecha}")
             return {}
-            
+
+        try:
+            carpetas_borradas = borrar_imagenes_eventos_fechas([fecha])
+            if carpetas_borradas:
+                print(f"🧹 Carpetas de imágenes de eventos borradas para {fecha}: {carpetas_borradas}")
+        except Exception as e:
+            print(f"⚠️ Error borrando imágenes de eventos para {fecha}: {e}")
+             
         try:
             cabecera = self.soup.find("td", string=re.compile(fecha))
             if not cabecera:

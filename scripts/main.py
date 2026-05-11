@@ -2,7 +2,7 @@ import asyncio
 import traceback
 from database import DatabasePG, ChannelMappingManager
 from scrapper import ScrapperFutbolenlatv
-from services.event_images import borrar_imagenes_eventos_fechas, limpiar_imagenes_eventos
+from services.event_images import limpiar_imagenes_eventos
 
 
 async def main():
@@ -32,13 +32,6 @@ async def main():
         # 3. Obtener fechas y calendario
         fechas = ScrapperFutbolenlatv.obtener_fechas()
         print(f"Fechas a procesar: {fechas}")
-
-        try:
-            carpetas_borradas = borrar_imagenes_eventos_fechas(fechas)
-            if carpetas_borradas:
-                print(f"🧹 Carpetas de imágenes de eventos borradas: {carpetas_borradas}")
-        except Exception as e:
-            print(f"⚠️ Error borrando imágenes de eventos para fechas actuales: {e}")
 
         scraper = ScrapperFutbolenlatv(mapeos=mapeos)
 
