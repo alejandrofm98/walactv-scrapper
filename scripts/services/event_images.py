@@ -1,5 +1,6 @@
 from io import BytesIO
 import os
+import shutil
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -200,6 +201,45 @@ def url_publica_imagen(ruta: Path) -> str:
         return str(ruta)
 
     return f"{IMAGES_BASE_URL}/{relativa.as_posix()}"
+
+
+def borrar_imagenes_eventos_fechas(fechas: list[str]) -> int:
+    """Borra carpetas de imágenes de eventos para las fechas indicadas."""
+    events_dir = IMAGES_DIR / "events"
+    if not events_dir.exists():
+        return 0
+
+    resolved_events = events_dir.resolve()
+    if resolved_events.name != "events" or resolved_events.parent.name != "images":
+        print(f"⚠️ Ruta de limpieza no segura, se omite: {resolved_events}")
+        return 0
+
+    fechas_slug = set()
+    for fecha in fechas:
+        try:
+            fechas_slug.add(datetime.strptime(fecha, "%d/%m/%Y").strftime("%Y-%m-%d"))
+        except ValueError:
+            continue
+
+    borradas = 0
+    for deporte_dir in resolved_events.iterdir():
+        if not deporte_dir.is_dir():
+            continue
+
+        for fecha_slug in fechas_slug:
+            fecha_dir = deporte_dir / fecha_slug
+            if not fecha_dir.exists() or not fecha_dir.is_dir():
+                continue
+
+            resolved_fecha = fecha_dir.resolve()
+            if resolved_events not in resolved_fecha.parents:
+                print(f"⚠️ Ruta de fecha no segura, se omite: {resolved_fecha}")
+                continue
+
+            shutil.rmtree(resolved_fecha)
+            borradas += 1
+
+    return borradas
 
 
 def limpiar_imagenes_eventos(retention_days: int = EVENT_IMAGES_RETENTION_DAYS) -> int:
