@@ -4,6 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 from database import DataManagerSupabase, DatabasePG
 from services.football_logos import FootballLogosResolver
+from services.tennis_flags import TennisFlagsResolver
 
 def limpia_html(html_canal):
     html_canal = html_canal.replace("&gt", "")
@@ -121,6 +122,7 @@ class ScrapperFutbolenlatv:
         self.canales = []
         self._mapeos_cache = mapeos if mapeos is not None else {}
         self._football_logos_resolver = FootballLogosResolver()
+        self._tennis_flags_resolver = TennisFlagsResolver()
 
     @staticmethod
     def _mejorar_url_futbolenlatv(url):
@@ -193,6 +195,82 @@ class ScrapperFutbolenlatv:
         except Exception as e:
             print(f"⚠️ Error generando imagen evento '{nombre_local} vs {nombre_visitante}': {e}")
             return ""
+
+    def _generar_imagen_evento_tenis(
+        self,
+        fecha,
+        hora,
+        nombre_local,
+        nombre_visitante,
+        fallback_local,
+        fallback_visitante,
+        contexto_competicion="",
+    ):
+        if not nombre_local or not nombre_visitante:
+            return ""
+
+        bandera_local = self._tennis_flags_resolver.resolver_bandera(fallback_local) or fallback_local
+        bandera_visitante = self._tennis_flags_resolver.resolver_bandera(fallback_visitante) or fallback_visitante
+        if not bandera_local or not bandera_visitante:
+            return ""
+
+        try:
+            fecha_slug = datetime.strptime(fecha, "%d/%m/%Y").strftime("%Y-%m-%d")
+        except ValueError:
+            fecha_slug = re.sub(r"[^a-z0-9]+", "-", (fecha or "").lower()).strip("-")
+
+        try:
+            from services.event_images import generar_imagen_evento_tenis
+
+            return generar_imagen_evento_tenis(
+                nombre_local=nombre_local,
+                nombre_visitante=nombre_visitante,
+                bandera_local=bandera_local,
+                bandera_visitante=bandera_visitante,
+                fecha_slug=fecha_slug,
+                hora=hora,
+                competicion=contexto_competicion,
+            )
+        except Exception as e:
+            print(f"⚠️ Error generando imagen tenis '{nombre_local} vs {nombre_visitante}': {e}")
+            return ""
+
+    def _generar_imagen_evento(
+        self,
+        categoria,
+        fecha,
+        hora,
+        nombre_local,
+        nombre_visitante,
+        fallback_local,
+        fallback_visitante,
+        contexto_competicion="",
+    ):
+        if categoria == "Fútbol":
+            imagen = self._generar_imagen_evento_futbol(
+                fecha,
+                hora,
+                nombre_local,
+                nombre_visitante,
+                fallback_local,
+                fallback_visitante,
+                contexto_competicion,
+            )
+            if imagen:
+                return imagen
+
+        if categoria == "Tenis":
+            return self._generar_imagen_evento_tenis(
+                fecha,
+                hora,
+                nombre_local,
+                nombre_visitante,
+                fallback_local,
+                fallback_visitante,
+                contexto_competicion,
+            )
+
+        return ""
 
     @staticmethod
     def _extraer_competicion(detalles_td):
@@ -291,17 +369,16 @@ class ScrapperFutbolenlatv:
                             categoria=categoria,
                             equipos=equipos,
                         ):
-                            imagen_evento = ""
-                            if categoria == "Fútbol":
-                                imagen_evento = self._generar_imagen_evento_futbol(
-                                    fecha,
-                                    hora,
-                                    nombre_local,
-                                    nombre_visitante,
-                                    fallback_local,
-                                    fallback_visitante,
-                                    texto_competicion,
-                                )
+                            imagen_evento = self._generar_imagen_evento(
+                                categoria,
+                                fecha,
+                                hora,
+                                nombre_local,
+                                nombre_visitante,
+                                fallback_local,
+                                fallback_visitante,
+                                texto_competicion,
+                            )
 
                             cont += 1
                             eventos[cont] = {
