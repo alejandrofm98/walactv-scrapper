@@ -24,7 +24,8 @@ IMAGES_BASE_URL = (os.getenv("IMAGES_BASE_URL") or (f"{PUBLIC_DOMAIN}/images" if
 EVENTOS_DIR = IMAGES_DIR / "events" / "futbol"
 TENNIS_EVENTOS_DIR = IMAGES_DIR / "events" / "tenis"
 EVENT_IMAGES_RETENTION_DAYS = int(os.getenv("EVENT_IMAGES_RETENTION_DAYS", "3"))
-STADIUM_PATH = PROJECT_DIR / "resources" / "event_cards" / "stadium.png"
+FUTBOL_BACKGROUND_PATH = PROJECT_DIR / "resources" / "event_cards" / "futbol_background.png"
+TENIS_BACKGROUND_PATH = PROJECT_DIR / "resources" / "event_cards" / "tenis_background.png"
 
 
 def crear_slug(texto: str) -> str:
@@ -60,7 +61,7 @@ def generar_imagen_evento(
     fecha_slug: str,
     hora: str,
     output_dir: Path = EVENTOS_DIR,
-    bg_path: Path = STADIUM_PATH,
+    bg_path: Path = FUTBOL_BACKGROUND_PATH,
 ) -> str:
     salida_dir = output_dir / fecha_slug
     salida = salida_dir / f"{crear_slug(hora)}-{crear_slug(nombre_local)}-vs-{crear_slug(nombre_visitante)}.jpg"
@@ -140,19 +141,28 @@ def generar_imagen_evento_tenis(
     hora: str,
     competicion: str = "",
     output_dir: Path = TENNIS_EVENTOS_DIR,
+    bg_path: Path = TENIS_BACKGROUND_PATH,
 ) -> str:
     salida_dir = output_dir / fecha_slug
     salida = salida_dir / f"{crear_slug(hora)}-{crear_slug(nombre_local)}-vs-{crear_slug(nombre_visitante)}.jpg"
     if salida.exists() and salida.stat().st_size > 0:
         return url_publica_imagen(salida)
 
-    img = Image.new("RGBA", (W, H), "#0b1324")
-    draw = ImageDraw.Draw(img)
+    img = Image.new("RGB", (W, H), "#0b1324")
+    if bg_path and bg_path.exists():
+        bg = Image.open(bg_path).convert("RGB")
+        bg = ImageOps.fit(bg, (W, H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+        bg = bg.filter(ImageFilter.GaussianBlur(0.7))
+        img.paste(bg)
+    else:
+        draw = ImageDraw.Draw(img)
+        for y in range(H):
+            blue = int(28 + (y / H) * 34)
+            green = int(54 + (y / H) * 42)
+            draw.line((0, y, W, y), fill=(8, blue, green))
 
-    for y in range(H):
-        blue = int(28 + (y / H) * 34)
-        green = int(54 + (y / H) * 42)
-        draw.line((0, y, W, y), fill=(8, blue, green, 255))
+    img = img.convert("RGBA")
+    img = Image.alpha_composite(img, Image.new("RGBA", (W, H), (3, 7, 18, 92)))
 
     court = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     court_draw = ImageDraw.Draw(court)
