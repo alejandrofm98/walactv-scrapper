@@ -65,8 +65,6 @@ def generar_imagen_evento(
 ) -> str:
     salida_dir = output_dir / fecha_slug
     salida = salida_dir / f"{crear_slug(hora)}-{crear_slug(nombre_local)}-vs-{crear_slug(nombre_visitante)}.jpg"
-    if salida.exists() and salida.stat().st_size > 0:
-        return url_publica_imagen(salida)
 
     img = Image.new("RGB", (W, H), "#11121a")
     if bg_path and bg_path.exists():
@@ -145,79 +143,15 @@ def generar_imagen_evento_tenis(
 ) -> str:
     salida_dir = output_dir / fecha_slug
     salida = salida_dir / f"{crear_slug(hora)}-{crear_slug(nombre_local)}-vs-{crear_slug(nombre_visitante)}.jpg"
-    if salida.exists() and salida.stat().st_size > 0:
-        return url_publica_imagen(salida)
 
     img = Image.new("RGB", (W, H), "#0b1324")
     if bg_path and bg_path.exists():
         bg = Image.open(bg_path).convert("RGB")
         bg = ImageOps.fit(bg, (W, H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
-        bg = bg.filter(ImageFilter.GaussianBlur(0.7))
         img.paste(bg)
-    else:
-        draw = ImageDraw.Draw(img)
-        for y in range(H):
-            blue = int(28 + (y / H) * 34)
-            green = int(54 + (y / H) * 42)
-            draw.line((0, y, W, y), fill=(8, blue, green))
-
-    img = img.convert("RGBA")
-    img = Image.alpha_composite(img, Image.new("RGBA", (W, H), (3, 7, 18, 92)))
-
-    court = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    court_draw = ImageDraw.Draw(court)
-    court_draw.rounded_rectangle((58, 40, W - 58, H - 40), radius=24, outline=(245, 255, 255, 58), width=3)
-    court_draw.line((W // 2, 42, W // 2, H - 42), fill=(245, 255, 255, 70), width=3)
-    court_draw.line((58, H // 2, W - 58, H // 2), fill=(245, 255, 255, 42), width=2)
-    court_draw.rectangle((W // 2 - 4, 52, W // 2 + 4, H - 52), fill=(229, 231, 235, 95))
-    img = Image.alpha_composite(img, court.filter(ImageFilter.GaussianBlur(0.2)))
-
-    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    glow_draw = ImageDraw.Draw(glow)
-    glow_draw.ellipse((-140, -110, 360, 380), fill=(24, 184, 145, 80))
-    glow_draw.ellipse((W - 360, 70, W + 140, H + 160), fill=(56, 189, 248, 70))
-    img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(42)))
-
-    draw = ImageDraw.Draw(img)
-    bold_path = next((path for path in FONT_PATHS if path.exists()), None)
-    font_vs = ImageFont.truetype(bold_path, 46) if bold_path else ImageFont.load_default()
-    font_label = ImageFont.truetype(bold_path, 28) if bold_path else ImageFont.load_default()
-    font_comp = ajustar_texto(draw, competicion or "Tenis", bold_path, 420, 26, 18)
-    font_home = ajustar_texto(draw, nombre_local, bold_path, 260, 34, 22)
-    font_away = ajustar_texto(draw, nombre_visitante, bold_path, 260, 34, 22)
-
-    flag_size = (270, 180)
-    home_flag = cargar_logo(bandera_local, flag_size)
-    away_flag = cargar_logo(bandera_visitante, flag_size)
-
-    def paste_flag(flag, x, y):
-        shadow = Image.new("RGBA", (flag_size[0] + 36, flag_size[1] + 36), (0, 0, 0, 0))
-        shadow_draw = ImageDraw.Draw(shadow)
-        shadow_draw.rounded_rectangle((18, 18, flag_size[0] + 18, flag_size[1] + 18), radius=18, fill=(0, 0, 0, 135))
-        shadow = shadow.filter(ImageFilter.GaussianBlur(14))
-        img.paste(shadow, (x - 18, y - 18), shadow)
-        frame = Image.new("RGBA", (flag_size[0] + 10, flag_size[1] + 10), (255, 255, 255, 0))
-        frame_draw = ImageDraw.Draw(frame)
-        frame_draw.rounded_rectangle((0, 0, flag_size[0] + 9, flag_size[1] + 9), radius=18, fill=(255, 255, 255, 34))
-        img.paste(frame, (x - 5, y - 5), frame)
-        img.paste(flag, (x, y), flag)
-
-    home_x = 72
-    away_x = W - 72 - flag_size[0]
-    flag_y = 112
-    paste_flag(home_flag, home_x, flag_y)
-    paste_flag(away_flag, away_x, flag_y)
-
-    draw.rounded_rectangle((W // 2 - 52, 166, W // 2 + 52, 236), radius=22, fill=(3, 7, 18, 180))
-    draw.text((W // 2, 201), "VS", font=font_vs, fill="#f8fafc", anchor="mm")
-
-    draw.text((W // 2, 66), competicion or "Tenis", font=font_comp, fill="#dffcf4", anchor="mm")
-    draw.text((home_x + flag_size[0] // 2, flag_y + flag_size[1] + 44), nombre_local, font=font_home, fill="#f8fafc", anchor="mm")
-    draw.text((away_x + flag_size[0] // 2, flag_y + flag_size[1] + 44), nombre_visitante, font=font_away, fill="#f8fafc", anchor="mm")
-    draw.text((W // 2, H - 44), hora, font=font_label, fill="#9ff3d5", anchor="mm")
 
     salida_dir.mkdir(parents=True, exist_ok=True)
-    img.convert("RGB").save(salida, quality=95)
+    img.save(salida, quality=95)
     return url_publica_imagen(salida)
 
 
