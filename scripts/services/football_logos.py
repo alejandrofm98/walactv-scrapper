@@ -217,6 +217,7 @@ class FootballLogosResolver:
         self.size = size
         self.logos_dir = logos_dir
         self._candidatos = None
+        self._remote_disabled = False
 
     def _obtener_candidatos(self) -> list[CandidatoLogo]:
         if self._candidatos is None:
@@ -231,8 +232,17 @@ class FootballLogosResolver:
         if salida.exists() and salida.stat().st_size > 0:
             return str(salida)
 
+        if self._remote_disabled:
+            return ""
+
         paises_preferidos = inferir_paises_preferidos(contexto)
-        candidatos = buscar_candidatos(nombre_equipo, self._obtener_candidatos(), paises_preferidos)
+        try:
+            candidatos = buscar_candidatos(nombre_equipo, self._obtener_candidatos(), paises_preferidos)
+        except (HTTPError, URLError, TimeoutError) as e:
+            self._remote_disabled = True
+            print(f"⚠️ Logos externos desactivados, usando fallbacks: {e}")
+            return ""
+
         if not candidatos:
             return ""
 
@@ -246,6 +256,10 @@ class FootballLogosResolver:
             imagen_url = resolver_url_descarga(primero, self.size)
             datos = descargar_binario(imagen_url)
         except (HTTPError, URLError, TimeoutError) as e:
+            if isinstance(e, HTTPError) and e.code == 403:
+                self._remote_disabled = True
+                print(f"⚠️ Logos externos bloqueados, usando fallbacks: {e}")
+                return ""
             print(f"⚠️ Error descargando logo '{nombre_equipo}': {e}")
             return ""
 

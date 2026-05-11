@@ -16,7 +16,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    restart: unless-stopped
+    restart: "no"
     command: ["python", "main.py"]
     env_file:
       - .env
