@@ -8,7 +8,8 @@ from urllib.request import Request, urlopen
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 
-W, H = 800, 450
+SCALE = 2
+W, H = 1600, 900
 BASE_DIR = Path(__file__).resolve().parents[1]
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 if not (PROJECT_DIR / "resources").exists():
@@ -100,22 +101,25 @@ def generar_imagen_evento(
 
     draw = ImageDraw.Draw(img)
     bold_path = next((path for path in FONT_PATHS if path.exists()), None)
-    font_vs = ImageFont.truetype(bold_path, 38) if bold_path else ImageFont.load_default()
+    font_vs = ImageFont.truetype(bold_path, 38 * SCALE) if bold_path else ImageFont.load_default()
 
-    logo_size = 190
+    logo_size = 190 * SCALE
     home_logo = cargar_logo(logo_local, (logo_size, logo_size))
     away_logo = cargar_logo(logo_visitante, (logo_size, logo_size))
 
-    shadow = Image.new("RGBA", (230, 230), (0, 0, 0, 0))
+    shadow = Image.new("RGBA", (230 * SCALE, 230 * SCALE), (0, 0, 0, 0))
     shadow_draw = ImageDraw.Draw(shadow)
-    shadow_draw.ellipse((20, 20, 210, 210), fill=(0, 0, 0, 125))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(14))
+    shadow_draw.ellipse(
+        (20 * SCALE, 20 * SCALE, 210 * SCALE, 210 * SCALE),
+        fill=(0, 0, 0, 125),
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(14 * SCALE))
 
-    home_x = W // 2 - 250
-    away_x = W // 2 + 60
-    logo_y = 58
-    img.paste(shadow, (home_x - 20, logo_y - 20), shadow)
-    img.paste(shadow, (away_x - 20, logo_y - 20), shadow)
+    home_x = W // 2 - 250 * SCALE
+    away_x = W // 2 + 60 * SCALE
+    logo_y = 58 * SCALE
+    img.paste(shadow, (home_x - 20 * SCALE, logo_y - 20 * SCALE), shadow)
+    img.paste(shadow, (away_x - 20 * SCALE, logo_y - 20 * SCALE), shadow)
     img.paste(home_logo, (home_x, logo_y), home_logo)
     img.paste(away_logo, (away_x, logo_y), away_logo)
     draw.text(
@@ -124,12 +128,12 @@ def generar_imagen_evento(
         font=font_vs,
         fill="#f8fafc",
         anchor="mm",
-        stroke_width=2,
+        stroke_width=2 * SCALE,
         stroke_fill=(0, 0, 0, 170),
     )
 
     salida_dir.mkdir(parents=True, exist_ok=True)
-    img.convert("RGB").save(salida, quality=95)
+    img.convert("RGB").save(salida, quality=92, optimize=True, progressive=True)
     return url_publica_imagen(salida)
 
 
@@ -165,15 +169,15 @@ def generar_imagen_evento_tenis(
     img = img.convert("RGBA")
     draw = ImageDraw.Draw(img)
     bold_path = next((path for path in FONT_PATHS if path.exists()), None)
-    font_vs = ImageFont.truetype(bold_path, 44) if bold_path else ImageFont.load_default()
+    font_vs = ImageFont.truetype(bold_path, 44 * SCALE) if bold_path else ImageFont.load_default()
 
-    flag_size = (260, 170)
+    flag_size = (260 * SCALE, 170 * SCALE)
     home_flag = cargar_bandera(bandera_local, flag_size)
     away_flag = cargar_bandera(bandera_visitante, flag_size)
 
-    home_x = W // 2 - 315
-    away_x = W // 2 + 55
-    flag_y = 95
+    home_x = W // 2 - 315 * SCALE
+    away_x = W // 2 + 55 * SCALE
+    flag_y = 95 * SCALE
     img.paste(home_flag, (home_x, flag_y), home_flag)
     img.paste(away_flag, (away_x, flag_y), away_flag)
     draw.text(
@@ -182,12 +186,12 @@ def generar_imagen_evento_tenis(
         font=font_vs,
         fill="#f8fafc",
         anchor="mm",
-        stroke_width=2,
+        stroke_width=2 * SCALE,
         stroke_fill=(0, 0, 0, 170),
     )
 
     salida_dir.mkdir(parents=True, exist_ok=True)
-    img.convert("RGB").save(salida, quality=95)
+    img.convert("RGB").save(salida, quality=92, optimize=True, progressive=True)
     return url_publica_imagen(salida)
 
 
