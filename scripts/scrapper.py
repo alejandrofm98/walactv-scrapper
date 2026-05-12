@@ -126,7 +126,7 @@ class ScrapperFutbolenlatv:
         tomorrow = (datetime.now() + timedelta(days=1)).strftime("%d/%m/%Y")
         return [today, tomorrow]
 
-    def __init__(self, mapeos=None):
+    def __init__(self, mapeos=None, football_logos_proxy=""):
         self.url = "https://www.futbolenlatv.es/deporte"
         try:
             response = requests.get(self.url, headers=self.REQUEST_HEADERS, timeout=30)
@@ -138,7 +138,7 @@ class ScrapperFutbolenlatv:
             
         self.canales = []
         self._mapeos_cache = mapeos if mapeos is not None else {}
-        self._football_logos_resolver = FootballLogosResolver()
+        self._football_logos_resolver = FootballLogosResolver(proxy_url=football_logos_proxy)
         self._tennis_flags_resolver = TennisFlagsResolver()
 
     @staticmethod

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, ProxyHandler, build_opener, urlopen
 from xml.etree import ElementTree
 
 
@@ -87,7 +87,15 @@ def inferir_paises_preferidos(contexto: str = "") -> tuple[str, ...]:
     return ()
 
 
-def descargar_texto(url: str) -> str:
+def abrir_url(request: Request, proxy_url: str = ""):
+    if not proxy_url:
+        return urlopen(request, timeout=45)
+
+    opener = build_opener(ProxyHandler({"http": proxy_url, "https": proxy_url}))
+    return opener.open(request, timeout=45)
+
+
+def descargar_texto(url: str, proxy_url: str = "") -> str:
     request = Request(
         url,
         headers={
@@ -95,11 +103,11 @@ def descargar_texto(url: str) -> str:
             "Accept": "application/xml,text/xml,text/html,*/*;q=0.8",
         },
     )
-    with urlopen(request, timeout=45) as response:
+    with abrir_url(request, proxy_url) as response:
         return response.read().decode("utf-8")
 
 
-def descargar_binario(url: str) -> bytes:
+def descargar_binario(url: str, proxy_url: str = "") -> bytes:
     request = Request(
         url,
         headers={
@@ -108,7 +116,7 @@ def descargar_binario(url: str) -> bytes:
             "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
         },
     )
-    with urlopen(request, timeout=45) as response:
+    with abrir_url(request, proxy_url) as response:
         return response.read()
 
 
@@ -218,8 +226,8 @@ def extraer_atributo(html_pagina: str, nombre: str) -> str | None:
     return html.unescape(match.group(1)) if match else None
 
 
-def resolver_url_descarga(candidato: CandidatoLogo, size: int) -> str:
-    html_pagina = descargar_texto(candidato.pagina_url)
+def resolver_url_descarga(candidato: CandidatoLogo, size: int, proxy_url: str = "") -> str:
+    html_pagina = descargar_texto(candidato.pagina_url, proxy_url)
     category_id = extraer_atributo(html_pagina, "data-category-id")
     logo_id = extraer_atributo(html_pagina, "data-logo-id")
     option = re.search(rf'<option value="{size}::([^"]+)">', html_pagina)
@@ -233,15 +241,16 @@ def resolver_url_descarga(candidato: CandidatoLogo, size: int) -> str:
 
 
 class FootballLogosResolver:
-    def __init__(self, size: int = 512, logos_dir: Path = LOGOS_DIR):
+    def __init__(self, size: int = 512, logos_dir: Path = LOGOS_DIR, proxy_url: str = ""):
         self.size = size
         self.logos_dir = logos_dir
+        self.proxy_url = proxy_url
         self._candidatos = None
         self._remote_disabled = False
 
     def _obtener_candidatos(self) -> list[CandidatoLogo]:
         if self._candidatos is None:
-            self._candidatos = parsear_sitemap(descargar_texto(SITEMAP_URL))
+            self._candidatos = parsear_sitemap(descargar_texto(SITEMAP_URL, self.proxy_url))
         return self._candidatos
 
     def resolver_logo(self, nombre_equipo: str, contexto: str = "") -> str:
@@ -273,8 +282,8 @@ class FootballLogosResolver:
             return ""
 
         try:
-            imagen_url = resolver_url_descarga(primero, self.size)
-            datos = descargar_binario(imagen_url)
+            imagen_url = resolver_url_descarga(primero, self.size, self.proxy_url)
+            datos = descargar_binario(imagen_url, self.proxy_url)
         except (HTTPError, URLError, TimeoutError) as e:
             if isinstance(e, HTTPError) and e.code == 403:
                 self._remote_disabled = True

@@ -1,8 +1,23 @@
 import asyncio
 import traceback
-from database import DatabasePG, ChannelMappingManager
+from urllib.parse import quote
+
+from database import DatabasePG, ChannelMappingManager, ConfigManager
 from scrapper import ScrapperFutbolenlatv
 from services.event_images import limpiar_imagenes_eventos
+
+
+def construir_proxy_url(proxy_ip: str, proxy_port: str, proxy_user: str, proxy_pass: str) -> str:
+    """Construye URL de proxy HTTP desde config."""
+    if not proxy_ip or not proxy_port:
+        return ""
+
+    if proxy_user and proxy_pass:
+        user = quote(proxy_user, safe="")
+        password = quote(proxy_pass, safe="")
+        return f"http://{user}:{password}@{proxy_ip}:{proxy_port}"
+
+    return f"http://{proxy_ip}:{proxy_port}"
 
 
 async def main():
@@ -29,11 +44,24 @@ async def main():
             mapeos = {}
         print(f"✅ Mapeos cargados: {len(mapeos)} canales")
 
+        proxy_ip = await ConfigManager.get_config('PROXY_IP') or ''
+        proxy_port = await ConfigManager.get_config('PROXY_PORT') or ''
+        proxy_user = await ConfigManager.get_config('PROXY_USER') or ''
+        proxy_pass = await ConfigManager.get_config('PROXY_PASS') or ''
+        football_logos_proxy = construir_proxy_url(proxy_ip, proxy_port, proxy_user, proxy_pass)
+        if football_logos_proxy:
+            print(f"✅ Proxy football-logos configurado desde config: {proxy_ip}:{proxy_port}")
+        else:
+            print("ℹ️ Proxy football-logos no configurado; descarga directa")
+
         # 3. Obtener fechas y calendario
         fechas = ScrapperFutbolenlatv.obtener_fechas()
         print(f"Fechas a procesar: {fechas}")
 
-        scraper = ScrapperFutbolenlatv(mapeos=mapeos)
+        scraper = ScrapperFutbolenlatv(
+            mapeos=mapeos,
+            football_logos_proxy=football_logos_proxy,
+        )
 
         # Recopilar todos los partidos de todas las fechas
         todos_eventos = {}
