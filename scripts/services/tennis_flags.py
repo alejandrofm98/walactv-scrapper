@@ -7,6 +7,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from PIL import Image
+
 
 USER_AGENT = "Mozilla/5.0 (compatible; walactv-scrapper/1.0)"
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -114,9 +116,19 @@ def descargar_binario(url: str) -> bytes:
 
 
 class TennisFlagsResolver:
-    def __init__(self, flags_dir: Path = FLAGS_DIR, size: int = 640):
+    def __init__(self, flags_dir: Path = FLAGS_DIR, size: int = 1280):
         self.flags_dir = flags_dir
         self.size = size
+
+    def _cache_valida(self, ruta: Path) -> bool:
+        if not ruta.exists() or ruta.stat().st_size <= 0:
+            return False
+
+        try:
+            with Image.open(ruta) as imagen:
+                return imagen.width >= self.size
+        except Exception:
+            return False
 
     def resolver_bandera(self, origen_futbolenlatv: str) -> str:
         pais = extraer_pais_desde_url(origen_futbolenlatv)
@@ -125,7 +137,7 @@ class TennisFlagsResolver:
             return ""
 
         salida = self.flags_dir / f"{iso2}.png"
-        if salida.exists() and salida.stat().st_size > 0:
+        if self._cache_valida(salida):
             return str(salida)
 
         url = f"https://flagcdn.com/w{self.size}/{iso2}.png"

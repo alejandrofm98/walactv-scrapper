@@ -63,7 +63,16 @@ def cargar_bandera(origen, size=(260, 170)):
     else:
         bandera = Image.open(origen).convert("RGBA")
 
-    return ImageOps.fit(bandera, size, method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+    escala = min(size[0] / bandera.width, size[1] / bandera.height, 1)
+    nuevo_size = (max(1, round(bandera.width * escala)), max(1, round(bandera.height * escala)))
+    if nuevo_size != bandera.size:
+        bandera = bandera.resize(nuevo_size, Image.Resampling.LANCZOS)
+        bandera = bandera.filter(ImageFilter.UnsharpMask(radius=1, percent=120, threshold=3))
+
+    lienzo = Image.new("RGBA", size, (0, 0, 0, 0))
+    posicion = ((size[0] - bandera.width) // 2, (size[1] - bandera.height) // 2)
+    lienzo.paste(bandera, posicion, bandera)
+    return lienzo
 
 
 def generar_imagen_evento(
