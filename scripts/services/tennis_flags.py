@@ -47,6 +47,7 @@ PAISES_ISO = {
     "eslovenia": "si",
     "espana": "es",
     "estados unidos": "us",
+    "eeuu": "us",
     "estonia": "ee",
     "finlandia": "fi",
     "francia": "fr",
@@ -66,6 +67,7 @@ PAISES_ISO = {
     "mexico": "mx",
     "montenegro": "me",
     "noruega": "no",
+    "norway": "no",
     "nueva zelanda": "nz",
     "paises bajos": "nl",
     "peru": "pe",
@@ -106,7 +108,7 @@ def extraer_pais_desde_url(url: str) -> str:
         return ""
 
     nombre_archivo = Path(urlparse(url).path).stem
-    match = re.search(r"\d+-(.+)$", nombre_archivo)
+    match = re.search(r"^\d+[-_](.+)$", nombre_archivo)
     pais = match.group(1) if match else nombre_archivo
     return normalizar_texto(pais)
 
@@ -127,7 +129,9 @@ def cargar_aliases() -> dict[str, str]:
 
     try:
         with ALIASES_PATH.open("r", encoding="utf-8") as archivo:
-            return json.load(archivo)
+            aliases = json.load(archivo)
+            print(f"ℹ️ Aliases de banderas tenis cargados: {len(aliases)}")
+            return aliases
     except Exception as e:
         print(f"⚠️ Error leyendo aliases de banderas tenis: {e}")
         return {}
