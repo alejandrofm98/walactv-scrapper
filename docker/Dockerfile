@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt || 
 # copy the script
 COPY scripts/ .
 COPY resources/event_cards/ /app/resources/event_cards/
+COPY resources/tennis_flag_aliases.json /app/resources/tennis_flag_aliases.json
 
 ENV IMAGES_DIR=/app/data/images
 ENV EVENT_IMAGES_RETENTION_DAYS=3
