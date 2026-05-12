@@ -289,6 +289,10 @@ class ScrapperFutbolenlatv:
         fallback_visitante,
         contexto_competicion="",
     ):
+        from services.event_images import obtener_imagen_evento_default
+
+        imagen_default = obtener_imagen_evento_default(categoria)
+
         if categoria == "Fútbol":
             imagen = self._generar_imagen_evento_futbol(
                 fecha,
@@ -301,9 +305,10 @@ class ScrapperFutbolenlatv:
             )
             if imagen:
                 return imagen
+            return imagen_default
 
         if categoria == "Tenis":
-            return self._generar_imagen_evento_tenis(
+            imagen = self._generar_imagen_evento_tenis(
                 fecha,
                 hora,
                 nombre_local,
@@ -312,8 +317,9 @@ class ScrapperFutbolenlatv:
                 fallback_visitante,
                 contexto_competicion,
             )
+            return imagen or imagen_default
 
-        return ""
+        return imagen_default
 
     @staticmethod
     def _extraer_competicion(detalles_td):

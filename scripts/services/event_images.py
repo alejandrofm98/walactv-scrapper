@@ -28,6 +28,20 @@ TENNIS_EVENTOS_DIR = IMAGES_DIR / "events" / "tenis"
 EVENT_IMAGES_RETENTION_DAYS = int(os.getenv("EVENT_IMAGES_RETENTION_DAYS", "3"))
 FUTBOL_BACKGROUND_PATH = PROJECT_DIR / "resources" / "event_cards" / "futbol_background.png"
 TENIS_BACKGROUND_PATH = PROJECT_DIR / "resources" / "event_cards" / "tenis_background.png"
+DEFAULT_IMAGES_DIR = PROJECT_DIR / "resources" / "images" / "defaults"
+DEFAULT_EVENT_IMAGES = {
+    "futbol": "futbol_default.avif",
+    "tenis": "tenis_default.jpeg",
+    "baloncesto": "baloncesto_default.avif",
+    "beisbol": "beisbol_default.avif",
+    "formula-1": "f1_default.jpg",
+    "f1": "f1_default.jpg",
+    "motogp": "moto_default.jpg",
+    "moto-gp": "moto_default.jpg",
+    "motor": "moto_default.jpg",
+    "hockey-hielo": "nhl_default.jpg",
+    "nhl": "nhl_default.jpg",
+}
 
 
 def crear_slug(texto: str) -> str:
@@ -38,6 +52,29 @@ def crear_slug(texto: str) -> str:
     texto = "".join(c for c in texto if not unicodedata.combining(c))
     texto = re.sub(r"[^a-z0-9]+", "-", texto.lower()).strip("-")
     return texto or "evento"
+
+
+def obtener_imagen_evento_default(categoria: str) -> str:
+    """Devuelve imagen por defecto para categoría si existe."""
+    archivo = DEFAULT_EVENT_IMAGES.get(crear_slug(categoria))
+    if not archivo:
+        return ""
+
+    destino = IMAGES_DIR / "defaults" / archivo
+    if destino.exists():
+        return url_publica_imagen(destino)
+
+    origen = DEFAULT_IMAGES_DIR / archivo
+    if not origen.exists():
+        return ""
+
+    try:
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(origen, destino)
+        return url_publica_imagen(destino)
+    except Exception as e:
+        print(f"⚠️ Error copiando imagen default '{archivo}': {e}")
+        return url_publica_imagen(origen)
 
 
 def cargar_logo(origen, size=(190, 190)):
