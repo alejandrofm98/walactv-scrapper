@@ -1,0 +1,10 @@
+{
+  "inter milan": {
+    "query": "Inter Milan",
+    "country": "italy"
+  },
+  "racing avellaneda": {
+    "query": "Racing Avellaneda",
+    "country": "argentina"
+  }
+}

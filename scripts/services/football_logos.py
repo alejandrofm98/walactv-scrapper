@@ -25,6 +25,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 if not (PROJECT_DIR / "resources").exists():
     PROJECT_DIR = BASE_DIR
 LOGOS_DIR = PROJECT_DIR / "resources" / "logos_equipos" / "football-logos"
+ALIASES_PATH = PROJECT_DIR / "resources" / "football_logo_aliases.json"
 
 SITEMAP_NS = {
     "sm": "http://www.sitemaps.org/schemas/sitemap/0.9",
@@ -221,6 +222,24 @@ def buscar_candidatos(
     return sorted((c for c in puntuados if c.score > 0), key=lambda c: c.score, reverse=True)
 
 
+def cargar_aliases() -> dict[str, dict[str, str]]:
+    if not ALIASES_PATH.exists():
+        return {}
+
+    try:
+        with ALIASES_PATH.open("r", encoding="utf-8") as archivo:
+            aliases = json.load(archivo)
+        print(f"ℹ️ Aliases de logos fútbol cargados: {len(aliases)}")
+        return {
+            normalizar_texto(clave): valor
+            for clave, valor in aliases.items()
+            if isinstance(valor, dict)
+        }
+    except Exception as e:
+        print(f"⚠️ Error leyendo aliases de logos fútbol: {e}")
+        return {}
+
+
 def extraer_atributo(html_pagina: str, nombre: str) -> str | None:
     match = re.search(rf'{nombre}="([^"]+)"', html_pagina)
     return html.unescape(match.group(1)) if match else None
@@ -245,6 +264,7 @@ class FootballLogosResolver:
         self.size = size
         self.logos_dir = logos_dir
         self.proxy_url = proxy_url
+        self.aliases = cargar_aliases()
         self._candidatos = None
         self._remote_disabled = False
 
@@ -257,6 +277,10 @@ class FootballLogosResolver:
         if not nombre_equipo:
             return ""
 
+        alias = self.aliases.get(normalizar_texto(nombre_equipo), {})
+        busqueda = alias.get("query") or nombre_equipo
+        pais_alias = alias.get("country") or ""
+
         salida = self.logos_dir / f"{crear_slug(nombre_equipo)}.png"
         if salida.exists() and salida.stat().st_size > 0:
             return str(salida)
@@ -264,9 +288,9 @@ class FootballLogosResolver:
         if self._remote_disabled:
             return ""
 
-        paises_preferidos = inferir_paises_preferidos(contexto)
+        paises_preferidos = (pais_alias,) if pais_alias else inferir_paises_preferidos(contexto)
         try:
-            candidatos = buscar_candidatos(nombre_equipo, self._obtener_candidatos(), paises_preferidos)
+            candidatos = buscar_candidatos(busqueda, self._obtener_candidatos(), paises_preferidos)
         except (HTTPError, URLError, TimeoutError) as e:
             self._remote_disabled = True
             print(f"⚠️ Logos externos desactivados (football-logos.cc), usando fallbacks: {e}")
@@ -277,7 +301,7 @@ class FootballLogosResolver:
 
         primero = candidatos[0]
         segundo = candidatos[1] if len(candidatos) > 1 else None
-        if segundo and primero.score - segundo.score < 12:
+        if segundo and primero.score - segundo.score < 12 and primero.pais != pais_alias:
             print(f"⚠️ Logo ambiguo para '{nombre_equipo}', usando fallback")
             return ""
 
@@ -307,6 +331,7 @@ class FootballLogosResolver:
             json.dumps(
                 {
                     "query": nombre_equipo,
+                    "resolved_query": busqueda,
                     "matched_name": primero.nombre,
                     "country": primero.pais,
                     "score": primero.score,
