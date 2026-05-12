@@ -236,8 +236,24 @@ class ScrapperFutbolenlatv:
         if not nombre_local or not nombre_visitante:
             return ""
 
-        bandera_local = self._tennis_flags_resolver.resolver_bandera(fallback_local) or fallback_local
-        bandera_visitante = self._tennis_flags_resolver.resolver_bandera(fallback_visitante) or fallback_visitante
+        bandera_local_resuelta = self._tennis_flags_resolver.resolver_bandera(
+            fallback_local,
+            nombre_jugador=nombre_local,
+        )
+        bandera_visitante_resuelta = self._tennis_flags_resolver.resolver_bandera(
+            fallback_visitante,
+            nombre_jugador=nombre_visitante,
+        )
+        if not bandera_local_resuelta:
+            print(f"⚠️ Bandera local no resuelta para '{nombre_local}', usando fallback: {fallback_local}")
+        if not bandera_visitante_resuelta:
+            print(
+                f"⚠️ Bandera visitante no resuelta para '{nombre_visitante}', "
+                f"usando fallback: {fallback_visitante}"
+            )
+
+        bandera_local = bandera_local_resuelta or fallback_local
+        bandera_visitante = bandera_visitante_resuelta or fallback_visitante
         if not bandera_local or not bandera_visitante:
             return ""
 

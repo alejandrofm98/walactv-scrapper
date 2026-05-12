@@ -99,6 +99,13 @@ def descargar_binario(url: str) -> bytes:
         return response.read()
 
 
+def fuente_desde_url(url: str) -> str:
+    host = urlparse(url).netloc or "desconocido"
+    if "football-logos.cc" in host:
+        return host
+    return host
+
+
 def nombre_desde_titulo(titulo: str) -> str:
     return re.sub(r"\s+logo\s*$", "", titulo.strip(), flags=re.IGNORECASE)
 
@@ -240,7 +247,7 @@ class FootballLogosResolver:
             candidatos = buscar_candidatos(nombre_equipo, self._obtener_candidatos(), paises_preferidos)
         except (HTTPError, URLError, TimeoutError) as e:
             self._remote_disabled = True
-            print(f"⚠️ Logos externos desactivados, usando fallbacks: {e}")
+            print(f"⚠️ Logos externos desactivados (football-logos.cc), usando fallbacks: {e}")
             return ""
 
         if not candidatos:
@@ -258,13 +265,18 @@ class FootballLogosResolver:
         except (HTTPError, URLError, TimeoutError) as e:
             if isinstance(e, HTTPError) and e.code == 403:
                 self._remote_disabled = True
-                print(f"⚠️ Logos externos bloqueados, usando fallbacks: {e}")
+                fuente = fuente_desde_url(imagen_url if "imagen_url" in locals() else primero.pagina_url)
+                print(f"⚠️ Logos externos bloqueados ({fuente}), usando fallbacks: {e}")
                 return ""
-            print(f"⚠️ Error descargando logo '{nombre_equipo}': {e}")
+            fuente = fuente_desde_url(imagen_url if "imagen_url" in locals() else primero.pagina_url)
+            print(f"⚠️ Error descargando logo '{nombre_equipo}' desde {fuente}: {e}")
             return ""
 
         if not datos.startswith(b"\x89PNG\r\n\x1a\n"):
-            print(f"⚠️ Logo inválido para '{nombre_equipo}'")
+            print(
+                f"⚠️ Logo inválido para '{nombre_equipo}' desde "
+                f"{fuente_desde_url(imagen_url)}: {imagen_url}"
+            )
             return ""
 
         salida.parent.mkdir(parents=True, exist_ok=True)

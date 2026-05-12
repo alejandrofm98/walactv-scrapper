@@ -1,3 +1,4 @@
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 if not (PROJECT_DIR / "resources").exists():
     PROJECT_DIR = BASE_DIR
 FLAGS_DIR = PROJECT_DIR / "resources" / "flags" / "flagcdn"
+ALIASES_PATH = PROJECT_DIR / "resources" / "tennis_flag_aliases.json"
 
 
 PAISES_ISO = {
@@ -115,10 +117,27 @@ def descargar_binario(url: str) -> bytes:
         return response.read()
 
 
+def fuente_desde_url(url: str) -> str:
+    return urlparse(url).netloc or "desconocido"
+
+
+def cargar_aliases() -> dict[str, str]:
+    if not ALIASES_PATH.exists():
+        return {}
+
+    try:
+        with ALIASES_PATH.open("r", encoding="utf-8") as archivo:
+            return json.load(archivo)
+    except Exception as e:
+        print(f"⚠️ Error leyendo aliases de banderas tenis: {e}")
+        return {}
+
+
 class TennisFlagsResolver:
     def __init__(self, flags_dir: Path = FLAGS_DIR, size: int = 1280):
         self.flags_dir = flags_dir
         self.size = size
+        self.aliases = cargar_aliases()
 
     def _cache_valida(self, ruta: Path) -> bool:
         if not ruta.exists() or ruta.stat().st_size <= 0:
@@ -130,10 +149,15 @@ class TennisFlagsResolver:
         except Exception:
             return False
 
-    def resolver_bandera(self, origen_futbolenlatv: str) -> str:
+    def resolver_bandera(self, origen_futbolenlatv: str, nombre_jugador: str = "") -> str:
         pais = extraer_pais_desde_url(origen_futbolenlatv)
-        iso2 = PAISES_ISO.get(pais)
+        iso2 = PAISES_ISO.get(pais) or self.aliases.get(pais)
         if not iso2:
+            jugador = f" jugador='{nombre_jugador}'" if nombre_jugador else ""
+            print(
+                f"⚠️ País no reconocido para bandera tenis:{jugador} "
+                f"pais='{pais}' origen={origen_futbolenlatv}"
+            )
             return ""
 
         salida = self.flags_dir / f"{iso2}.png"
@@ -144,11 +168,19 @@ class TennisFlagsResolver:
         try:
             datos = descargar_binario(url)
         except (HTTPError, URLError, TimeoutError) as e:
-            print(f"⚠️ Error descargando bandera '{pais}' ({iso2}): {e}")
+            jugador = f" jugador='{nombre_jugador}'" if nombre_jugador else ""
+            print(
+                f"⚠️ Error descargando bandera desde {fuente_desde_url(url)} "
+                f"para '{pais}' ({iso2}){jugador}: {e} url={url}"
+            )
             return ""
 
         if not datos.startswith(b"\x89PNG\r\n\x1a\n"):
-            print(f"⚠️ Bandera inválida para '{pais}' ({iso2})")
+            jugador = f" jugador='{nombre_jugador}'" if nombre_jugador else ""
+            print(
+                f"⚠️ Bandera inválida desde {fuente_desde_url(url)} "
+                f"para '{pais}' ({iso2}){jugador}: url={url}"
+            )
             return ""
 
         salida.parent.mkdir(parents=True, exist_ok=True)
