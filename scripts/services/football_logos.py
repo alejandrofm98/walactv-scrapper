@@ -12,7 +12,14 @@ from xml.etree import ElementTree
 
 
 SITEMAP_URL = "https://football-logos.cc/image-sitemap.xml"
-USER_AGENT = "Mozilla/5.0 (compatible; walactv-scrapper/1.0)"
+USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+COMMON_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+}
 BASE_DIR = Path(__file__).resolve().parents[1]
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 if not (PROJECT_DIR / "resources").exists():
@@ -81,7 +88,13 @@ def inferir_paises_preferidos(contexto: str = "") -> tuple[str, ...]:
 
 
 def descargar_texto(url: str) -> str:
-    request = Request(url, headers={"User-Agent": USER_AGENT})
+    request = Request(
+        url,
+        headers={
+            **COMMON_HEADERS,
+            "Accept": "application/xml,text/xml,text/html,*/*;q=0.8",
+        },
+    )
     with urlopen(request, timeout=45) as response:
         return response.read().decode("utf-8")
 
@@ -90,7 +103,7 @@ def descargar_binario(url: str) -> bytes:
     request = Request(
         url,
         headers={
-            "User-Agent": USER_AGENT,
+            **COMMON_HEADERS,
             "Referer": "https://football-logos.cc/",
             "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
         },
