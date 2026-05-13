@@ -6,5 +6,9 @@
   "racing avellaneda": {
     "query": "Racing Avellaneda",
     "country": "argentina"
+  },
+  "athletic club": {
+    "query": "Athletic Bilbao",
+    "country": "spain"
   }
 }
