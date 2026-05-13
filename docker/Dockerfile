@@ -22,6 +22,7 @@ COPY scripts/ .
 COPY resources/event_cards/ /app/resources/event_cards/
 COPY resources/tennis_flag_aliases.json /app/resources/tennis_flag_aliases.json
 COPY resources/football_logo_aliases.json /app/resources/football_logo_aliases.json
+COPY resources/images/defaults/ /app/resources/images/defaults/
 
 ENV IMAGES_DIR=/app/data/images
 ENV EVENT_IMAGES_RETENTION_DAYS=3
