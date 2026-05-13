@@ -12,21 +12,6 @@ services:
 #    networks:
 #      - dokploy-network
 
-  walactv-new-scrapper:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    restart: "no"
-    command: ["python", "main.py"]
-    env_file:
-      - .env
-    environment:
-      - IMAGES_DIR=/app/data/images
-    volumes:
-      - iptv-data:/app/data
-    networks:
-      - dokploy-network
-
   walactv-futboltv:
     build:
       context: ..
@@ -41,7 +26,7 @@ services:
       - iptv-data:/app/data
     networks:
       - dokploy-network
-    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    command: ["sh", "-c", "python main.py; trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
 
   walactv-sync-iptv:
     build:
