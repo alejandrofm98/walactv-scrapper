@@ -36,11 +36,11 @@ DEFAULT_EVENT_IMAGES = {
     "beisbol": "beisbol_default.avif",
     "formula-1": "f1_default.jpg",
     "f1": "f1_default.jpg",
-    "motogp": "moto_default.jpg",
-    "moto-gp": "moto_default.jpg",
-    "motor": "moto_default.jpg",
+    "motociclismo": "moto_default.jpg",
     "hockey-hielo": "nhl_default.jpg",
     "nhl": "nhl_default.jpg",
+    "golf": "golf_default.webp",
+    "padel": "padel_default.jpg",
 }
 
 
