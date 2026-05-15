@@ -41,6 +41,7 @@ DEFAULT_EVENT_IMAGES = {
     "nhl": "nhl_default.jpg",
     "golf": "golf_default.webp",
     "padel": "padel_default.jpg",
+    "ufc": "ufc_default.jpg",
 }
 
 

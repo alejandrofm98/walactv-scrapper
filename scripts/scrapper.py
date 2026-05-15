@@ -319,7 +319,42 @@ class ScrapperFutbolenlatv:
             )
             return imagen or imagen_default
 
+        if self.es_evento_ufc(
+            competicion=contexto_competicion,
+            categoria=categoria,
+            equipos=f"{nombre_local} vs {nombre_visitante}",
+        ):
+            imagen = self._obtener_imagen_evento_ufc()
+            if imagen:
+                return imagen
+            return imagen_default
+
         return imagen_default
+
+    def _obtener_imagen_evento_ufc(self):
+        if hasattr(self, "_ufc_imagen_cache"):
+            return self._ufc_imagen_cache
+        self._ufc_imagen_cache = ""
+
+        try:
+            resp = requests.get(
+                "https://www.ufcespanol.com/events",
+                headers=self.REQUEST_HEADERS,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+            picture = soup.find("picture")
+            if picture:
+                source = picture.find("source")
+                if source:
+                    srcset = source.get("srcset", "")
+                    url = srcset.split(" ")[0]
+                    self._ufc_imagen_cache = url
+        except Exception as e:
+            print(f"⚠️ Error obteniendo imagen UFC: {e}")
+
+        return self._ufc_imagen_cache
 
     @staticmethod
     def _extraer_competicion(detalles_td):
