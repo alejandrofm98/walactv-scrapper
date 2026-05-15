@@ -10,5 +10,13 @@
   "athletic club": {
     "query": "Athletic Bilbao",
     "country": "spain"
+  },
+  "fc koln": {
+    "query": "FC Köln",
+    "country": "germany"
+  },
+  "atletico madrileno": {
+    "query": "Atlético Madrid",
+    "country": "spain"
   }
 }
