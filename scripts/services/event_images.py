@@ -41,7 +41,7 @@ DEFAULT_EVENT_IMAGES = {
     "nhl": "nhl_default.jpg",
     "golf": "golf_default.webp",
     "padel": "padel_default.jpg",
-    "rugby": "rugby_default.jpg",
+    "rugby-u": "rugby_default.jpg",
     "atletismo": "atletismo_default.png",
     "automovilismo": "automovilismo_default.jpg",
     "boxeo": "boxeo_default.webp",
