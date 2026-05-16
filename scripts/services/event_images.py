@@ -31,7 +31,7 @@ TENIS_BACKGROUND_PATH = PROJECT_DIR / "resources" / "event_cards" / "tenis_backg
 DEFAULT_IMAGES_DIR = PROJECT_DIR / "resources" / "images" / "defaults"
 DEFAULT_EVENT_IMAGES = {
     "futbol": "futbol_default.avif",
-    "tenis": "tenis_default.jpeg",
+    "tenis": "tenis_default.jpg",
     "baloncesto": "baloncesto_default.avif",
     "beisbol": "beisbol_default.avif",
     "formula-1": "f1_default.jpg",
@@ -41,6 +41,11 @@ DEFAULT_EVENT_IMAGES = {
     "nhl": "nhl_default.jpg",
     "golf": "golf_default.webp",
     "padel": "padel_default.jpg",
+    "rugby": "rugby_default.jpg",
+    "atletismo": "atletismo_default.png",
+    "automovilismo": "automovilismo_default.jpg",
+    "boxeo": "boxeo_default.webp",
+    "balonmano": "balonmano_default.webp",
     "ufc": "ufc_default.jpg",
 }
 
