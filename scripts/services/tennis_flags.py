@@ -103,6 +103,22 @@ def normalizar_texto(texto: str) -> str:
     return re.sub(r"\s+", " ", texto).strip()
 
 
+COUNTRY_WORD_MAP = {
+    "australian": "australia",
+    "belgian": "belgica",
+    "british": "reino unido",
+    "czech": "republica checa",
+    "dutch": "paises bajos",
+    "french": "francia",
+    "german": "alemania",
+    "italian": "italia",
+    "russian": "rusia",
+    "spanish": "espana",
+    "swiss": "suiza",
+    "american": "eeuu",
+}
+
+
 def extraer_pais_desde_url(url: str) -> str:
     if not url:
         return ""
@@ -110,7 +126,15 @@ def extraer_pais_desde_url(url: str) -> str:
     nombre_archivo = Path(urlparse(url).path).stem
     match = re.search(r"^\d+[-_](.+)$", nombre_archivo)
     pais = match.group(1) if match else nombre_archivo
-    return normalizar_texto(pais)
+    pais = normalizar_texto(pais)
+
+    if pais not in PAISES_ISO:
+        for word in pais.split():
+            if word in COUNTRY_WORD_MAP:
+                pais = COUNTRY_WORD_MAP[word]
+                break
+
+    return pais
 
 
 def descargar_binario(url: str) -> bytes:
