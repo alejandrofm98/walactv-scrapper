@@ -1,11 +1,20 @@
+import asyncio
 import re
+import time
 from datetime import datetime, timedelta
+from typing import Set
+
 import requests
 from bs4 import BeautifulSoup
-from database import DataManagerSupabase, DatabasePG
+from database import ChannelMappingManager, DataManagerSupabase, DatabasePG
 from services.event_images import borrar_imagenes_eventos_fechas
 from services.football_logos import FootballLogosResolver
 from services.tennis_flags import TennisFlagsResolver
+from utils.constants import (
+    HEALTH_CHECK_BYTES,
+    HEALTH_CHECK_CONCURRENCY,
+    HEALTH_CHECK_TIMEOUT,
+)
 
 def limpia_html(html_canal):
     html_canal = html_canal.replace("&gt", "")
@@ -574,3 +583,107 @@ class ScrapperFutbolenlatv:
 
     def limpia_canales(self, lista_canales):
         pass
+
+
+# === Health check para canales de eventos ===
+
+_VIDEO_CONTENT_TYPES = [
+    'video/mp2t', 'video/mp4', 'video/x-flv',
+    'video/quicktime', 'video/x-matroska', 'video/webm',
+    'video/3gpp', 'video/ogg', 'video/mpeg',
+    'application/vnd.apple.mpegurl', 'application/x-mpegurl',
+]
+
+
+def _check_single_channel(url: str, timeout: int, bytes_to_check: int) -> tuple:
+    """
+    Verifica un stream HTTP. Retorna (is_alive, response_time_ms, info).
+    """
+    try:
+        start = time.time()
+        response = requests.get(
+            url,
+            headers={"Range": f"bytes=0-{bytes_to_check - 1}"},
+            timeout=timeout,
+        )
+        elapsed_ms = int((time.time() - start) * 1000)
+
+        if not response.ok:
+            return False, elapsed_ms, f"HTTP {response.status_code}"
+
+        content_type = (response.headers.get('Content-Type', '') or '').lower()
+        body = response.content
+
+        if len(body) == 0:
+            return False, elapsed_ms, "empty_body"
+
+        if not any(vct in content_type for vct in _VIDEO_CONTENT_TYPES):
+            return False, elapsed_ms, f"bad_ct:{content_type[:30]}"
+
+        return True, elapsed_ms, "ok"
+    except requests.Timeout:
+        return False, timeout * 1000, "timeout"
+    except Exception as e:
+        return False, 0, str(e)[:50]
+
+
+async def verificar_salud_canales_evento(
+    source_names: Set[str],
+    provider_username: str,
+    provider_password: str,
+):
+    """
+    Verifica salud de streams para source_names obtenidos de eventos.
+    Solo testea canales que aparecen en eventos, no todos los del IPTV.
+    """
+    variants_map = await ChannelMappingManager.get_variants_for_source_names(list(source_names))
+    if not variants_map:
+        return
+
+    total = sum(len(v) for v in variants_map.values())
+    if total == 0:
+        print("ℹ️ Health check: sin variantes con stream_url")
+        return
+
+    print(f"\n🔍 Verificando salud de {total} streams...")
+
+    sem = asyncio.Semaphore(HEALTH_CHECK_CONCURRENCY)
+    stats = {'ok': 0, 'error': 0}
+    completed = 0
+    total_checks = total
+
+    async def _check_variant(sn: str, variant: dict):
+        nonlocal completed
+        async with sem:
+            stream_url = variant['stream_url']
+            if not stream_url:
+                return
+
+            test_url = (
+                stream_url
+                .replace("{{USERNAME}}", provider_username)
+                .replace("{{PASSWORD}}", provider_password)
+            )
+            if test_url == stream_url:
+                return
+
+            is_alive, ms, info = await asyncio.get_event_loop().run_in_executor(
+                None, _check_single_channel, test_url, HEALTH_CHECK_TIMEOUT, HEALTH_CHECK_BYTES
+            )
+
+            estado = 'ok' if is_alive else 'error'
+            await ChannelMappingManager.update_channel_health(variant['channel_id'], estado, ms)
+
+            completed += 1
+            icon = "✅" if is_alive else "❌"
+            print(f"  {icon} [{variant['quality']}] {sn} ({ms}ms)  {'' if is_alive else info}")
+            stats['ok' if is_alive else 'error'] += 1
+
+    tasks = [
+        _check_variant(sn, v)
+        for sn, vars_list in variants_map.items()
+        for v in vars_list
+    ]
+    await asyncio.gather(*tasks)
+
+    print(f"  📊 Health check: ✅ {stats['ok']} ok, ❌ {stats['error']} error (de {total_checks} total)")

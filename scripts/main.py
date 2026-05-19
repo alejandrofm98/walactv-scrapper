@@ -3,8 +3,9 @@ import traceback
 from urllib.parse import quote
 
 from database import DatabasePG, ChannelMappingManager, ConfigManager
-from scrapper import ScrapperFutbolenlatv
+from scrapper import ScrapperFutbolenlatv, verificar_salud_canales_evento
 from services.event_images import limpiar_imagenes_eventos
+from utils.constants import HEALTH_CHECK_TOTAL_TIMEOUT
 
 
 def construir_proxy_url(proxy_ip: str, proxy_port: str, proxy_user: str, proxy_pass: str) -> str:
@@ -79,6 +80,31 @@ async def main():
         if todos_eventos:
             await ScrapperFutbolenlatv.guarda_partidos_async(todos_eventos)
             print("Calendario guardado para todas las fechas")
+
+            # 4.5 Health check solo para canales de eventos
+            await ChannelMappingManager.ensure_health_columns()
+            source_names_evento: set[str] = set()
+            for fecha, partidos in todos_eventos.items():
+                for partido in partidos.values():
+                    if isinstance(partido, dict):
+                        source_names_evento.update(partido.get('canales', []))
+
+            if source_names_evento:
+                print(f"🔍 Recolectados {len(source_names_evento)} source_names de eventos para health check")
+                provider_username = await ConfigManager.get_config('IPTV_USERNAME') or ''
+                provider_password = await ConfigManager.get_config('IPTV_PASSWORD') or ''
+                if provider_username and provider_password:
+                    try:
+                        await asyncio.wait_for(
+                            verificar_salud_canales_evento(
+                                source_names_evento, provider_username, provider_password
+                            ),
+                            timeout=HEALTH_CHECK_TOTAL_TIMEOUT
+                        )
+                    except asyncio.TimeoutError:
+                        print("⏱️ Health check cancelado por timeout")
+                else:
+                    print("ℹ️ Sin credenciales IPTV configuradas, saltando health check")
 
         try:
             borradas = limpiar_imagenes_eventos()

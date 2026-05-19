@@ -51,6 +51,9 @@ CREATE TABLE IF NOT EXISTS channels (
     grupo_normalizado VARCHAR(255),
     country VARCHAR(10),
     tvg_id VARCHAR(100),
+    estado_stream TEXT,
+    ultimo_chequeo TIMESTAMP WITH TIME ZONE,
+    tiempo_respuesta_ms INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -164,6 +167,9 @@ ALTER TABLE sync_metadata ADD COLUMN IF NOT EXISTS series_json_size_mb NUMERIC(1
 ALTER TABLE channels ADD COLUMN IF NOT EXISTS nombre_normalizado VARCHAR(255);
 ALTER TABLE channels ADD COLUMN IF NOT EXISTS grupo_normalizado VARCHAR(255);
 ALTER TABLE channels ADD COLUMN IF NOT EXISTS stream_url TEXT;
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS estado_stream TEXT;
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS ultimo_chequeo TIMESTAMP WITH TIME ZONE;
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS tiempo_respuesta_ms INTEGER;
 ALTER TABLE movies ADD COLUMN IF NOT EXISTS nombre_normalizado TEXT;
 ALTER TABLE movies ADD COLUMN IF NOT EXISTS grupo_normalizado TEXT;
 ALTER TABLE movies ADD COLUMN IF NOT EXISTS stream_url TEXT;
@@ -271,14 +277,15 @@ BEGIN
                     'priority', cv.priority,
                     'source_name', cm.source_name
                 ) ORDER BY cm.source_name, cv.priority
-            ) FILTER (WHERE cv.channel_id IS NOT NULL),
-            '[]'::jsonb
-        ) as canales_resueltos
-    FROM calendario c
-    LEFT JOIN unnest(c.canales) AS canal_nombre ON true
-    LEFT JOIN channel_mappings cm ON cm.source_name = canal_nombre
-    LEFT JOIN channel_variants cv ON cv.mapping_id = cm.id
-    WHERE c.id = p_calendario_id
+                ) FILTER (WHERE cv.channel_id IS NOT NULL AND (ch.estado_stream IS NULL OR ch.estado_stream = 'ok')),
+                    '[]'::jsonb
+                ) as canales_resueltos
+            FROM calendario c
+            LEFT JOIN unnest(c.canales) AS canal_nombre ON true
+            LEFT JOIN channel_mappings cm ON cm.source_name = canal_nombre
+            LEFT JOIN channel_variants cv ON cv.mapping_id = cm.id
+            LEFT JOIN channels ch ON cv.channel_id = ch.id
+            WHERE c.id = p_calendario_id
     GROUP BY c.id, c.fecha, c.hora, c.competicion, c.subtitulo_competicion,
         c.categoria, c.equipos, c.imagen_evento, c.canales;
 END;
@@ -321,14 +328,15 @@ BEGIN
                     'priority', cv.priority,
                     'source_name', cm.source_name
                 ) ORDER BY cm.source_name, cv.priority
-            ) FILTER (WHERE cv.channel_id IS NOT NULL),
-            '[]'::jsonb
-        ) as canales_resueltos
-    FROM calendario c
-    LEFT JOIN unnest(c.canales) AS canal_nombre ON true
-    LEFT JOIN channel_mappings cm ON cm.source_name = canal_nombre
-    LEFT JOIN channel_variants cv ON cv.mapping_id = cm.id
-    WHERE c.fecha = p_fecha
+                ) FILTER (WHERE cv.channel_id IS NOT NULL AND (ch.estado_stream IS NULL OR ch.estado_stream = 'ok')),
+                    '[]'::jsonb
+                ) as canales_resueltos
+            FROM calendario c
+            LEFT JOIN unnest(c.canales) AS canal_nombre ON true
+            LEFT JOIN channel_mappings cm ON cm.source_name = canal_nombre
+            LEFT JOIN channel_variants cv ON cv.mapping_id = cm.id
+            LEFT JOIN channels ch ON cv.channel_id = ch.id
+            WHERE c.fecha = p_fecha
     GROUP BY c.id, c.fecha, c.hora, c.competicion, c.subtitulo_competicion,
         c.categoria, c.equipos, c.imagen_evento, c.canales
     ORDER BY c.hora;
@@ -356,7 +364,9 @@ BEGIN
         cv.priority
     FROM channel_mappings cm
     JOIN channel_variants cv ON cv.mapping_id = cm.id
+    LEFT JOIN channels ch ON cv.channel_id = ch.id
     WHERE cm.source_name = ANY(nombres_canales)
+      AND (ch.estado_stream IS NULL OR ch.estado_stream = 'ok')
     ORDER BY cm.source_name, cv.priority;
 END;
 $$ LANGUAGE plpgsql;

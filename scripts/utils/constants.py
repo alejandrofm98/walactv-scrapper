@@ -94,3 +94,9 @@ M3U_TVG_ID_ATTR = 'tvg-id="'
 
 # ===== HTTP Headers =====
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+# ===== Health Check Streams =====
+HEALTH_CHECK_TIMEOUT = 8  # segundos por request
+HEALTH_CHECK_CONCURRENCY = 10  # requests simultáneos
+HEALTH_CHECK_BYTES = 4096  # bytes a descargar para validar contenido
+HEALTH_CHECK_TOTAL_TIMEOUT = 120  # timeout total del health check

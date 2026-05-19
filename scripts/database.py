@@ -277,31 +277,118 @@ class ChannelMappingManager:
     async def get_all_mappings_with_channels() -> Dict[str, List[str]]:
         """
         Obtiene mapeo completo: source_name -> [channel_id, channel_id, ...]
+        Filtra variantes con estado_stream = 'error'.
+        Si todas las variantes están muertas, incluye todas (fallback).
         """
         try:
             pool = await DatabasePG.get_pool()
             async with pool.acquire() as conn:
                 rows = await conn.fetch(
                     """
-                    SELECT cm.source_name, cv.channel_id
+                    SELECT cm.source_name, cv.channel_id, cv.priority, ch.estado_stream
                     FROM channel_mappings cm
                     LEFT JOIN channel_variants cv ON cm.id = cv.mapping_id
+                    LEFT JOIN channels ch ON cv.channel_id = ch.id
                     ORDER BY cm.source_name, cv.priority
                     """
                 )
 
-                mappings: Dict[str, List[str]] = {}
+                all_by_source: Dict[str, List[str]] = {}
+                ok_by_source: Dict[str, List[str]] = {}
                 for row in rows:
                     source_name = row['source_name']
                     channel_id = row['channel_id']
-                    if source_name not in mappings:
-                        mappings[source_name] = []
-                    if channel_id:
-                        mappings[source_name].append(channel_id)
+                    if not channel_id:
+                        continue
+                    if source_name not in all_by_source:
+                        all_by_source[source_name] = []
+                        ok_by_source[source_name] = []
+                    all_by_source[source_name].append(channel_id)
+                    estado = row['estado_stream']
+                    if estado is None or estado == 'ok':
+                        ok_by_source[source_name].append(channel_id)
+
+                mappings: Dict[str, List[str]] = {}
+                for sn in all_by_source:
+                    mappings[sn] = ok_by_source[sn] if ok_by_source[sn] else all_by_source[sn]
 
                 return mappings
         except Exception as e:
             print(f"❌ Error obteniendo mapeos con canales: {e}")
+            return {}
+
+    @staticmethod
+    async def ensure_health_columns():
+        """Añade columnas de health check a la tabla channels si no existen"""
+        try:
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute("""
+                    ALTER TABLE channels
+                    ADD COLUMN IF NOT EXISTS estado_stream TEXT,
+                    ADD COLUMN IF NOT EXISTS ultimo_chequeo TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS tiempo_respuesta_ms INTEGER
+                """)
+        except Exception as e:
+            print(f"⚠️ Error añadiendo columnas health check: {e}")
+
+    @staticmethod
+    async def update_channel_health(channel_id: str, estado: str, tiempo_ms: int = 0):
+        """Actualiza estado de salud de un canal"""
+        try:
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE channels
+                    SET estado_stream = $1, tiempo_respuesta_ms = $2, ultimo_chequeo = NOW()
+                    WHERE id = $3
+                    """,
+                    estado, tiempo_ms, channel_id
+                )
+        except Exception as e:
+            pass
+
+    @staticmethod
+    async def get_variants_for_source_names(source_names: List[str]) -> Dict[str, List[Dict]]:
+        """
+        Obtiene variantes con stream_url para una lista de source_names.
+        Returns: {source_name: [{channel_id, quality, priority, stream_url}, ...]}
+        """
+        if not source_names:
+            return {}
+        try:
+            pool = await DatabasePG.get_pool()
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT cm.source_name, cv.channel_id, cv.quality, cv.priority,
+                           ch.stream_url
+                    FROM channel_mappings cm
+                    INNER JOIN channel_variants cv ON cm.id = cv.mapping_id
+                    LEFT JOIN channels ch ON cv.channel_id = ch.id
+                    WHERE cm.source_name = ANY($1)
+                    ORDER BY cm.source_name, cv.priority
+                    """,
+                    list(source_names)
+                )
+
+                result: Dict[str, List[Dict]] = {}
+                for row in rows:
+                    sn = row['source_name']
+                    if sn not in result:
+                        result[sn] = []
+                    cid = row['channel_id']
+                    if cid:
+                        result[sn].append({
+                            'channel_id': cid,
+                            'quality': row['quality'],
+                            'priority': row['priority'],
+                            'stream_url': row['stream_url'] or '',
+                        })
+                return result
+        except Exception as e:
+            print(f"❌ Error obteniendo variantes: {e}")
             return {}
 
 
