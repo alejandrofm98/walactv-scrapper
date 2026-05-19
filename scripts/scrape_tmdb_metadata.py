@@ -234,6 +234,14 @@ def _pick_best_result(results: List[Dict], year: Optional[int], date_key: str) -
                     pass
             return None
 
+        exact_matches = [
+            r for r in results
+            if result_year(r) is not None
+            and result_year(r) == year
+        ]
+        if exact_matches:
+            return max(exact_matches, key=lambda r: r.get('popularity', 0))
+
         year_matches = [
             r for r in results
             if result_year(r) is not None
