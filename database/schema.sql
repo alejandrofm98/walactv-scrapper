@@ -189,6 +189,105 @@ CREATE INDEX IF NOT EXISTS idx_series_nombre_dedup_key ON series(nombre_dedup_ke
 CREATE INDEX IF NOT EXISTS idx_series_series_key ON series(series_key);
 
 -- ==========================================
+-- 5b. Tablas de catálogo normalizadas (series y películas)
+-- series_catalog: 1 fila por serie (sin idioma)
+-- series_episodes: 1 fila por episodio lógico
+-- series_streams: variantes idioma/calidad de cada episodio
+-- movies_catalog: 1 fila por película (sin idioma)
+-- movie_streams: variantes idioma/calidad de cada película
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS series_catalog (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title TEXT NOT NULL,
+    series_key TEXT UNIQUE NOT NULL,
+    tmdb_id VARCHAR(20),
+    poster_path VARCHAR(255),
+    backdrop_path VARCHAR(255),
+    overview_es TEXT,
+    overview_en TEXT,
+    genres TEXT[],
+    vote_average FLOAT,
+    vote_count INT,
+    year INT,
+    status VARCHAR(50),
+    popularity FLOAT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS series_episodes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    catalog_id UUID NOT NULL REFERENCES series_catalog(id) ON DELETE CASCADE,
+    season_number INT NOT NULL,
+    episode_number INT NOT NULL,
+    title TEXT,
+    overview TEXT,
+    air_date DATE,
+    still_path VARCHAR(255),
+    numero INT,
+    UNIQUE(catalog_id, season_number, episode_number)
+);
+
+CREATE TABLE IF NOT EXISTS series_streams (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    episode_id UUID NOT NULL REFERENCES series_episodes(id) ON DELETE CASCADE,
+    country VARCHAR(10) NOT NULL,
+    quality VARCHAR(10),
+    provider_id VARCHAR(50),
+    stream_url TEXT NOT NULL,
+    url TEXT,
+    label TEXT,
+    numero INT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS movies_catalog (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title TEXT NOT NULL,
+    tmdb_id VARCHAR(20),
+    nombre_dedup_key TEXT,
+    poster_path VARCHAR(255),
+    backdrop_path VARCHAR(255),
+    overview_es TEXT,
+    overview_en TEXT,
+    genres TEXT[],
+    vote_average FLOAT,
+    vote_count INT,
+    runtime_minutes INT,
+    release_date DATE,
+    year INT,
+    tagline VARCHAR(500),
+    status VARCHAR(50),
+    popularity FLOAT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS movie_streams (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    movie_id UUID NOT NULL REFERENCES movies_catalog(id) ON DELETE CASCADE,
+    country VARCHAR(10) NOT NULL,
+    quality VARCHAR(10),
+    provider_id VARCHAR(50),
+    stream_url TEXT NOT NULL,
+    url TEXT,
+    label TEXT,
+    numero INT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_series_catalog_series_key ON series_catalog(series_key);
+CREATE INDEX IF NOT EXISTS idx_series_catalog_tmdb ON series_catalog(tmdb_id);
+CREATE INDEX IF NOT EXISTS idx_series_episodes_catalog ON series_episodes(catalog_id);
+CREATE INDEX IF NOT EXISTS idx_series_streams_episode ON series_streams(episode_id);
+CREATE INDEX IF NOT EXISTS idx_series_streams_country ON series_streams(country);
+CREATE INDEX IF NOT EXISTS idx_movies_catalog_tmdb ON movies_catalog(tmdb_id);
+CREATE INDEX IF NOT EXISTS idx_movies_catalog_dedup ON movies_catalog(nombre_dedup_key);
+CREATE INDEX IF NOT EXISTS idx_movie_streams_movie ON movie_streams(movie_id);
+CREATE INDEX IF NOT EXISTS idx_movie_streams_country ON movie_streams(country);
+
+-- ==========================================
 -- 6. Tabla de replays externos
 -- ==========================================
 CREATE TABLE IF NOT EXISTS replays (

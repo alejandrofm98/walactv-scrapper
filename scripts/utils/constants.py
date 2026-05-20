@@ -43,6 +43,11 @@ MOVIES_TABLE = "movies"
 SERIES_TABLE = "series"
 SYNC_METADATA_TABLE = "sync_metadata"
 REPLAYS_TABLE = "replays"
+SERIES_CATALOG_TABLE = "series_catalog"
+SERIES_EPISODES_TABLE = "series_episodes"
+SERIES_STREAMS_TABLE = "series_streams"
+MOVIES_CATALOG_TABLE = "movies_catalog"
+MOVIE_STREAMS_TABLE = "movie_streams"
 
 # ===== Configuración M3U =====
 M3U_FILENAME_LATEST = "playlist.m3u"

@@ -823,6 +823,52 @@ async def limpiar_tabla_optimizada(pool: asyncpg.Pool, tabla: str) -> bool:
         return False
 
 
+async def repopulate_catalog_tables(pool: asyncpg.Pool) -> bool:
+    """
+    Repopula las tablas de catálogo normalizadas (series_catalog, movies_catalog, etc.)
+    a partir de las tablas planas (series, movies).
+    Se ejecuta DESPUÉS de insertar los datos nuevos en las tablas planas.
+    """
+    migration_sql_path = Path(__file__).resolve().parent.parent / "database" / "migrate_to_catalog.sql"
+    if not migration_sql_path.exists():
+        print(f"  ⚠️  No se encontró el archivo de migración: {migration_sql_path}")
+        return False
+
+    print(f"\n📦 POBLANDO TABLAS DE CATÁLOGO NORMALIZADAS...")
+    print("=" * 70)
+
+    try:
+        # 1. Limpiar tablas nuevas en orden (respetando FKs)
+        for table in [CONSTANTS.SERIES_STREAMS_TABLE, CONSTANTS.SERIES_EPISODES_TABLE,
+                      CONSTANTS.SERIES_CATALOG_TABLE, CONSTANTS.MOVIE_STREAMS_TABLE,
+                      CONSTANTS.MOVIES_CATALOG_TABLE]:
+            if not await limpiar_tabla_optimizada(pool, table):
+                return False
+
+        # 2. Leer SQL de migración
+        migration_sql = migration_sql_path.read_text(encoding="utf-8")
+
+        # 3. Ejecutar migración dentro de una transacción
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                for statement in migration_sql.split(';'):
+                    stmt = statement.strip()
+                    if stmt and not stmt.startswith('--'):
+                        try:
+                            await conn.execute(stmt)
+                        except Exception as stmt_err:
+                            print(f"  ⚠️  Error en statement SQL (ignorado): {stmt_err}")
+                            print(f"  Statement: {stmt[:100]}...")
+
+        print(f"  ✅ Tablas de catálogo pobladas correctamente")
+        return True
+
+    except Exception as e:
+        print(f"  ❌ Error al poblar tablas de catálogo: {e}")
+        traceback.print_exc()
+        return False
+
+
 def parsear_m3u(m3u_content: str) -> list:
     """Parsea contenido M3U y retorna lista de items"""
     items_temp = []
@@ -1153,6 +1199,12 @@ async def sync_to_postgres():
         else:
             print(f"  ⏭️  Series: sin cambios ({count_series_db:,} registros)")
             stats_series = None
+
+        # 5. Poblar tablas de catálogo normalizadas desde datos planos
+        print("\n📦 Actualizando tablas de catálogo normalizadas...")
+        catalog_ok = await repopulate_catalog_tables(pool)
+        if not catalog_ok:
+            print("  ⚠️  Advertencia: las tablas de catálogo no se actualizaron correctamente")
 
         fin_insercion = time.time()
         duracion_insercion = fin_insercion - inicio_insercion
