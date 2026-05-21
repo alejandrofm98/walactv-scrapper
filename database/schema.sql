@@ -212,6 +212,12 @@ CREATE TABLE IF NOT EXISTS series_catalog (
     year INT,
     status VARCHAR(50),
     popularity FLOAT,
+    group_normalizado TEXT,
+    country VARCHAR(10),
+    logo TEXT,
+    provider_id VARCHAR(50),
+    numero INT DEFAULT 0,
+    nombre_dedup_key TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -260,6 +266,11 @@ CREATE TABLE IF NOT EXISTS movies_catalog (
     tagline VARCHAR(500),
     status VARCHAR(50),
     popularity FLOAT,
+    group_normalizado TEXT,
+    country VARCHAR(10),
+    logo TEXT,
+    provider_id VARCHAR(50),
+    numero INT DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -279,11 +290,15 @@ CREATE TABLE IF NOT EXISTS movie_streams (
 
 CREATE INDEX IF NOT EXISTS idx_series_catalog_series_key ON series_catalog(series_key);
 CREATE INDEX IF NOT EXISTS idx_series_catalog_tmdb ON series_catalog(tmdb_id);
+CREATE INDEX IF NOT EXISTS idx_series_catalog_group ON series_catalog(group_normalizado);
+CREATE INDEX IF NOT EXISTS idx_series_catalog_country ON series_catalog(country);
 CREATE INDEX IF NOT EXISTS idx_series_episodes_catalog ON series_episodes(catalog_id);
 CREATE INDEX IF NOT EXISTS idx_series_streams_episode ON series_streams(episode_id);
 CREATE INDEX IF NOT EXISTS idx_series_streams_country ON series_streams(country);
 CREATE INDEX IF NOT EXISTS idx_movies_catalog_tmdb ON movies_catalog(tmdb_id);
 CREATE INDEX IF NOT EXISTS idx_movies_catalog_dedup ON movies_catalog(nombre_dedup_key);
+CREATE INDEX IF NOT EXISTS idx_movies_catalog_group ON movies_catalog(group_normalizado);
+CREATE INDEX IF NOT EXISTS idx_movies_catalog_country ON movies_catalog(country);
 CREATE INDEX IF NOT EXISTS idx_movie_streams_movie ON movie_streams(movie_id);
 CREATE INDEX IF NOT EXISTS idx_movie_streams_country ON movie_streams(country);
 

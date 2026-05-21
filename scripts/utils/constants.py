@@ -39,8 +39,6 @@ DB_DEFAULT_MAX_RETRIES = 3
 
 # ===== Tablas de Base de Datos =====
 CHANNELS_TABLE = "channels"
-MOVIES_TABLE = "movies"
-SERIES_TABLE = "series"
 SYNC_METADATA_TABLE = "sync_metadata"
 REPLAYS_TABLE = "replays"
 SERIES_CATALOG_TABLE = "series_catalog"

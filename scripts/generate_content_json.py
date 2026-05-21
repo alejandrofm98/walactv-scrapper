@@ -172,17 +172,18 @@ async def generar_movies_json(pool=None, close_pool=True):
 
         query = """
             SELECT
-                id,
-                COALESCE(provider_id, '') as provider_id,
-                COALESCE(nombre, '') as nombre,
-                COALESCE(logo, '') as logo,
-                COALESCE(country, '') as country,
-                COALESCE(nombre_normalizado, '') as nombre_normalizado,
-                COALESCE(grupo_normalizado, '') as grupo_normalizado,
-                COALESCE(nombre_dedup_key, '') as nombre_dedup_key,
-                year
-            FROM movies
-            ORDER BY year DESC, nombre_normalizado ASC
+                ms.id::text AS id,
+                COALESCE(ms.provider_id, '') as provider_id,
+                COALESCE(mc.title, '') as nombre,
+                COALESCE(mc.logo, '') as logo,
+                COALESCE(ms.country, '') as country,
+                COALESCE(mc.title, '') as nombre_normalizado,
+                COALESCE(mc.group_normalizado, '') as grupo_normalizado,
+                COALESCE(mc.nombre_dedup_key, '') as nombre_dedup_key,
+                mc.year
+            FROM movie_streams ms
+            JOIN movies_catalog mc ON mc.id = ms.movie_id
+            ORDER BY mc.year DESC, mc.title ASC
         """
 
         rows = await pool.fetch(query)
@@ -289,18 +290,20 @@ async def generar_series_json(pool=None, close_pool=True):
 
         query = """
             SELECT
-                id,
-                COALESCE(provider_id, '') as provider_id,
-                COALESCE(logo, '') as logo,
-                COALESCE(country, '') as country,
-                COALESCE(temporada, '0') as temporada,
-                COALESCE(episodio, '0') as episodio,
-                COALESCE(serie_name, '') as serie_name,
-                COALESCE(nombre_normalizado, '') as nombre_normalizado,
-                COALESCE(grupo_normalizado, '') as grupo_normalizado,
-                year
-            FROM series
-            ORDER BY serie_name ASC, year DESC, temporada ASC, episodio ASC
+                ss.id::text AS id,
+                COALESCE(ss.provider_id, '') as provider_id,
+                COALESCE(sc.logo, '') as logo,
+                COALESCE(ss.country, '') as country,
+                LPAD(se.season_number::text, 2, '0') as temporada,
+                LPAD(se.episode_number::text, 2, '0') as episodio,
+                COALESCE(sc.title, '') as serie_name,
+                COALESCE(sc.title, '') as nombre_normalizado,
+                COALESCE(sc.group_normalizado, '') as grupo_normalizado,
+                sc.year
+            FROM series_streams ss
+            JOIN series_episodes se ON se.id = ss.episode_id
+            JOIN series_catalog sc ON sc.id = se.catalog_id
+            ORDER BY sc.title ASC, sc.year DESC, se.season_number ASC, se.episode_number ASC
         """
 
         rows = await pool.fetch(query)

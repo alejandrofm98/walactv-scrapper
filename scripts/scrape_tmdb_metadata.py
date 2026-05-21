@@ -344,79 +344,61 @@ class TMDBScraper:
 
     def _get_movies_without_metadata(self, limit: int = 100) -> List[Dict]:
         sql = """
-        SELECT m.provider_id, m.nombre, m.year, m.nombre_normalizado
-        FROM movies m
+        SELECT DISTINCT ms.provider_id, mc.title AS nombre, mc.year, mc.title AS nombre_normalizado
+        FROM movie_streams ms
+        JOIN movies_catalog mc ON mc.id = ms.movie_id
         LEFT JOIN movies_metadata mm
-            ON m.provider_id = mm.provider_id
+            ON ms.provider_id = mm.provider_id
         WHERE mm.id IS NULL
-        ORDER BY m.year DESC NULLS LAST
+          AND COALESCE(ms.provider_id, '') <> ''
+        ORDER BY mc.year DESC NULLS LAST
         LIMIT %s
         """
         return self.db.execute_query(sql, (limit,))
 
     def _get_series_without_metadata(self, limit: int = 100) -> List[Dict]:
         sql = """
-        SELECT DISTINCT ON (s.series_key)
-            s.series_key, s.serie_name, s.nombre, s.year, s.nombre_normalizado
-        FROM series s
+        SELECT sc.series_key, sc.title AS serie_name, sc.title AS nombre,
+               sc.year, sc.title AS nombre_normalizado
+        FROM series_catalog sc
         LEFT JOIN series_metadata sm
-            ON s.series_key = sm.series_key
-        WHERE COALESCE(s.series_key, '') <> ''
+            ON sc.series_key = sm.series_key
+        WHERE COALESCE(sc.series_key, '') <> ''
           AND sm.id IS NULL
-        ORDER BY s.series_key, s.year DESC NULLS LAST
+        ORDER BY sc.year DESC NULLS LAST
         LIMIT %s
         """
         return self.db.execute_query(sql, (limit,))
 
     def _get_movies_not_found(self, limit: int = 100) -> List[Dict]:
         sql = """
-        SELECT m.provider_id, m.nombre, m.year, m.nombre_normalizado
-        FROM movies m
+        SELECT DISTINCT ms.provider_id, mc.title AS nombre, mc.year, mc.title AS nombre_normalizado
+        FROM movie_streams ms
+        JOIN movies_catalog mc ON mc.id = ms.movie_id
         INNER JOIN movies_metadata mm
-            ON m.provider_id = mm.provider_id
+            ON ms.provider_id = mm.provider_id
         WHERE mm.not_found = TRUE
-        ORDER BY mm.retry_count ASC, m.year DESC NULLS LAST
+          AND COALESCE(ms.provider_id, '') <> ''
+        ORDER BY mm.retry_count ASC, mc.year DESC NULLS LAST
         LIMIT %s
         """
         return self.db.execute_query(sql, (limit,))
 
     def _get_series_not_found(self, limit: int = 100) -> List[Dict]:
         sql = """
-        SELECT DISTINCT ON (s.series_key)
-            s.series_key, s.serie_name, s.nombre, s.year, s.nombre_normalizado
-        FROM series s
+        SELECT sc.series_key, sc.title AS serie_name, sc.title AS nombre,
+               sc.year, sc.title AS nombre_normalizado
+        FROM series_catalog sc
         INNER JOIN series_metadata sm
-            ON s.series_key = sm.series_key
-        WHERE COALESCE(s.series_key, '') <> ''
+            ON sc.series_key = sm.series_key
+        WHERE COALESCE(sc.series_key, '') <> ''
           AND sm.not_found = TRUE
-        ORDER BY s.series_key, sm.retry_count ASC, s.year DESC NULLS LAST
+        ORDER BY sm.retry_count ASC, sc.year DESC NULLS LAST
         LIMIT %s
         """
         return self.db.execute_query(sql, (limit,))
 
-    def _backfill_series_keys(self, batch_size: int = 1000):
-        sql = """
-        SELECT id, serie_name, nombre
-        FROM series
-        WHERE COALESCE(series_key, '') = ''
-        LIMIT %s
-        """
-        updated = 0
-        while True:
-            rows = self.db.execute_query(sql, (batch_size,))
-            if not rows:
-                break
-            for row in rows:
-                series_key = build_series_key(row.get("serie_name"), row.get("nombre"))
-                if not series_key:
-                    continue
-                self.db.execute_command(
-                    "UPDATE series SET series_key = %s WHERE id = %s",
-                    (series_key, row["id"]),
-                )
-                updated += 1
-        if updated:
-            logger.info(f"🔧 series_key backfill completado: {updated} filas")
+    # _backfill_series_keys eliminado — series_key se genera al insertar directamente en el catálogo
 
     def _save_metadata(self, result: ScrapeResult):
         """Guarda metadata en PostgreSQL. Siempre inserta, incluso si not_found=True."""
@@ -678,7 +660,7 @@ class TMDBScraper:
             get_movies_fn = self._get_movies_without_metadata
             get_series_fn = self._get_series_without_metadata
 
-        self._backfill_series_keys()
+        # _backfill_series_keys ya no es necesario (series_key se genera en sync)
 
         # -- Películas --
         logger.info("\n🎬 PROCESANDO PELÍCULAS")
