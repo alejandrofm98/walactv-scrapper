@@ -272,7 +272,8 @@ CREATE TABLE IF NOT EXISTS movies_catalog (
     provider_id VARCHAR(50),
     numero INT DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(nombre_dedup_key)
 );
 
 CREATE TABLE IF NOT EXISTS movie_streams (

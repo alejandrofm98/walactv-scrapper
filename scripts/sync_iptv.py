@@ -824,84 +824,57 @@ async def limpiar_tabla_optimizada(pool: asyncpg.Pool, tabla: str) -> bool:
 
 
 async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
-    """
-    Inserta películas directamente en movies_catalog + movie_streams
-    a partir de la lista de dicts de películas ya parseada.
-    """
     if not movies:
         return True
 
     print(f"\n📦 INSERTANDO EN MOVIES_CATALOG + MOVIE_STREAMS ({len(movies):,} streams)...")
 
     try:
-        # Limpiar catálogo de películas
         for table in [CONSTANTS.MOVIE_STREAMS_TABLE, CONSTANTS.MOVIES_CATALOG_TABLE]:
             if not await limpiar_tabla_optimizada(pool, table):
                 return False
 
-        # 1. Insertar en movies_catalog (deduplicado por nombre_dedup_key)
-        seen_keys: dict = {}
-        for m in movies:
-            dedup_key = m.get("nombre_dedup_key") or ""
-            if dedup_key not in seen_keys:
-                seen_keys[dedup_key] = {
-                    "title": m.get("nombre_normalizado") or m.get("nombre", ""),
-                    "nombre_dedup_key": dedup_key,
-                    "year": m.get("year"),
-                    "group_normalizado": m.get("grupo_normalizado"),
-                    "country": m.get("country"),
-                    "logo": m.get("logo"),
-                    "provider_id": m.get("provider_id"),
-                    "numero": m.get("numero", 0),
-                }
-
-        catalog_rows = list(seen_keys.values())
-        catalog_id_map: dict[str, str] = {}  # nombre_dedup_key → catalog id
-
-        async with pool.acquire() as conn:
-            for row in catalog_rows:
-                try:
-                    result = await conn.fetchrow(
-                        """
-                        INSERT INTO movies_catalog
-                            (title, nombre_dedup_key, year, group_normalizado,
-                             country, logo, provider_id, numero)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                        ON CONFLICT DO NOTHING
-                        RETURNING id, nombre_dedup_key
-                        """,
-                        row["title"], row["nombre_dedup_key"], row["year"],
-                        row["group_normalizado"], row["country"],
-                        row["logo"], row["provider_id"], row["numero"],
-                    )
-                    if result:
-                        catalog_id_map[row["nombre_dedup_key"]] = result["id"]
-                except Exception as e:
-                    print(f"  ⚠️  Error insertando movie_catalog '{row['title']}': {e}")
-
-        # 2. Si no se insertaron catalog IDs, buscar existentes
-        if not catalog_id_map:
-            async with pool.acquire() as conn:
-                for dedup_key in seen_keys:
-                    result = await conn.fetchrow(
-                        "SELECT id FROM movies_catalog WHERE nombre_dedup_key = $1",
-                        dedup_key,
-                    )
-                    if result:
-                        catalog_id_map[dedup_key] = result["id"]
-
-        if not catalog_id_map:
-            print("  ⚠️  No se pudieron obtener catalog IDs para movie_streams")
-            return False
-
-        # 3. Insertar en movie_streams
+        catalog_id_map: dict[str, str] = {}
         stream_count = 0
+
         async with pool.acquire() as conn:
             for m in movies:
                 dedup_key = m.get("nombre_dedup_key") or ""
+                if not dedup_key:
+                    continue
+
                 catalog_id = catalog_id_map.get(dedup_key)
                 if not catalog_id:
+                    try:
+                        result = await conn.fetchrow(
+                            """
+                            INSERT INTO movies_catalog
+                                (title, nombre_dedup_key, year, group_normalizado,
+                                 country, logo, provider_id, numero)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                            ON CONFLICT (nombre_dedup_key) DO NOTHING
+                            RETURNING id
+                            """,
+                            m.get("nombre_normalizado") or m.get("nombre", ""),
+                            dedup_key, m.get("year"),
+                            m.get("grupo_normalizado"), m.get("country"),
+                            m.get("logo"), m.get("provider_id"), m.get("numero", 0),
+                        )
+                        if not result:
+                            result = await conn.fetchrow(
+                                "SELECT id FROM movies_catalog WHERE nombre_dedup_key = $1",
+                                dedup_key,
+                            )
+                        if result:
+                            catalog_id_map[dedup_key] = result["id"]
+                            catalog_id = result["id"]
+                    except Exception as e:
+                        print(f"  ⚠️  Error insertando movie_catalog '{m.get('nombre')}': {e}")
+                        continue
+
+                if not catalog_id:
                     continue
+
                 try:
                     await conn.execute(
                         """
@@ -922,7 +895,7 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                 except Exception as e:
                     print(f"  ⚠️  Error insertando movie_stream: {e}")
 
-        print(f"  ✅ Movies: {len(catalog_rows):,} catálogo + {stream_count:,} streams")
+        print(f"  ✅ Movies: {len(catalog_id_map):,} catálogo + {stream_count:,} streams")
         return True
 
     except Exception as e:
@@ -932,94 +905,59 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
 
 
 async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
-    """
-    Inserta series directamente en series_catalog + series_episodes + series_streams
-    a partir de la lista de dicts de series ya parseada.
-    """
     if not series:
         return True
 
     print(f"\n📦 INSERTANDO EN SERIES_CATALOG + SERIES_EPISODES + SERIES_STREAMS ({len(series):,} streams)...")
 
     try:
-        # Limpiar catálogo de series
         for table in [CONSTANTS.SERIES_STREAMS_TABLE, CONSTANTS.SERIES_EPISODES_TABLE,
                       CONSTANTS.SERIES_CATALOG_TABLE]:
             if not await limpiar_tabla_optimizada(pool, table):
                 return False
 
-        # 1. Deduplicar series para series_catalog
-        seen_keys: dict = {}
-        for s in series:
-            sk = s.get("series_key") or ""
-            if not sk:
-                serie_name = s.get("serie_name") or s.get("nombre_normalizado") or s.get("nombre", "")
-                sk = re.sub(r'[^a-z0-9]', '', serie_name.lower())
-            if sk not in seen_keys:
-                seen_keys[sk] = {
-                    "title": s.get("serie_name") or s.get("nombre_normalizado") or s.get("nombre", ""),
-                    "series_key": sk,
-                    "year": s.get("year"),
-                    "group_normalizado": s.get("grupo_normalizado"),
-                    "country": s.get("country"),
-                    "logo": s.get("logo"),
-                    "provider_id": s.get("provider_id"),
-                    "numero": s.get("numero", 0),
-                    "nombre_dedup_key": s.get("nombre_dedup_key"),
-                }
-
-        catalog_rows = list(seen_keys.values())
-        catalog_id_map: dict[str, str] = {}  # series_key → catalog id
-
-        async with pool.acquire() as conn:
-            for row in catalog_rows:
-                try:
-                    result = await conn.fetchrow(
-                        """
-                        INSERT INTO series_catalog
-                            (title, series_key, year, group_normalizado,
-                             country, logo, provider_id, numero, nombre_dedup_key)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                        ON CONFLICT (series_key) DO NOTHING
-                        RETURNING id, series_key
-                        """,
-                        row["title"], row["series_key"], row["year"],
-                        row["group_normalizado"], row["country"],
-                        row["logo"], row["provider_id"], row["numero"],
-                        row["nombre_dedup_key"],
-                    )
-                    if result:
-                        catalog_id_map[row["series_key"]] = result["id"]
-                except Exception as e:
-                    print(f"  ⚠️  Error insertando series_catalog '{row['title']}': {e}")
-
-        # 2. Si no se insertaron catalog IDs, buscar existentes
-        if not catalog_id_map:
-            async with pool.acquire() as conn:
-                for sk in seen_keys:
-                    result = await conn.fetchrow(
-                        "SELECT id FROM series_catalog WHERE series_key = $1",
-                        sk,
-                    )
-                    if result:
-                        catalog_id_map[sk] = result["id"]
-
-        if not catalog_id_map:
-            print("  ⚠️  No se pudieron obtener catalog IDs para series")
-            return False
-
-        # 3. Insertar episodios y streams
-        episode_map: dict[tuple, str] = {}  # (catalog_id, season, episode) → episode_id
+        catalog_id_map: dict[str, str] = {}
+        episode_map: dict[tuple, str] = {}
         stream_count = 0
 
         async with pool.acquire() as conn:
-            # 3a. Insertar episodios
             for s in series:
                 sk = s.get("series_key") or ""
                 if not sk:
                     serie_name = s.get("serie_name") or s.get("nombre_normalizado") or s.get("nombre", "")
                     sk = re.sub(r'[^a-z0-9]', '', serie_name.lower())
+                if not sk:
+                    continue
+
                 catalog_id = catalog_id_map.get(sk)
+                if not catalog_id:
+                    try:
+                        result = await conn.fetchrow(
+                            """
+                            INSERT INTO series_catalog
+                                (title, series_key, year, group_normalizado,
+                                 country, logo, provider_id, numero)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                            ON CONFLICT (series_key) DO NOTHING
+                            RETURNING id
+                            """,
+                            s.get("serie_name") or s.get("nombre_normalizado") or s.get("nombre", ""),
+                            sk, s.get("year"),
+                            s.get("grupo_normalizado"), s.get("country"),
+                            s.get("logo"), s.get("provider_id"), s.get("numero", 0),
+                        )
+                        if not result:
+                            result = await conn.fetchrow(
+                                "SELECT id FROM series_catalog WHERE series_key = $1",
+                                sk,
+                            )
+                        if result:
+                            catalog_id_map[sk] = result["id"]
+                            catalog_id = result["id"]
+                    except Exception as e:
+                        print(f"  ⚠️  Error insertando series_catalog '{s.get('serie_name')}': {e}")
+                        continue
+
                 if not catalog_id:
                     continue
 
@@ -1032,7 +970,8 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                     continue
 
                 ep_key = (catalog_id, season_num, episode_num)
-                if ep_key not in episode_map:
+                episode_id = episode_map.get(ep_key)
+                if not episode_id:
                     try:
                         result = await conn.fetchrow(
                             """
@@ -1045,57 +984,21 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                             catalog_id, season_num, episode_num,
                             s.get("numero", 0),
                         )
+                        if not result:
+                            result = await conn.fetchrow(
+                                "SELECT id FROM series_episodes WHERE catalog_id = $1 AND season_number = $2 AND episode_number = $3",
+                                catalog_id, season_num, episode_num,
+                            )
                         if result:
                             episode_map[ep_key] = result["id"]
+                            episode_id = result["id"]
                     except Exception as e:
                         print(f"  ⚠️  Error insertando episode: {e}")
-
-            # 3b. Buscar episode_ids que no se insertaron (ya existían)
-            if not episode_map:
-                for s in series:
-                    sk = s.get("series_key") or ""
-                    if not sk:
-                        serie_name = s.get("serie_name") or s.get("nombre_normalizado") or s.get("nombre", "")
-                        sk = re.sub(r'[^a-z0-9]', '', serie_name.lower())
-                    catalog_id = catalog_id_map.get(sk)
-                    if not catalog_id:
                         continue
-                    try:
-                        season_str = s.get("temporada") or "0"
-                        episode_str = s.get("episodio") or "0"
-                        season_num = int(re.sub(r'[^0-9]', '', season_str)) if re.sub(r'[^0-9]', '', season_str) else 0
-                        episode_num = int(re.sub(r'[^0-9]', '', episode_str)) if re.sub(r'[^0-9]', '', episode_str) else 0
-                    except (ValueError, TypeError):
-                        continue
-                    ep_key = (catalog_id, season_num, episode_num)
-                    if ep_key not in episode_map:
-                        result = await conn.fetchrow(
-                            "SELECT id FROM series_episodes WHERE catalog_id = $1 AND season_number = $2 AND episode_number = $3",
-                            catalog_id, season_num, episode_num,
-                        )
-                        if result:
-                            episode_map[ep_key] = result["id"]
 
-            # 3c. Insertar streams
-            for s in series:
-                sk = s.get("series_key") or ""
-                if not sk:
-                    serie_name = s.get("serie_name") or s.get("nombre_normalizado") or s.get("nombre", "")
-                    sk = re.sub(r'[^a-z0-9]', '', serie_name.lower())
-                catalog_id = catalog_id_map.get(sk)
-                if not catalog_id:
-                    continue
-                try:
-                    season_str = s.get("temporada") or "0"
-                    episode_str = s.get("episodio") or "0"
-                    season_num = int(re.sub(r'[^0-9]', '', season_str)) if re.sub(r'[^0-9]', '', season_str) else 0
-                    episode_num = int(re.sub(r'[^0-9]', '', episode_str)) if re.sub(r'[^0-9]', '', episode_str) else 0
-                except (ValueError, TypeError):
-                    continue
-                ep_key = (catalog_id, season_num, episode_num)
-                episode_id = episode_map.get(ep_key)
                 if not episode_id:
                     continue
+
                 try:
                     await conn.execute(
                         """
@@ -1116,7 +1019,7 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                 except Exception as e:
                     print(f"  ⚠️  Error insertando series_stream: {e}")
 
-        print(f"  ✅ Series: {len(catalog_rows):,} catálogo + {len(episode_map):,} episodios + {stream_count:,} streams")
+        print(f"  ✅ Series: {len(catalog_id_map):,} catálogo + {len(episode_map):,} episodios + {stream_count:,} streams")
         return True
 
     except Exception as e:
