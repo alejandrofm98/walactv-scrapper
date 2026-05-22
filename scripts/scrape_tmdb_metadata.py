@@ -349,7 +349,7 @@ class TMDBScraper:
         LEFT JOIN movies_metadata mm ON mm.provider_id = mc.provider_id
         WHERE mm.id IS NULL
           AND COALESCE(mc.provider_id, '') <> ''
-        ORDER BY mc.year DESC NULLS LAST
+        ORDER BY mc.year DESC NULLS LAST, mc.provider_id ASC
         LIMIT %s
         """
         return self.db.execute_query(sql, (limit,))
@@ -363,7 +363,7 @@ class TMDBScraper:
             ON sc.series_key = sm.series_key
         WHERE COALESCE(sc.series_key, '') <> ''
           AND sm.id IS NULL
-        ORDER BY sc.year DESC NULLS LAST
+        ORDER BY sc.year DESC NULLS LAST, sc.series_key ASC
         LIMIT %s
         """
         return self.db.execute_query(sql, (limit,))
@@ -377,7 +377,7 @@ class TMDBScraper:
             ON ms.provider_id = mm.provider_id
         WHERE mm.not_found = TRUE
           AND COALESCE(ms.provider_id, '') <> ''
-        ORDER BY mm.retry_count ASC, mc.year DESC NULLS LAST
+        ORDER BY mm.retry_count ASC, mc.year DESC NULLS LAST, mc.provider_id ASC
         LIMIT %s
         """
         return self.db.execute_query(sql, (limit,))
@@ -391,7 +391,7 @@ class TMDBScraper:
             ON sc.series_key = sm.series_key
         WHERE COALESCE(sc.series_key, '') <> ''
           AND sm.not_found = TRUE
-        ORDER BY sm.retry_count ASC, sc.year DESC NULLS LAST
+        ORDER BY sm.retry_count ASC, sc.year DESC NULLS LAST, sc.series_key ASC
         LIMIT %s
         """
         return self.db.execute_query(sql, (limit,))
