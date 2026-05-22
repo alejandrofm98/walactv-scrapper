@@ -543,7 +543,8 @@ CREATE INDEX IF NOT EXISTS idx_movies_metadata_provider ON movies_metadata(provi
 CREATE INDEX IF NOT EXISTS idx_movies_metadata_tmdb ON movies_metadata(tmdb_id);
 CREATE INDEX IF NOT EXISTS idx_movies_metadata_not_found ON movies_metadata(not_found);
 CREATE INDEX IF NOT EXISTS idx_movies_metadata_year ON movies_metadata(year);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_movies_metadata_provider_nf ON movies_metadata(provider_id) WHERE tmdb_id IS NULL;
+DROP INDEX IF EXISTS idx_movies_metadata_provider_nf;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_movies_metadata_provider ON movies_metadata(provider_id);
 
 -- ==========================================
 -- Tabla: Metadatos TMDB a nivel serie
@@ -577,7 +578,8 @@ CREATE TABLE IF NOT EXISTS series_metadata (
 CREATE INDEX IF NOT EXISTS idx_series_metadata_series_key ON series_metadata(series_key);
 CREATE INDEX IF NOT EXISTS idx_series_metadata_tmdb ON series_metadata(tmdb_id);
 CREATE INDEX IF NOT EXISTS idx_series_metadata_not_found ON series_metadata(not_found);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_series_metadata_serieskey_nf ON series_metadata(series_key) WHERE tmdb_id IS NULL;
+DROP INDEX IF EXISTS idx_series_metadata_serieskey_nf;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_series_metadata_serieskey ON series_metadata(series_key);
 
 -- Trigger para actualizar updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
