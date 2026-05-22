@@ -830,14 +830,26 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
     print(f"\n📦 INSERTANDO EN MOVIES_CATALOG + MOVIE_STREAMS ({len(movies):,} streams)...")
 
     try:
-        for table in [CONSTANTS.MOVIE_STREAMS_TABLE, CONSTANTS.MOVIES_CATALOG_TABLE]:
-            if not await limpiar_tabla_optimizada(pool, table):
-                return False
-
-        catalog_id_map: dict[str, str] = {}
-        stream_count = 0
-
         async with pool.acquire() as conn:
+            # Cargar tmdb_id existentes ANTES de truncar
+            tmdb_map: dict[str, str] = {}
+            try:
+                rows = await conn.fetch(
+                    "SELECT provider_id, tmdb_id FROM movies_metadata WHERE tmdb_id IS NOT NULL"
+                )
+                tmdb_map = {r["provider_id"]: r["tmdb_id"] for r in rows}
+                print(f"  🔗 {len(tmdb_map):,} tmdb_id cargados desde metadata")
+            except Exception as e:
+                print(f"  ⚠️  No se pudieron cargar tmdb_id: {e}")
+
+            # Truncar tablas
+            for table in [CONSTANTS.MOVIE_STREAMS_TABLE, CONSTANTS.MOVIES_CATALOG_TABLE]:
+                if not await limpiar_tabla_optimizada(pool, table):
+                    return False
+
+            catalog_id_map: dict[str, str] = {}
+            stream_count = 0
+
             for m in movies:
                 dedup_key = m.get("nombre_dedup_key") or ""
                 if not dedup_key:
@@ -846,11 +858,14 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                 catalog_id = catalog_id_map.get(dedup_key)
                 if not catalog_id:
                     try:
+                        provider_id = m.get("provider_id")
+                        tmdb_id = tmdb_map.get(provider_id) if provider_id else None
+
                         result = await conn.fetchrow(
                             """
                             INSERT INTO movies_catalog
                                 (title, nombre_dedup_key, year, group_normalizado,
-                                 country, logo, provider_id, numero)
+                                 country, logo, provider_id, tmdb_id)
                             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                             ON CONFLICT (nombre_dedup_key) DO NOTHING
                             RETURNING id
@@ -858,7 +873,7 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                             m.get("nombre_normalizado") or m.get("nombre", ""),
                             dedup_key, m.get("year"),
                             m.get("grupo_normalizado"), m.get("country"),
-                            m.get("logo"), m.get("provider_id"), m.get("numero", 0),
+                            m.get("logo"), provider_id, tmdb_id,
                         )
                         if not result:
                             result = await conn.fetchrow(
@@ -911,16 +926,28 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
     print(f"\n📦 INSERTANDO EN SERIES_CATALOG + SERIES_EPISODES + SERIES_STREAMS ({len(series):,} streams)...")
 
     try:
-        for table in [CONSTANTS.SERIES_STREAMS_TABLE, CONSTANTS.SERIES_EPISODES_TABLE,
-                      CONSTANTS.SERIES_CATALOG_TABLE]:
-            if not await limpiar_tabla_optimizada(pool, table):
-                return False
-
-        catalog_id_map: dict[str, str] = {}
-        episode_map: dict[tuple, str] = {}
-        stream_count = 0
-
         async with pool.acquire() as conn:
+            # Cargar tmdb_id existentes ANTES de truncar
+            tmdb_map: dict[str, str] = {}
+            try:
+                rows = await conn.fetch(
+                    "SELECT series_key, tmdb_id FROM series_metadata WHERE tmdb_id IS NOT NULL"
+                )
+                tmdb_map = {r["series_key"]: r["tmdb_id"] for r in rows}
+                print(f"  🔗 {len(tmdb_map):,} tmdb_id cargados desde metadata")
+            except Exception as e:
+                print(f"  ⚠️  No se pudieron cargar tmdb_id: {e}")
+
+            # Truncar tablas
+            for table in [CONSTANTS.SERIES_STREAMS_TABLE, CONSTANTS.SERIES_EPISODES_TABLE,
+                          CONSTANTS.SERIES_CATALOG_TABLE]:
+                if not await limpiar_tabla_optimizada(pool, table):
+                    return False
+
+            catalog_id_map: dict[str, str] = {}
+            episode_map: dict[tuple, str] = {}
+            stream_count = 0
+
             for s in series:
                 sk = s.get("series_key") or ""
                 if not sk:
@@ -932,11 +959,13 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                 catalog_id = catalog_id_map.get(sk)
                 if not catalog_id:
                     try:
+                        tmdb_id = tmdb_map.get(sk)
+
                         result = await conn.fetchrow(
                             """
                             INSERT INTO series_catalog
                                 (title, series_key, year, group_normalizado,
-                                 country, logo, provider_id, numero)
+                                 country, logo, provider_id, tmdb_id)
                             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                             ON CONFLICT (series_key) DO NOTHING
                             RETURNING id
@@ -944,7 +973,7 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                             s.get("serie_name") or s.get("nombre_normalizado") or s.get("nombre", ""),
                             sk, s.get("year"),
                             s.get("grupo_normalizado"), s.get("country"),
-                            s.get("logo"), s.get("provider_id"), s.get("numero", 0),
+                            s.get("logo"), s.get("provider_id"), tmdb_id,
                         )
                         if not result:
                             result = await conn.fetchrow(

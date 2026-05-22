@@ -201,25 +201,18 @@ CREATE TABLE IF NOT EXISTS series_catalog (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
     series_key TEXT UNIQUE NOT NULL,
-    tmdb_id VARCHAR(20),
-    poster_path VARCHAR(255),
-    backdrop_path VARCHAR(255),
-    overview_es TEXT,
-    overview_en TEXT,
-    genres TEXT[],
-    vote_average FLOAT,
-    vote_count INT,
-    year INT,
-    status VARCHAR(50),
-    popularity FLOAT,
-    group_normalizado TEXT,
-    country VARCHAR(10),
-    logo TEXT,
     provider_id VARCHAR(50),
-    numero INT DEFAULT 0,
+    tmdb_id VARCHAR(20),
     nombre_dedup_key TEXT,
+    year INT,
+    country VARCHAR(10),
+    group_normalizado TEXT,
+    logo TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    CONSTRAINT fk_series_catalog_tmdb FOREIGN KEY (tmdb_id)
+        REFERENCES series_metadata(tmdb_id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS series_episodes (
@@ -251,29 +244,18 @@ CREATE TABLE IF NOT EXISTS series_streams (
 CREATE TABLE IF NOT EXISTS movies_catalog (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
-    tmdb_id VARCHAR(20),
-    nombre_dedup_key TEXT,
-    poster_path VARCHAR(255),
-    backdrop_path VARCHAR(255),
-    overview_es TEXT,
-    overview_en TEXT,
-    genres TEXT[],
-    vote_average FLOAT,
-    vote_count INT,
-    runtime_minutes INT,
-    release_date DATE,
-    year INT,
-    tagline VARCHAR(500),
-    status VARCHAR(50),
-    popularity FLOAT,
-    group_normalizado TEXT,
-    country VARCHAR(10),
-    logo TEXT,
     provider_id VARCHAR(50),
-    numero INT DEFAULT 0,
+    tmdb_id VARCHAR(20),
+    nombre_dedup_key TEXT UNIQUE,
+    year INT,
+    country VARCHAR(10),
+    group_normalizado TEXT,
+    logo TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(nombre_dedup_key)
+
+    CONSTRAINT fk_movies_catalog_tmdb FOREIGN KEY (tmdb_id)
+        REFERENCES movies_metadata(tmdb_id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS movie_streams (
@@ -293,6 +275,7 @@ CREATE INDEX IF NOT EXISTS idx_series_catalog_series_key ON series_catalog(serie
 CREATE INDEX IF NOT EXISTS idx_series_catalog_tmdb ON series_catalog(tmdb_id);
 CREATE INDEX IF NOT EXISTS idx_series_catalog_group ON series_catalog(group_normalizado);
 CREATE INDEX IF NOT EXISTS idx_series_catalog_country ON series_catalog(country);
+CREATE INDEX IF NOT EXISTS idx_series_catalog_year ON series_catalog(year);
 CREATE INDEX IF NOT EXISTS idx_series_episodes_catalog ON series_episodes(catalog_id);
 CREATE INDEX IF NOT EXISTS idx_series_streams_episode ON series_streams(episode_id);
 CREATE INDEX IF NOT EXISTS idx_series_streams_country ON series_streams(country);
@@ -300,6 +283,7 @@ CREATE INDEX IF NOT EXISTS idx_movies_catalog_tmdb ON movies_catalog(tmdb_id);
 CREATE INDEX IF NOT EXISTS idx_movies_catalog_dedup ON movies_catalog(nombre_dedup_key);
 CREATE INDEX IF NOT EXISTS idx_movies_catalog_group ON movies_catalog(group_normalizado);
 CREATE INDEX IF NOT EXISTS idx_movies_catalog_country ON movies_catalog(country);
+CREATE INDEX IF NOT EXISTS idx_movies_catalog_year ON movies_catalog(year);
 CREATE INDEX IF NOT EXISTS idx_movie_streams_movie ON movie_streams(movie_id);
 CREATE INDEX IF NOT EXISTS idx_movie_streams_country ON movie_streams(country);
 
@@ -530,8 +514,8 @@ $$ LANGUAGE plpgsql;
 -- ==========================================
 CREATE TABLE IF NOT EXISTS movies_metadata (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    provider_id VARCHAR(50) NOT NULL,
-    tmdb_id VARCHAR(20),
+    tmdb_id VARCHAR(20) UNIQUE,
+    provider_id VARCHAR(50),
     overview_es TEXT,
     overview_en TEXT,
     vote_average FLOAT,
@@ -552,22 +536,22 @@ CREATE TABLE IF NOT EXISTS movies_metadata (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     not_found BOOLEAN DEFAULT FALSE,
     last_error TEXT,
-    retry_count INT DEFAULT 0,
-    UNIQUE(provider_id)
+    retry_count INT DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_movies_metadata_provider ON movies_metadata(provider_id);
 CREATE INDEX IF NOT EXISTS idx_movies_metadata_tmdb ON movies_metadata(tmdb_id);
 CREATE INDEX IF NOT EXISTS idx_movies_metadata_not_found ON movies_metadata(not_found);
 CREATE INDEX IF NOT EXISTS idx_movies_metadata_year ON movies_metadata(year);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_movies_metadata_provider_nf ON movies_metadata(provider_id) WHERE tmdb_id IS NULL;
 
 -- ==========================================
 -- Tabla: Metadatos TMDB a nivel serie
 -- ==========================================
 CREATE TABLE IF NOT EXISTS series_metadata (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    series_key TEXT NOT NULL UNIQUE,
-    tmdb_id VARCHAR(20),
+    tmdb_id VARCHAR(20) UNIQUE,
+    series_key TEXT,
     overview_es TEXT,
     overview_en TEXT,
     vote_average FLOAT,
@@ -593,6 +577,7 @@ CREATE TABLE IF NOT EXISTS series_metadata (
 CREATE INDEX IF NOT EXISTS idx_series_metadata_series_key ON series_metadata(series_key);
 CREATE INDEX IF NOT EXISTS idx_series_metadata_tmdb ON series_metadata(tmdb_id);
 CREATE INDEX IF NOT EXISTS idx_series_metadata_not_found ON series_metadata(not_found);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_series_metadata_serieskey_nf ON series_metadata(series_key) WHERE tmdb_id IS NULL;
 
 -- Trigger para actualizar updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
