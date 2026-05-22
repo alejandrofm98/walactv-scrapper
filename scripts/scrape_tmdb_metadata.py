@@ -346,9 +346,12 @@ class TMDBScraper:
         sql = """
         SELECT mc.provider_id, mc.title AS nombre, mc.year, mc.title AS nombre_normalizado
         FROM movies_catalog mc
-        LEFT JOIN movies_metadata mm ON mm.provider_id = mc.provider_id
-        WHERE mm.id IS NULL
-          AND COALESCE(mc.provider_id, '') <> ''
+        WHERE COALESCE(mc.provider_id, '') <> ''
+          AND NOT EXISTS (
+            SELECT 1 FROM movies_metadata mm
+            WHERE mm.provider_id = mc.provider_id
+               OR (mc.tmdb_id IS NOT NULL AND mm.tmdb_id = mc.tmdb_id)
+          )
         ORDER BY mc.year DESC NULLS LAST, mc.provider_id ASC
         LIMIT %s
         """
@@ -359,10 +362,12 @@ class TMDBScraper:
         SELECT sc.series_key, sc.title AS serie_name, sc.title AS nombre,
                sc.year, sc.title AS nombre_normalizado
         FROM series_catalog sc
-        LEFT JOIN series_metadata sm
-            ON sc.series_key = sm.series_key
         WHERE COALESCE(sc.series_key, '') <> ''
-          AND sm.id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM series_metadata sm
+            WHERE sm.series_key = sc.series_key
+               OR (sc.tmdb_id IS NOT NULL AND sm.tmdb_id = sc.tmdb_id)
+          )
         ORDER BY sc.year DESC NULLS LAST, sc.series_key ASC
         LIMIT %s
         """
@@ -458,7 +463,15 @@ class TMDBScraper:
             elif result.not_found:
                 logger.info("   💾 Guardado como no encontrado")
         except Exception as e:
-            logger.error(f"Error guardando metadata: {e}")
+            err_str = str(e).lower()
+            if result.tmdb_id and "unique constraint" in err_str and "tmdb_id" in err_str:
+                self.db.execute_command(
+                    "UPDATE movies_catalog SET tmdb_id = %s WHERE provider_id = %s AND tmdb_id IS NULL",
+                    (result.tmdb_id, result.provider_id)
+                )
+                logger.info(f"   ℹ️ TMDB {result.tmdb_id} ya existía, referenciado desde catálogo")
+            else:
+                logger.error(f"Error guardando metadata: {e}")
 
     def _process_movie(self, row: Dict) -> ScrapeResult:
         provider_id = row["provider_id"]
@@ -627,7 +640,15 @@ class TMDBScraper:
             elif result.not_found:
                 logger.info("   💾 Guardado como no encontrado")
         except Exception as e:
-            logger.error(f"Error guardando metadata de serie: {e}")
+            err_str = str(e).lower()
+            if result.tmdb_id and "unique constraint" in err_str and "tmdb_id" in err_str:
+                self.db.execute_command(
+                    "UPDATE series_catalog SET tmdb_id = %s WHERE series_key = %s AND tmdb_id IS NULL",
+                    (result.tmdb_id, result.series_key)
+                )
+                logger.info(f"   ℹ️ TMDB {result.tmdb_id} ya existía, referenciado desde catálogo")
+            else:
+                logger.error(f"Error guardando metadata de serie: {e}")
 
     def _process_batch(
         self,
