@@ -466,7 +466,7 @@ class TMDBScraper:
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
-            ON CONFLICT (provider_id) DO UPDATE SET
+            ON CONFLICT (provider_id) WHERE tmdb_id IS NULL DO UPDATE SET
                 tmdb_id = EXCLUDED.tmdb_id,
                 overview_es = EXCLUDED.overview_es,
                 overview_en = EXCLUDED.overview_en,
@@ -677,7 +677,7 @@ class TMDBScraper:
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
-            ON CONFLICT (series_key) DO UPDATE SET
+            ON CONFLICT (series_key) WHERE tmdb_id IS NULL DO UPDATE SET
                 tmdb_id = EXCLUDED.tmdb_id,
                 overview_es = EXCLUDED.overview_es,
                 overview_en = EXCLUDED.overview_en,
