@@ -344,59 +344,48 @@ class TMDBScraper:
 
     def _get_movies_without_metadata(self, limit: int = 100) -> List[Dict]:
         sql = """
-        SELECT mc.provider_id, mc.title AS nombre, mc.year, mc.title AS nombre_normalizado
-        FROM movies_catalog mc
-        WHERE COALESCE(mc.provider_id, '') <> ''
-          AND NOT EXISTS (
-            SELECT 1 FROM movies_metadata mm
-            WHERE mm.provider_id = mc.provider_id
-               OR (mc.tmdb_id IS NOT NULL AND mm.tmdb_id = mc.tmdb_id)
-          )
-        ORDER BY mc.year DESC NULLS LAST, mc.provider_id ASC
+        SELECT provider_id, title AS nombre, year, title AS nombre_normalizado
+        FROM movies_catalog
+        WHERE tmdb_id IS NULL
+          AND not_found = FALSE
+          AND COALESCE(provider_id, '') <> ''
+        ORDER BY year DESC NULLS LAST, provider_id ASC
         LIMIT %s
         """
         return self.db.execute_query(sql, (limit,))
 
     def _get_series_without_metadata(self, limit: int = 100) -> List[Dict]:
         sql = """
-        SELECT sc.series_key, sc.title AS serie_name, sc.title AS nombre,
-               sc.year, sc.title AS nombre_normalizado
-        FROM series_catalog sc
-        WHERE COALESCE(sc.series_key, '') <> ''
-          AND NOT EXISTS (
-            SELECT 1 FROM series_metadata sm
-            WHERE sm.series_key = sc.series_key
-               OR (sc.tmdb_id IS NOT NULL AND sm.tmdb_id = sc.tmdb_id)
-          )
-        ORDER BY sc.year DESC NULLS LAST, sc.series_key ASC
+        SELECT series_key, title AS serie_name, title AS nombre,
+               year, title AS nombre_normalizado
+        FROM series_catalog
+        WHERE tmdb_id IS NULL
+          AND not_found = FALSE
+          AND COALESCE(series_key, '') <> ''
+        ORDER BY year DESC NULLS LAST, series_key ASC
         LIMIT %s
         """
         return self.db.execute_query(sql, (limit,))
 
     def _get_movies_not_found(self, limit: int = 100) -> List[Dict]:
         sql = """
-        SELECT DISTINCT ms.provider_id, mc.title AS nombre, mc.year, mc.title AS nombre_normalizado
-        FROM movie_streams ms
-        JOIN movies_catalog mc ON mc.id = ms.movie_id
-        INNER JOIN movies_metadata mm
-            ON ms.provider_id = mm.provider_id
-        WHERE mm.not_found = TRUE
-          AND COALESCE(ms.provider_id, '') <> ''
-        ORDER BY mm.retry_count ASC, mc.year DESC NULLS LAST, mc.provider_id ASC
+        SELECT provider_id, title AS nombre, year, title AS nombre_normalizado
+        FROM movies_catalog
+        WHERE not_found = TRUE
+          AND COALESCE(provider_id, '') <> ''
+        ORDER BY retry_count ASC, year DESC NULLS LAST, provider_id ASC
         LIMIT %s
         """
         return self.db.execute_query(sql, (limit,))
 
     def _get_series_not_found(self, limit: int = 100) -> List[Dict]:
         sql = """
-        SELECT sc.series_key, sc.title AS serie_name, sc.title AS nombre,
-               sc.year, sc.title AS nombre_normalizado
-        FROM series_catalog sc
-        INNER JOIN series_metadata sm
-            ON sc.series_key = sm.series_key
-        WHERE COALESCE(sc.series_key, '') <> ''
-          AND sm.not_found = TRUE
-        ORDER BY sm.retry_count ASC, sc.year DESC NULLS LAST, sc.series_key ASC
+        SELECT series_key, title AS serie_name, title AS nombre,
+               year, title AS nombre_normalizado
+        FROM series_catalog
+        WHERE not_found = TRUE
+          AND COALESCE(series_key, '') <> ''
+        ORDER BY retry_count ASC, year DESC NULLS LAST, series_key ASC
         LIMIT %s
         """
         return self.db.execute_query(sql, (limit,))
@@ -407,70 +396,64 @@ class TMDBScraper:
         if self.dry_run:
             return
 
-        sql = """
-        INSERT INTO movies_metadata (
-            tmdb_id, provider_id,
-            overview_es, overview_en, vote_average, vote_count,
-            title, original_title, release_date, year, runtime_minutes,
-            genres, poster_path, backdrop_path, tagline, popularity, status,
-            tmdb_data, not_found, last_error
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-        )
-        ON CONFLICT (provider_id) DO UPDATE SET
-            tmdb_id = EXCLUDED.tmdb_id,
-            overview_es = EXCLUDED.overview_es,
-            overview_en = EXCLUDED.overview_en,
-            vote_average = EXCLUDED.vote_average,
-            vote_count = EXCLUDED.vote_count,
-            title = EXCLUDED.title,
-            original_title = EXCLUDED.original_title,
-            release_date = EXCLUDED.release_date,
-            year = EXCLUDED.year,
-            runtime_minutes = EXCLUDED.runtime_minutes,
-            genres = EXCLUDED.genres,
-            poster_path = EXCLUDED.poster_path,
-            backdrop_path = EXCLUDED.backdrop_path,
-            tagline = EXCLUDED.tagline,
-            popularity = EXCLUDED.popularity,
-            status = EXCLUDED.status,
-            tmdb_data = EXCLUDED.tmdb_data,
-            not_found = EXCLUDED.not_found,
-            last_error = EXCLUDED.last_error,
-            retry_count = CASE
-                WHEN EXCLUDED.not_found THEN movies_metadata.retry_count + 1
-                ELSE 0
-            END,
-            updated_at = NOW()
-        """
-        try:
-            self.db.execute_command(sql, (
-                result.tmdb_id, result.provider_id,
-                result.overview_es, result.overview_en, result.vote_average,
-                result.vote_count, result.title, result.original_title,
-                result.release_date, result.year, result.runtime_minutes,
-                result.genres, result.poster_path, result.backdrop_path,
-                result.tagline, result.popularity, result.status,
-                json.dumps(result.tmdb_data) if result.tmdb_data else None,
-                result.not_found, result.error
-            ))
-            if result.tmdb_id:
+        if result.tmdb_id:
+            sql = """
+            INSERT INTO movies_metadata (
+                tmdb_id, overview_es, overview_en, vote_average, vote_count,
+                title, original_title, release_date, year, runtime_minutes,
+                genres, poster_path, backdrop_path, tagline, popularity, status,
+                tmdb_data
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            )
+            ON CONFLICT (tmdb_id) DO UPDATE SET
+                overview_es = EXCLUDED.overview_es,
+                overview_en = EXCLUDED.overview_en,
+                vote_average = EXCLUDED.vote_average,
+                vote_count = EXCLUDED.vote_count,
+                title = EXCLUDED.title,
+                original_title = EXCLUDED.original_title,
+                release_date = EXCLUDED.release_date,
+                year = EXCLUDED.year,
+                runtime_minutes = EXCLUDED.runtime_minutes,
+                genres = EXCLUDED.genres,
+                poster_path = EXCLUDED.poster_path,
+                backdrop_path = EXCLUDED.backdrop_path,
+                tagline = EXCLUDED.tagline,
+                popularity = EXCLUDED.popularity,
+                status = EXCLUDED.status,
+                tmdb_data = EXCLUDED.tmdb_data,
+                updated_at = NOW()
+            """
+            try:
+                self.db.execute_command(sql, (
+                    result.tmdb_id,
+                    result.overview_es, result.overview_en, result.vote_average,
+                    result.vote_count, result.title, result.original_title,
+                    result.release_date, result.year, result.runtime_minutes,
+                    result.genres, result.poster_path, result.backdrop_path,
+                    result.tagline, result.popularity, result.status,
+                    json.dumps(result.tmdb_data) if result.tmdb_data else None,
+                ))
                 self.db.execute_command(
-                    "UPDATE movies_catalog SET tmdb_id = %s WHERE provider_id = %s AND tmdb_id IS NULL",
+                    "UPDATE movies_catalog SET tmdb_id = %s, not_found = FALSE WHERE provider_id = %s",
                     (result.tmdb_id, result.provider_id)
                 )
                 logger.info(f"   💾 Guardado TMDB {result.tmdb_id} + catalog actualizado")
-            elif result.not_found:
+            except Exception as e:
+                logger.error(f"Error guardando metadata: {e}")
+        else:
+            sql = """
+            UPDATE movies_catalog
+            SET not_found = TRUE,
+                retry_count = retry_count + 1,
+                last_error = %s
+            WHERE provider_id = %s
+            """
+            try:
+                self.db.execute_command(sql, (result.error, result.provider_id))
                 logger.info("   💾 Guardado como no encontrado")
-        except Exception as e:
-            err_str = str(e).lower()
-            if result.tmdb_id and "unique constraint" in err_str and "tmdb_id" in err_str:
-                self.db.execute_command(
-                    "UPDATE movies_catalog SET tmdb_id = %s WHERE provider_id = %s AND tmdb_id IS NULL",
-                    (result.tmdb_id, result.provider_id)
-                )
-                logger.info(f"   ℹ️ TMDB {result.tmdb_id} ya existía, referenciado desde catálogo")
-            else:
+            except Exception as e:
                 logger.error(f"Error guardando metadata: {e}")
 
     def _process_movie(self, row: Dict) -> ScrapeResult:
@@ -589,65 +572,61 @@ class TMDBScraper:
         if self.dry_run:
             return
 
-        sql = """
-        INSERT INTO series_metadata (
-            tmdb_id, series_key, overview_es, overview_en, vote_average, vote_count,
-            title, original_title, release_date, year, genres, poster_path,
-            backdrop_path, tagline, popularity, status, tmdb_data, not_found, last_error
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-        )
-        ON CONFLICT (series_key) DO UPDATE SET
-            tmdb_id = EXCLUDED.tmdb_id,
-            overview_es = EXCLUDED.overview_es,
-            overview_en = EXCLUDED.overview_en,
-            vote_average = EXCLUDED.vote_average,
-            vote_count = EXCLUDED.vote_count,
-            title = EXCLUDED.title,
-            original_title = EXCLUDED.original_title,
-            release_date = EXCLUDED.release_date,
-            year = EXCLUDED.year,
-            genres = EXCLUDED.genres,
-            poster_path = EXCLUDED.poster_path,
-            backdrop_path = EXCLUDED.backdrop_path,
-            tagline = EXCLUDED.tagline,
-            popularity = EXCLUDED.popularity,
-            status = EXCLUDED.status,
-            tmdb_data = EXCLUDED.tmdb_data,
-            not_found = EXCLUDED.not_found,
-            last_error = EXCLUDED.last_error,
-            retry_count = CASE
-                WHEN EXCLUDED.not_found THEN series_metadata.retry_count + 1
-                ELSE 0
-            END,
-            updated_at = NOW()
-        """
-        try:
-            self.db.execute_command(sql, (
-                result.tmdb_id, result.series_key, result.overview_es, result.overview_en,
-                result.vote_average, result.vote_count, result.title, result.original_title,
-                result.release_date, result.year, result.genres, result.poster_path,
-                result.backdrop_path, result.tagline, result.popularity, result.status,
-                json.dumps(result.tmdb_data) if result.tmdb_data else None,
-                result.not_found, result.error
-            ))
-            if result.tmdb_id:
+        if result.tmdb_id:
+            sql = """
+            INSERT INTO series_metadata (
+                tmdb_id, overview_es, overview_en, vote_average, vote_count,
+                title, original_title, release_date, year, genres, poster_path,
+                backdrop_path, tagline, popularity, status, tmdb_data
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            )
+            ON CONFLICT (tmdb_id) DO UPDATE SET
+                overview_es = EXCLUDED.overview_es,
+                overview_en = EXCLUDED.overview_en,
+                vote_average = EXCLUDED.vote_average,
+                vote_count = EXCLUDED.vote_count,
+                title = EXCLUDED.title,
+                original_title = EXCLUDED.original_title,
+                release_date = EXCLUDED.release_date,
+                year = EXCLUDED.year,
+                genres = EXCLUDED.genres,
+                poster_path = EXCLUDED.poster_path,
+                backdrop_path = EXCLUDED.backdrop_path,
+                tagline = EXCLUDED.tagline,
+                popularity = EXCLUDED.popularity,
+                status = EXCLUDED.status,
+                tmdb_data = EXCLUDED.tmdb_data,
+                updated_at = NOW()
+            """
+            try:
+                self.db.execute_command(sql, (
+                    result.tmdb_id,
+                    result.overview_es, result.overview_en, result.vote_average,
+                    result.vote_count, result.title, result.original_title,
+                    result.release_date, result.year, result.genres, result.poster_path,
+                    result.backdrop_path, result.tagline, result.popularity, result.status,
+                    json.dumps(result.tmdb_data) if result.tmdb_data else None,
+                ))
                 self.db.execute_command(
-                    "UPDATE series_catalog SET tmdb_id = %s WHERE series_key = %s AND tmdb_id IS NULL",
+                    "UPDATE series_catalog SET tmdb_id = %s, not_found = FALSE WHERE series_key = %s",
                     (result.tmdb_id, result.series_key)
                 )
                 logger.info(f"   💾 Guardado TMDB {result.tmdb_id} + catalog actualizado")
-            elif result.not_found:
+            except Exception as e:
+                logger.error(f"Error guardando metadata de serie: {e}")
+        else:
+            sql = """
+            UPDATE series_catalog
+            SET not_found = TRUE,
+                retry_count = retry_count + 1,
+                last_error = %s
+            WHERE series_key = %s
+            """
+            try:
+                self.db.execute_command(sql, (result.error, result.series_key))
                 logger.info("   💾 Guardado como no encontrado")
-        except Exception as e:
-            err_str = str(e).lower()
-            if result.tmdb_id and "unique constraint" in err_str and "tmdb_id" in err_str:
-                self.db.execute_command(
-                    "UPDATE series_catalog SET tmdb_id = %s WHERE series_key = %s AND tmdb_id IS NULL",
-                    (result.tmdb_id, result.series_key)
-                )
-                logger.info(f"   ℹ️ TMDB {result.tmdb_id} ya existía, referenciado desde catálogo")
-            else:
+            except Exception as e:
                 logger.error(f"Error guardando metadata de serie: {e}")
 
     def _process_batch(

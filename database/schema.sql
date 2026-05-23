@@ -208,6 +208,9 @@ CREATE TABLE IF NOT EXISTS series_catalog (
     country VARCHAR(10),
     group_normalizado TEXT,
     logo TEXT,
+    not_found BOOLEAN DEFAULT FALSE,
+    retry_count INT DEFAULT 0,
+    last_error TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 
@@ -251,6 +254,9 @@ CREATE TABLE IF NOT EXISTS movies_catalog (
     country VARCHAR(10),
     group_normalizado TEXT,
     logo TEXT,
+    not_found BOOLEAN DEFAULT FALSE,
+    retry_count INT DEFAULT 0,
+    last_error TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 
@@ -286,6 +292,54 @@ CREATE INDEX IF NOT EXISTS idx_movies_catalog_country ON movies_catalog(country)
 CREATE INDEX IF NOT EXISTS idx_movies_catalog_year ON movies_catalog(year);
 CREATE INDEX IF NOT EXISTS idx_movie_streams_movie ON movie_streams(movie_id);
 CREATE INDEX IF NOT EXISTS idx_movie_streams_country ON movie_streams(country);
+
+-- ==========================================
+-- 5c. Migración: scrape state pasa de metadata → catalog
+-- ==========================================
+
+ALTER TABLE movies_catalog ADD COLUMN IF NOT EXISTS not_found BOOLEAN DEFAULT FALSE;
+ALTER TABLE movies_catalog ADD COLUMN IF NOT EXISTS retry_count INT DEFAULT 0;
+ALTER TABLE movies_catalog ADD COLUMN IF NOT EXISTS last_error TEXT;
+
+ALTER TABLE series_catalog ADD COLUMN IF NOT EXISTS not_found BOOLEAN DEFAULT FALSE;
+ALTER TABLE series_catalog ADD COLUMN IF NOT EXISTS retry_count INT DEFAULT 0;
+ALTER TABLE series_catalog ADD COLUMN IF NOT EXISTS last_error TEXT;
+
+UPDATE movies_catalog mc
+SET not_found = mm.not_found,
+    retry_count = COALESCE(mm.retry_count, 0),
+    last_error = mm.last_error
+FROM movies_metadata mm
+WHERE mm.provider_id = mc.provider_id
+  AND (mm.not_found = TRUE OR mm.retry_count > 0 OR mm.last_error IS NOT NULL);
+
+UPDATE series_catalog sc
+SET not_found = sm.not_found,
+    retry_count = COALESCE(sm.retry_count, 0),
+    last_error = sm.last_error
+FROM series_metadata sm
+WHERE sm.series_key = sc.series_key
+  AND (sm.not_found = TRUE OR sm.retry_count > 0 OR sm.last_error IS NOT NULL);
+
+ALTER TABLE movies_metadata DROP COLUMN IF EXISTS provider_id;
+ALTER TABLE movies_metadata DROP COLUMN IF EXISTS not_found;
+ALTER TABLE movies_metadata DROP COLUMN IF EXISTS retry_count;
+ALTER TABLE movies_metadata DROP COLUMN IF EXISTS last_error;
+
+ALTER TABLE series_metadata DROP COLUMN IF EXISTS series_key;
+ALTER TABLE series_metadata DROP COLUMN IF EXISTS not_found;
+ALTER TABLE series_metadata DROP COLUMN IF EXISTS retry_count;
+ALTER TABLE series_metadata DROP COLUMN IF EXISTS last_error;
+
+DROP INDEX IF EXISTS idx_movies_metadata_provider;
+DROP INDEX IF EXISTS idx_movies_metadata_provider_nf;
+DROP INDEX IF EXISTS idx_movies_metadata_not_found;
+DROP INDEX IF EXISTS idx_series_metadata_serieskey;
+DROP INDEX IF EXISTS idx_series_metadata_serieskey_nf;
+DROP INDEX IF EXISTS idx_series_metadata_not_found;
+
+CREATE INDEX IF NOT EXISTS idx_movies_catalog_scrape ON movies_catalog(not_found, retry_count, year DESC);
+CREATE INDEX IF NOT EXISTS idx_series_catalog_scrape ON series_catalog(not_found, retry_count, year DESC);
 
 -- ==========================================
 -- 6. Tabla de replays externos
@@ -515,7 +569,6 @@ $$ LANGUAGE plpgsql;
 CREATE TABLE IF NOT EXISTS movies_metadata (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tmdb_id VARCHAR(20) UNIQUE,
-    provider_id VARCHAR(50),
     overview_es TEXT,
     overview_en TEXT,
     vote_average FLOAT,
@@ -533,18 +586,11 @@ CREATE TABLE IF NOT EXISTS movies_metadata (
     status VARCHAR(50),
     tmdb_data JSONB,
     scraped_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    not_found BOOLEAN DEFAULT FALSE,
-    last_error TEXT,
-    retry_count INT DEFAULT 0
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_movies_metadata_provider ON movies_metadata(provider_id);
 CREATE INDEX IF NOT EXISTS idx_movies_metadata_tmdb ON movies_metadata(tmdb_id);
-CREATE INDEX IF NOT EXISTS idx_movies_metadata_not_found ON movies_metadata(not_found);
 CREATE INDEX IF NOT EXISTS idx_movies_metadata_year ON movies_metadata(year);
-DROP INDEX IF EXISTS idx_movies_metadata_provider_nf;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_movies_metadata_provider ON movies_metadata(provider_id);
 
 -- ==========================================
 -- Tabla: Metadatos TMDB a nivel serie
@@ -552,7 +598,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_movies_metadata_provider ON movies_metadat
 CREATE TABLE IF NOT EXISTS series_metadata (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tmdb_id VARCHAR(20) UNIQUE,
-    series_key TEXT,
     overview_es TEXT,
     overview_en TEXT,
     vote_average FLOAT,
@@ -569,17 +614,11 @@ CREATE TABLE IF NOT EXISTS series_metadata (
     status VARCHAR(50),
     tmdb_data JSONB,
     scraped_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    not_found BOOLEAN DEFAULT FALSE,
-    last_error TEXT,
-    retry_count INT DEFAULT 0
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_series_metadata_series_key ON series_metadata(series_key);
 CREATE INDEX IF NOT EXISTS idx_series_metadata_tmdb ON series_metadata(tmdb_id);
-CREATE INDEX IF NOT EXISTS idx_series_metadata_not_found ON series_metadata(not_found);
-DROP INDEX IF EXISTS idx_series_metadata_serieskey_nf;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_series_metadata_serieskey ON series_metadata(series_key);
+CREATE INDEX IF NOT EXISTS idx_series_metadata_year ON series_metadata(year);
 
 -- Trigger para actualizar updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
