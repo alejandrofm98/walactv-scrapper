@@ -404,7 +404,7 @@ class TMDBScraper:
                 genres, poster_path, backdrop_path, tagline, popularity, status,
                 tmdb_data
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             ON CONFLICT (tmdb_id) DO UPDATE SET
                 overview_es = EXCLUDED.overview_es,
@@ -579,7 +579,7 @@ class TMDBScraper:
                 title, original_title, release_date, year, genres, poster_path,
                 backdrop_path, tagline, popularity, status, tmdb_data
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             ON CONFLICT (tmdb_id) DO UPDATE SET
                 overview_es = EXCLUDED.overview_es,
