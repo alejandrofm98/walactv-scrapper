@@ -3,7 +3,7 @@ from typing import Optional
 
 
 NOISE_SUFFIXES = [
-    r'\b4k\b', r'\buhd\b', r'\bhq\b', r'\blq\b', r'\bcam\b', r'\bsd\b',
+    r'\b4k\b', r'\buhd\b', r'\bhq\b', r'\blq\b', r'\bcam\b', r'\bhdcam\b', r'\bsd\b',
     r'\bbluray\b', r'\bblu[-\s]?ray\b', r'\bweb[-\s]?dl\b', r'\bwebdl\b',
     r'\bhdtv\b', r'\bdvdrip\b', r'\bbdrip\b',
     r'\bhallmark\b', r'\bnetflix\b', r'\bamazon\b', r'\bhbo\b', r'\bapple\s*tv\b',
@@ -14,10 +14,11 @@ NOISE_SUFFIXES = [
     r'\bkevin\s+james\b', r'\bcillian\s+murphy\b', r'\bdavid\s+attenborough\b',
     r'\bfrankenstein\b(?!\s+[a-z])',
     r'\bitalian\s+eng[-\s]?sub\b',
+    r'\.mkv\b', r'\.mp4\b', r'\.avi\b', r'\.cd\d+\b', r'\.part\d+\b',
 ]
 
 PREFIX_PATTERN = re.compile(
-    r'^(?:[A-Z]{2,5}(?:[/,][A-Z]{2,5})*\s*[-–]\s*)+',
+    r'^(?:LATAM|LAT|MULTI|ES|EN|FR|DE|IT|PT)(?:/(?:LATAM|LAT|MULTI|ES|EN|FR|DE|IT|PT))?\s*[.…\-–]?\s+',
     re.IGNORECASE,
 )
 

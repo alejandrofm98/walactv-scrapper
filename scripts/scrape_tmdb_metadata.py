@@ -63,7 +63,7 @@ YEAR_MATCH_TOLERANCE = 1
 # Prefijos de idioma/calidad: EN, ES, LAT, CAST, MULTI, SD/CAM, EN/CAM, etc.
 # Soporta 2-5 letras mayúsculas separadas por / o ,
 PREFIX_PATTERN = re.compile(
-    r'^(?:[A-Z]{2,5}(?:[/,][A-Z]{2,5})*\s*[-–]\s*)+',
+    r'^(?:LATAM|LAT|MULTI|ES|EN|FR|DE|IT|PT)(?:/(?:LATAM|LAT|MULTI|ES|EN|FR|DE|IT|PT))?\s*[.…\-–]?\s+',
     re.IGNORECASE
 )
 
@@ -185,9 +185,12 @@ def extract_search_title(nombre: str) -> Tuple[str, Optional[int]]:
     year_match = re.search(r'\((\d{4})\)', cleaned)
     year = int(year_match.group(1)) if year_match else None
     cleaned = re.sub(r'[\[\(][^\]\)]*[\]\)]', '', cleaned)
+    cleaned = cleaned.rstrip(')]').strip()
+    cleaned = re.sub(r'\s+[A-Z][A-Z]+(?:[\s-]+[A-Z][A-Z]+)*\s*$', '', cleaned)
     cleaned = cleaned.lower()
-    cleaned = re.sub(r'\b4k\b|\buhd\b|\bhq\b|\blq\b|\bcam\b|\bsd\b', ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\b4k\b|\buhd\b|\bhq\b|\blq\b|\bcam\b|\bhdcam\b|\bsd\b', ' ', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\bbluray\b|\bblu[-\s]?ray\b|\bweb[-\s]?dl\b|\bwebdl\b|\bhdtv\b|\bdvdrip\b|\bbdrip\b', ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\.(?:mkv|mp4|avi|cd\d+|part\d+)\s*', ' ', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\bhallmark\b|\bnetflix\b|\bamazon\b|\bhbo\b|\bapple\s*tv\b', ' ', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\bmulti[-\s]?sub\b|\bno\s+sub\b|\bfrench\s+only\b|\bfrench\s+quebec\b|\bquebec\b|\beng[-\s]?sub\b|\bwith\s+sub\b', ' ', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\bjason\s+statham\b|\bharvey\s+keitel\b|\bliam\s+neeson\b|\bkevin\s+james\b|\bcillian\s+murphy\b|\bdavid\s+attenborough\b|\bitalian\s+eng[-\s]?sub\b', ' ', cleaned, flags=re.IGNORECASE)
@@ -439,6 +442,10 @@ class TMDBScraper:
                     "UPDATE movies_catalog SET tmdb_id = %s, not_found = FALSE WHERE provider_id = %s",
                     (result.tmdb_id, result.provider_id)
                 )
+                self.db.execute_command(
+                    "DELETE FROM scraper_failures WHERE provider_id = %s",
+                    (result.provider_id,)
+                )
                 logger.info(f"   💾 Guardado TMDB {result.tmdb_id} + catalog actualizado")
             except Exception as e:
                 logger.error(f"Error guardando metadata: {e}")
@@ -622,6 +629,10 @@ class TMDBScraper:
                 self.db.execute_command(
                     "UPDATE series_catalog SET tmdb_id = %s, not_found = FALSE WHERE series_key = %s",
                     (result.tmdb_id, result.series_key)
+                )
+                self.db.execute_command(
+                    "DELETE FROM scraper_failures WHERE series_key = %s",
+                    (result.series_key,)
                 )
                 logger.info(f"   💾 Guardado TMDB {result.tmdb_id} + catalog actualizado")
             except Exception as e:
