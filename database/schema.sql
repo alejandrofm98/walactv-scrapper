@@ -644,3 +644,21 @@ CREATE TRIGGER update_series_metadata_updated_at
     BEFORE UPDATE ON series_metadata
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+
+-- ==========================================
+-- 12. Fallos del scraper TMDB (persistente, no lo borra el sync)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS scraper_failures (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider_id VARCHAR(50),
+    series_key VARCHAR(255),
+    title TEXT NOT NULL,
+    year INT,
+    error_message TEXT,
+    failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    retry_count INT DEFAULT 1,
+    last_retry_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_failures_provider ON scraper_failures(provider_id) WHERE provider_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_failures_series ON scraper_failures(series_key) WHERE series_key IS NOT NULL;

@@ -452,6 +452,17 @@ class TMDBScraper:
             """
             try:
                 self.db.execute_command(sql, (result.error, result.provider_id))
+                self.db.execute_command(
+                    """
+                    INSERT INTO scraper_failures (provider_id, title, year, error_message)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (provider_id) WHERE provider_id IS NOT NULL DO UPDATE SET
+                        retry_count = scraper_failures.retry_count + 1,
+                        error_message = EXCLUDED.error_message,
+                        last_retry_at = NOW()
+                    """,
+                    (result.provider_id, result.title or "", result.year, result.error)
+                )
                 logger.info("   💾 Guardado como no encontrado")
             except Exception as e:
                 logger.error(f"Error guardando metadata: {e}")
@@ -625,6 +636,17 @@ class TMDBScraper:
             """
             try:
                 self.db.execute_command(sql, (result.error, result.series_key))
+                self.db.execute_command(
+                    """
+                    INSERT INTO scraper_failures (series_key, title, year, error_message)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (series_key) WHERE series_key IS NOT NULL DO UPDATE SET
+                        retry_count = scraper_failures.retry_count + 1,
+                        error_message = EXCLUDED.error_message,
+                        last_retry_at = NOW()
+                    """,
+                    (result.series_key, result.title or "", result.year, result.error)
+                )
                 logger.info("   💾 Guardado como no encontrado")
             except Exception as e:
                 logger.error(f"Error guardando metadata de serie: {e}")
@@ -643,6 +665,8 @@ class TMDBScraper:
             if max_items and total_processed >= max_items:
                 break
             result = process_fn(item)
+            if result.error and not result.title:
+                result.title = item.get("nombre") or item.get("serie_name", "")
             save_fn(result)
             total_processed += 1
             if result.tmdb_id:
