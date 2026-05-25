@@ -831,14 +831,14 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
 
     try:
         async with pool.acquire() as conn:
-            # Cargar tmdb_id existentes ANTES de truncar
+            # Cargar tmdb_id existentes ANTES de truncar (desde catalog, usando provider_id)
             tmdb_map: dict[str, str] = {}
             try:
                 rows = await conn.fetch(
-                    "SELECT provider_id, tmdb_id FROM movies_metadata WHERE tmdb_id IS NOT NULL"
+                    "SELECT provider_id, tmdb_id FROM movies_catalog WHERE tmdb_id IS NOT NULL AND provider_id IS NOT NULL"
                 )
                 tmdb_map = {r["provider_id"]: r["tmdb_id"] for r in rows}
-                print(f"  🔗 {len(tmdb_map):,} tmdb_id cargados desde metadata")
+                print(f"  🔗 {len(tmdb_map):,} tmdb_id cargados desde catalog (por provider_id)")
             except Exception as e:
                 print(f"  ⚠️  No se pudieron cargar tmdb_id: {e}")
 
@@ -855,33 +855,28 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                 if not dedup_key:
                     continue
 
-                catalog_id = catalog_id_map.get(dedup_key)
+                provider_id = m.get("provider_id")
+                tmdb_id = tmdb_map.get(provider_id)
+                canonical_key = f"tmdb_{tmdb_id}" if tmdb_id else dedup_key
+
+                catalog_id = catalog_id_map.get(canonical_key)
                 if not catalog_id:
                     try:
-                        provider_id = m.get("provider_id")
-                        tmdb_id = tmdb_map.get(provider_id) if provider_id else None
-
                         result = await conn.fetchrow(
                             """
                             INSERT INTO movies_catalog
-                                (title, nombre_dedup_key, year, group_normalizado,
+                                (title, nombre_dedup_key, canonical_key, year, group_normalizado,
                                  country, logo, provider_id, tmdb_id)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                            ON CONFLICT (nombre_dedup_key) DO NOTHING
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                             RETURNING id
                             """,
                             m.get("nombre_normalizado") or m.get("nombre", ""),
-                            dedup_key, m.get("year"),
+                            dedup_key, canonical_key, m.get("year"),
                             m.get("grupo_normalizado"), m.get("country"),
                             m.get("logo"), provider_id, tmdb_id,
                         )
-                        if not result:
-                            result = await conn.fetchrow(
-                                "SELECT id FROM movies_catalog WHERE nombre_dedup_key = $1",
-                                dedup_key,
-                            )
                         if result:
-                            catalog_id_map[dedup_key] = result["id"]
+                            catalog_id_map[canonical_key] = result["id"]
                             catalog_id = result["id"]
                     except Exception as e:
                         print(f"  ⚠️  Error insertando movie_catalog '{m.get('nombre')}': {e}")
@@ -927,14 +922,14 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
 
     try:
         async with pool.acquire() as conn:
-            # Cargar tmdb_id existentes ANTES de truncar
+            # Cargar tmdb_id existentes ANTES de truncar (desde catalog, por series_key)
             tmdb_map: dict[str, str] = {}
             try:
                 rows = await conn.fetch(
-                    "SELECT series_key, tmdb_id FROM series_metadata WHERE tmdb_id IS NOT NULL"
+                    "SELECT series_key, tmdb_id FROM series_catalog WHERE tmdb_id IS NOT NULL"
                 )
                 tmdb_map = {r["series_key"]: r["tmdb_id"] for r in rows}
-                print(f"  🔗 {len(tmdb_map):,} tmdb_id cargados desde metadata")
+                print(f"  🔗 {len(tmdb_map):,} tmdb_id cargados desde catalog (por series_key)")
             except Exception as e:
                 print(f"  ⚠️  No se pudieron cargar tmdb_id: {e}")
 
@@ -956,32 +951,27 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                 if not sk:
                     continue
 
-                catalog_id = catalog_id_map.get(sk)
+                tmdb_id = tmdb_map.get(sk)
+                canonical_key = f"tmdb_{tmdb_id}" if tmdb_id else sk
+
+                catalog_id = catalog_id_map.get(canonical_key)
                 if not catalog_id:
                     try:
-                        tmdb_id = tmdb_map.get(sk)
-
                         result = await conn.fetchrow(
                             """
                             INSERT INTO series_catalog
-                                (title, series_key, year, group_normalizado,
+                                (title, series_key, canonical_key, year, group_normalizado,
                                  country, logo, provider_id, tmdb_id)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                            ON CONFLICT (series_key) DO NOTHING
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                             RETURNING id
                             """,
                             s.get("serie_name") or s.get("nombre_normalizado") or s.get("nombre", ""),
-                            sk, s.get("year"),
+                            sk, canonical_key, s.get("year"),
                             s.get("grupo_normalizado"), s.get("country"),
                             s.get("logo"), s.get("provider_id"), tmdb_id,
                         )
-                        if not result:
-                            result = await conn.fetchrow(
-                                "SELECT id FROM series_catalog WHERE series_key = $1",
-                                sk,
-                            )
                         if result:
-                            catalog_id_map[sk] = result["id"]
+                            catalog_id_map[canonical_key] = result["id"]
                             catalog_id = result["id"]
                     except Exception as e:
                         print(f"  ⚠️  Error insertando series_catalog '{s.get('serie_name')}': {e}")

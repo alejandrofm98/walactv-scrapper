@@ -200,7 +200,8 @@ CREATE INDEX IF NOT EXISTS idx_series_series_key ON series(series_key);
 CREATE TABLE IF NOT EXISTS series_catalog (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
-    series_key TEXT UNIQUE NOT NULL,
+    series_key TEXT NOT NULL,
+    canonical_key VARCHAR,
     provider_id VARCHAR(50),
     tmdb_id VARCHAR(20),
     nombre_dedup_key TEXT,
@@ -249,7 +250,8 @@ CREATE TABLE IF NOT EXISTS movies_catalog (
     title TEXT NOT NULL,
     provider_id VARCHAR(50),
     tmdb_id VARCHAR(20),
-    nombre_dedup_key TEXT UNIQUE,
+    nombre_dedup_key TEXT,
+    canonical_key VARCHAR,
     year INT,
     country VARCHAR(10),
     group_normalizado TEXT,
@@ -292,6 +294,8 @@ CREATE INDEX IF NOT EXISTS idx_movies_catalog_country ON movies_catalog(country)
 CREATE INDEX IF NOT EXISTS idx_movies_catalog_year ON movies_catalog(year);
 CREATE INDEX IF NOT EXISTS idx_movie_streams_movie ON movie_streams(movie_id);
 CREATE INDEX IF NOT EXISTS idx_movie_streams_country ON movie_streams(country);
+CREATE INDEX IF NOT EXISTS idx_movies_catalog_canonical ON movies_catalog(canonical_key);
+CREATE INDEX IF NOT EXISTS idx_series_catalog_canonical ON series_catalog(canonical_key);
 
 -- ==========================================
 -- 5c. Migración: scrape state pasa de metadata → catalog

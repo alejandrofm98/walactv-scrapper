@@ -4,13 +4,13 @@ Scraper de replays UFC desde watch-wrestling.eu
 import argparse
 import html
 import json
+import os
 import re
 import subprocess
 import sys
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -20,7 +20,6 @@ from bs4 import BeautifulSoup, Tag
 # Agregar directorio scripts al path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import get_settings
 from database import DatabasePG
 
 
