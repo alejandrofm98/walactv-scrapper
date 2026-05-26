@@ -347,7 +347,8 @@ class TMDBScraper:
 
     def _get_movies_without_metadata(self, limit: int = 100) -> List[Dict]:
         sql = """
-        SELECT provider_id, title AS nombre, year, title AS nombre_normalizado
+        SELECT provider_id, title AS nombre, year, title AS nombre_normalizado,
+               nombre_dedup_key
         FROM movies_catalog
         WHERE tmdb_id IS NULL
           AND not_found = FALSE
@@ -372,7 +373,8 @@ class TMDBScraper:
 
     def _get_movies_not_found(self, limit: int = 100) -> List[Dict]:
         sql = """
-        SELECT provider_id, title AS nombre, year, title AS nombre_normalizado
+        SELECT provider_id, title AS nombre, year, title AS nombre_normalizado,
+               nombre_dedup_key
         FROM movies_catalog
         WHERE not_found = TRUE
           AND COALESCE(provider_id, '') <> ''
@@ -478,8 +480,35 @@ class TMDBScraper:
         provider_id = row["provider_id"]
         nombre = row["nombre"]
         year = row["year"]
+        nombre_dedup_key = row.get("nombre_dedup_key")
 
         logger.info(f"🎬 {nombre[:60]}...")
+
+        # Cross-reference: mismo nombre_dedup_key ya tiene tmdb_id
+        if nombre_dedup_key and nombre_dedup_key in self._movie_tmdb_by_dedup:
+            tmdb_id = self._movie_tmdb_by_dedup[nombre_dedup_key]
+            try:
+                rows = self.db.execute_query(
+                    "SELECT * FROM movies_metadata WHERE tmdb_id = %s", (tmdb_id,)
+                )
+                if rows:
+                    m = rows[0]
+                    logger.info(f"   ✓ {m.get('title')} (TMDB: {tmdb_id}, cross-reference)")
+                    return ScrapeResult(
+                        provider_id=provider_id, tmdb_id=tmdb_id,
+                        overview_es=m.get("overview_es"), overview_en=m.get("overview_en"),
+                        vote_average=m.get("vote_average"), vote_count=m.get("vote_count"),
+                        title=m.get("title"), original_title=m.get("original_title"),
+                        release_date=m.get("release_date"),
+                        year=m.get("year") or year,
+                        runtime_minutes=m.get("runtime_minutes") or None,
+                        genres=m.get("genres") or [],
+                        poster_path=m.get("poster_path"), backdrop_path=m.get("backdrop_path"),
+                        tagline=m.get("tagline"), popularity=m.get("popularity"),
+                        status=m.get("status"), tmdb_data=m.get("tmdb_data"),
+                    )
+            except Exception as e:
+                logger.warning(f"⚠️  Cross-reference falló para '{nombre}': {e}")
 
         search_title, search_year = extract_search_title(nombre)
         if not search_title:
@@ -547,6 +576,32 @@ class TMDBScraper:
                 series_key=series_key,
                 not_found=True, error="No se pudo extraer título"
             )
+
+        # Cross-reference: series_metadata ya tiene este título
+        clean_search = re.sub(r'[^\w\s]', ' ', search_title.lower()).strip()
+        if clean_search in self._series_tmdb_by_title:
+            tmdb_id = self._series_tmdb_by_title[clean_search]
+            try:
+                rows = self.db.execute_query(
+                    "SELECT * FROM series_metadata WHERE tmdb_id = %s", (tmdb_id,)
+                )
+                if rows:
+                    m = rows[0]
+                    logger.info(f"   ✓ {m.get('title')} (TMDB: {tmdb_id}, cross-reference)")
+                    return SeriesScrapeResult(
+                        series_key=series_key, tmdb_id=tmdb_id,
+                        overview_es=m.get("overview_es"), overview_en=m.get("overview_en"),
+                        vote_average=m.get("vote_average"), vote_count=m.get("vote_count"),
+                        title=m.get("title"), original_title=m.get("original_title"),
+                        release_date=m.get("release_date"),
+                        year=m.get("year") or year,
+                        genres=m.get("genres") or [],
+                        poster_path=m.get("poster_path"), backdrop_path=m.get("backdrop_path"),
+                        tagline=m.get("tagline"), popularity=m.get("popularity"),
+                        status=m.get("status"), tmdb_data=m.get("tmdb_data"),
+                    )
+            except Exception as e:
+                logger.warning(f"⚠️  Cross-reference falló para '{serie_name}': {e}")
 
         effective_year = search_year or year
         logger.debug(f"   🔍 Buscando: '{search_title}' ({effective_year})")
@@ -708,7 +763,32 @@ class TMDBScraper:
             get_movies_fn = self._get_movies_without_metadata
             get_series_fn = self._get_series_without_metadata
 
-        # _backfill_series_keys ya no es necesario (series_key se genera en sync)
+        # -- Cross-reference: mapear tmdb_id existentes antes de llamar API --
+        logger.info("🔗 Construyendo mapas de cross-reference...")
+        self._movie_tmdb_by_dedup = {}
+        try:
+            rows = self.db.execute_query(
+                "SELECT nombre_dedup_key, tmdb_id FROM movies_catalog WHERE tmdb_id IS NOT NULL AND nombre_dedup_key IS NOT NULL"
+            )
+            self._movie_tmdb_by_dedup = {r["nombre_dedup_key"]: r["tmdb_id"] for r in rows}
+            logger.info(f"   {len(self._movie_tmdb_by_dedup)} películas con tmdb_id por dedup_key")
+        except Exception as e:
+            logger.warning(f"⚠️  Error cargando cross-reference de películas: {e}")
+
+        self._series_tmdb_by_title = {}
+        try:
+            rows = self.db.execute_query(
+                "SELECT tmdb_id, title, original_title FROM series_metadata WHERE tmdb_id IS NOT NULL"
+            )
+            for r in rows:
+                for t in (r["title"], r["original_title"]):
+                    if t:
+                        key = re.sub(r'[^\w\s]', ' ', t.lower()).strip()
+                        if key not in self._series_tmdb_by_title:
+                            self._series_tmdb_by_title[key] = r["tmdb_id"]
+            logger.info(f"   {len(self._series_tmdb_by_title)} series con tmdb_id por título")
+        except Exception as e:
+            logger.warning(f"⚠️  Error cargando cross-reference de series: {e}")
 
         # -- Películas --
         logger.info("\n🎬 PROCESANDO PELÍCULAS")
