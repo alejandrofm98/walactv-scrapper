@@ -26,6 +26,7 @@ services:
       - iptv-data:/app/data
     networks:
       - dokploy-network
+      - iptv-ecosystem
     command: ["sh", "-c", "python main.py; trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
 
   walactv-sync-iptv:
@@ -46,6 +47,7 @@ services:
       - iptv-data:/app/data
     networks:
       - dokploy-network
+      - iptv-ecosystem
 
   walactv-sync-replays:
     build:
@@ -58,6 +60,7 @@ services:
       - .env
     networks:
       - dokploy-network
+      - iptv-ecosystem
 
   ofelia:
     build:
@@ -75,6 +78,7 @@ services:
     command: daemon --config /ofelia.config.ini
     networks:
       - dokploy-network
+      - iptv-ecosystem
 
   walactv-sync-tmdb-metadata:
     build:
@@ -90,12 +94,13 @@ services:
       - PYTHONUNBUFFERED=1
     networks:
       - dokploy-network
+      - iptv-ecosystem
 
 networks:
   dokploy-network:
     external: true
-  iptv-network:
-    driver: bridge
+  iptv-ecosystem:
+    external: true
 
 volumes:
   walactv-logos:
