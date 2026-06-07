@@ -1,0 +1,68 @@
+[project]
+name = "walactv-scrapper"
+version = "1.0.0"
+description = "Sports event scraper and IPTV sync engine for WalacTV ecosystem"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["scripts"]
+extend-exclude = [".venv", "node_modules", "scripts/.playwright-google-profile"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "E501",
+    "B008",
+    "B023",
+    "UP042",
+    "RUF012",
+    "SIM105",
+]
+unfixable = ["B"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/proxificaUrl.py" = ["ALL"]
+"scripts/actualiza_epg.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["scripts", "database", "utils"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+disallow_untyped_defs = false
+no_implicit_optional = true
+show_error_codes = true
+exclude = [".venv", "node_modules"]
+
+[[tool.mypy.overrides]]
+module = ["scripts.proxificaUrl", "scripts.actualiza_epg"]
+ignore_errors = true
+
+[tool.vulture]
+min_confidence = 80
+paths = ["scripts"]
+sort_by_size = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = ["-ra", "--strict-markers", "--tb=short"]
+
+[tool.coverage.run]
+source = ["scripts"]
+omit = ["*/__pycache__/*", "*/.venv/*", "scripts/proxificaUrl.py"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = ["pragma: no cover", "if __name__ == .__main__:"]

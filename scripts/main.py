@@ -2,7 +2,7 @@ import asyncio
 import traceback
 from urllib.parse import quote
 
-from database import DatabasePG, ChannelMappingManager, ConfigManager
+from database import ChannelMappingManager, ConfigManager, DatabasePG
 from scrapper import ScrapperFutbolenlatv, verificar_salud_canales_evento
 from services.event_images import limpiar_imagenes_eventos
 from utils.constants import HEALTH_CHECK_TOTAL_TIMEOUT
@@ -45,10 +45,10 @@ async def main():
             mapeos = {}
         print(f"✅ Mapeos cargados: {len(mapeos)} canales")
 
-        proxy_ip = await ConfigManager.get_config('PROXY_IP') or ''
-        proxy_port = await ConfigManager.get_config('PROXY_PORT') or ''
-        proxy_user = await ConfigManager.get_config('PROXY_USER') or ''
-        proxy_pass = await ConfigManager.get_config('PROXY_PASS') or ''
+        proxy_ip = await ConfigManager.get_config("PROXY_IP") or ""
+        proxy_port = await ConfigManager.get_config("PROXY_PORT") or ""
+        proxy_user = await ConfigManager.get_config("PROXY_USER") or ""
+        proxy_pass = await ConfigManager.get_config("PROXY_PASS") or ""
         football_logos_proxy = construir_proxy_url(proxy_ip, proxy_port, proxy_user, proxy_pass)
         if football_logos_proxy:
             print(f"✅ Proxy football-logos configurado desde config: {proxy_ip}:{proxy_port}")
@@ -87,21 +87,23 @@ async def main():
             for fecha, partidos in todos_eventos.items():
                 for partido in partidos.values():
                     if isinstance(partido, dict):
-                        source_names_evento.update(partido.get('canales', []))
+                        source_names_evento.update(partido.get("canales", []))
 
             if source_names_evento:
-                print(f"🔍 Recolectados {len(source_names_evento)} source_names de eventos para health check")
-                provider_username = await ConfigManager.get_config('IPTV_USERNAME') or ''
-                provider_password = await ConfigManager.get_config('IPTV_PASSWORD') or ''
+                print(
+                    f"🔍 Recolectados {len(source_names_evento)} source_names de eventos para health check"
+                )
+                provider_username = await ConfigManager.get_config("IPTV_USERNAME") or ""
+                provider_password = await ConfigManager.get_config("IPTV_PASSWORD") or ""
                 if provider_username and provider_password:
                     try:
                         await asyncio.wait_for(
                             verificar_salud_canales_evento(
                                 source_names_evento, provider_username, provider_password
                             ),
-                            timeout=HEALTH_CHECK_TOTAL_TIMEOUT
+                            timeout=HEALTH_CHECK_TOTAL_TIMEOUT,
                         )
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         print("⏱️ Health check cancelado por timeout")
                 else:
                     print("ℹ️ Sin credenciales IPTV configuradas, saltando health check")
@@ -122,5 +124,5 @@ async def main():
         await DatabasePG.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())

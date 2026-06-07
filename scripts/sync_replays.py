@@ -1,6 +1,7 @@
 """
 Scraper de replays UFC desde watch-wrestling.eu
 """
+
 import argparse
 import html
 import json
@@ -11,7 +12,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 import requests
@@ -76,13 +77,13 @@ class WatchWrestlingUfcScraper:
     def __init__(self) -> None:
         self.session = requests.Session()
         self.session.headers.update(self.DEFAULT_HEADERS)
-        self._provider_url_cache: Dict[str, Dict[str, Any]] = {}
+        self._provider_url_cache: dict[str, dict[str, Any]] = {}
 
     # ──────────────────────────────────────────────────────────────
     # API WordPress
     # ──────────────────────────────────────────────────────────────
 
-    def obtener_categoria_ufc_id(self) -> Optional[int]:
+    def obtener_categoria_ufc_id(self) -> int | None:
         """Obtiene el ID de la categoria UFC."""
         try:
             response = self.session.get(
@@ -102,7 +103,7 @@ class WatchWrestlingUfcScraper:
 
         return None
 
-    def obtener_posts_ufc(self, limite: Optional[int] = None) -> List[Dict[str, Any]]:
+    def obtener_posts_ufc(self, limite: int | None = None) -> list[dict[str, Any]]:
         """Recupera todos los posts UFC paginando sobre la API."""
         categoria_id = self.obtener_categoria_ufc_id()
         if not categoria_id:
@@ -110,7 +111,7 @@ class WatchWrestlingUfcScraper:
             return []
 
         pagina = 1
-        posts: List[Dict[str, Any]] = []
+        posts: list[dict[str, Any]] = []
 
         while True:
             try:
@@ -163,7 +164,7 @@ class WatchWrestlingUfcScraper:
     # Parseo de posts
     # ──────────────────────────────────────────────────────────────
 
-    def parsear_post(self, post: Dict[str, Any]) -> Dict[str, Any]:
+    def parsear_post(self, post: dict[str, Any]) -> dict[str, Any]:
         """Normaliza un post UFC para persistirlo en Supabase."""
         content_html = post.get("content", {}).get("rendered", "")
         title = self._html_to_text(post.get("title", {}).get("rendered", ""))
@@ -204,14 +205,14 @@ class WatchWrestlingUfcScraper:
             "match_card": match_card,
         }
 
-    async def sincronizar_replays(self, limite: Optional[int] = None) -> int:
+    async def sincronizar_replays(self, limite: int | None = None) -> int:
         """Scrapea y persiste los replays UFC."""
         posts = self.obtener_posts_ufc(limite=limite)
         if not posts:
             print("⚠️  No se encontraron posts UFC para sincronizar")
             return 0
 
-        replays: List[Dict[str, Any]] = []
+        replays: list[dict[str, Any]] = []
         for post in posts:
             replay = self.parsear_post(post)
             if not any(group.get("sources") for group in replay.get("video_sources", [])):
@@ -238,7 +239,7 @@ class WatchWrestlingUfcScraper:
 
         return guardados
 
-    def _log_resumen_evento(self, replay: Dict[str, Any]) -> None:
+    def _log_resumen_evento(self, replay: dict[str, Any]) -> None:
         self._log_info(
             f"Evento: {replay['title']} | resueltas {replay['source_scan_resolved']}/"
             f"{replay['source_scan_total']} | no recogidas {replay['source_scan_skipped']}"
@@ -249,7 +250,7 @@ class WatchWrestlingUfcScraper:
             self._log_info(f"  OBTENIDA {item['group']} / {item['label']}{suffix}")
 
     @staticmethod
-    async def _guardar_replays(replays: List[Dict[str, Any]]) -> int:
+    async def _guardar_replays(replays: list[dict[str, Any]]) -> int:
         if not replays:
             return 0
 
@@ -276,15 +277,17 @@ class WatchWrestlingUfcScraper:
                 async with conn.transaction():
                     for replay_data in payload:
                         # Convertir event_date string a date object
-                        event_date_str = replay_data.get('event_date')
+                        event_date_str = replay_data.get("event_date")
                         event_date = None
                         if isinstance(event_date_str, str):
                             try:
-                                event_date = datetime.strptime(event_date_str[:10], '%Y-%m-%d').date()
+                                event_date = datetime.strptime(
+                                    event_date_str[:10], "%Y-%m-%d"
+                                ).date()
                             except (ValueError, TypeError):
                                 event_date = None
 
-                        match_card = replay_data.get('match_card', [])
+                        match_card = replay_data.get("match_card", [])
                         if isinstance(match_card, list):
                             match_card = json.dumps(match_card)
 
@@ -306,17 +309,17 @@ class WatchWrestlingUfcScraper:
                                 video_sources = EXCLUDED.video_sources,
                                 match_card = EXCLUDED.match_card
                             """,
-                            replay_data.get('slug'),
-                            replay_data.get('source_site'),
-                            replay_data.get('title'),
-                            replay_data.get('event_name'),
-                            replay_data.get('event_type'),
+                            replay_data.get("slug"),
+                            replay_data.get("source_site"),
+                            replay_data.get("title"),
+                            replay_data.get("event_name"),
+                            replay_data.get("event_type"),
                             event_date,
-                            replay_data.get('post_url'),
-                            replay_data.get('featured_image_url'),
-                            replay_data.get('description'),
-                            json.dumps(replay_data.get('video_sources', [])),
-                            match_card
+                            replay_data.get("post_url"),
+                            replay_data.get("featured_image_url"),
+                            replay_data.get("description"),
+                            json.dumps(replay_data.get("video_sources", [])),
+                            match_card,
                         )
                         inserted += 1
                 return inserted
@@ -336,7 +339,7 @@ class WatchWrestlingUfcScraper:
         return re.sub(r"\s+", " ", texto).strip()
 
     def _extraer_descripcion(self, soup: BeautifulSoup) -> str:
-        descripcion: List[str] = []
+        descripcion: list[str] = []
 
         for parrafo in soup.find_all("p"):
             texto = parrafo.get_text(" ", strip=True)
@@ -355,7 +358,7 @@ class WatchWrestlingUfcScraper:
 
         return "\n\n".join(descripcion[:6])
 
-    def _extraer_match_card(self, soup: BeautifulSoup) -> List[str]:
+    def _extraer_match_card(self, soup: BeautifulSoup) -> list[str]:
         anchor = soup.find(id="card1")
         if not isinstance(anchor, Tag):
             return []
@@ -377,11 +380,11 @@ class WatchWrestlingUfcScraper:
     def _extraer_fuentes_video(
         self,
         soup: BeautifulSoup,
-        post_url: Optional[str],
-        event_date: Optional[str],
+        post_url: str | None,
+        event_date: str | None,
         category_name: str,
         select_post: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Pipeline optimizado:
           1. Recopilar todos los candidatos desde el HTML.
@@ -389,7 +392,7 @@ class WatchWrestlingUfcScraper:
           3. Construir estructura final de grupos/fuentes.
         """
         # ── Paso 1: recopilar candidatos ──────────────────────────
-        candidatos: List[Dict[str, Any]] = []
+        candidatos: list[dict[str, Any]] = []
         group_index = 0
 
         for bloque in soup.select("div.src-name"):
@@ -417,16 +420,18 @@ class WatchWrestlingUfcScraper:
                     source_index=group_index,
                     button_index=bi,
                 )
-                candidatos.append({
-                    "group_index": group_index,
-                    "button_index": bi,
-                    "label": label,
-                    "token": token,
-                    "token_enc": boton.get("data-enc"),
-                    "nombre_grupo": nombre_grupo,
-                    "embed_url": embed_url,
-                    "post_url": post_url,
-                })
+                candidatos.append(
+                    {
+                        "group_index": group_index,
+                        "button_index": bi,
+                        "label": label,
+                        "token": token,
+                        "token_enc": boton.get("data-enc"),
+                        "nombre_grupo": nombre_grupo,
+                        "embed_url": embed_url,
+                        "post_url": post_url,
+                    }
+                )
 
         if not candidatos:
             return {
@@ -442,53 +447,66 @@ class WatchWrestlingUfcScraper:
         resueltos_http = self._resolver_streams_batch_http(candidatos)
 
         # ── Paso 3: construir grupos finales ──────────────────────
-        grupos_map: Dict[int, Dict[str, Any]] = {}
+        grupos_map: dict[int, dict[str, Any]] = {}
 
         descartadas = 0
-        resolved_items: List[Dict[str, Any]] = []
-        discarded_items: List[Dict[str, str]] = []
+        resolved_items: list[dict[str, Any]] = []
+        discarded_items: list[dict[str, str]] = []
 
         for c in candidatos:
             cache_key = f"{c['group_index']}:{c['button_index']}"
             stream = resueltos_http.get(cache_key) or {}
-            web_embed_url = None if (stream.get("provider") or "").lower() == "vidframe" else self._seleccionar_embed_para_web(
-                c["embed_url"],
-                stream.get("provider_url"),
+            web_embed_url = (
+                None
+                if (stream.get("provider") or "").lower() == "vidframe"
+                else self._seleccionar_embed_para_web(
+                    c["embed_url"],
+                    stream.get("provider_url"),
+                )
             )
 
             if not stream.get("stream_url") and not web_embed_url:
                 descartadas += 1
-                discarded_items.append({
-                    "group": c["nombre_grupo"],
-                    "label": c["label"],
-                })
+                discarded_items.append(
+                    {
+                        "group": c["nombre_grupo"],
+                        "label": c["label"],
+                    }
+                )
                 continue
 
             gi = c["group_index"]
             if gi not in grupos_map:
                 grupos_map[gi] = {"group": c["nombre_grupo"], "sources": []}
 
-            grupos_map[gi]["sources"].append({
-                "label": c["label"],
-                "source_index": c["group_index"],
-                "button_index": c["button_index"],
-                "provider": stream.get("provider"),
-                "provider_url": stream.get("provider_url"),
-                "provider_video_id": stream.get("provider_video_id"),
-                "web_embed_url": web_embed_url,
-                **{k: stream.get(k) for k in (
-                    "stream_url",
-                    "stream_format",
-                )},
-            })
-            resolved_items.append({
-                "group": c["nombre_grupo"],
-                "label": c["label"],
-                "mode": self._build_resolution_log_mode(
-                    stream=stream,
-                    web_embed_url=web_embed_url,
-                ),
-            })
+            grupos_map[gi]["sources"].append(
+                {
+                    "label": c["label"],
+                    "source_index": c["group_index"],
+                    "button_index": c["button_index"],
+                    "provider": stream.get("provider"),
+                    "provider_url": stream.get("provider_url"),
+                    "provider_video_id": stream.get("provider_video_id"),
+                    "web_embed_url": web_embed_url,
+                    **{
+                        k: stream.get(k)
+                        for k in (
+                            "stream_url",
+                            "stream_format",
+                        )
+                    },
+                }
+            )
+            resolved_items.append(
+                {
+                    "group": c["nombre_grupo"],
+                    "label": c["label"],
+                    "mode": self._build_resolution_log_mode(
+                        stream=stream,
+                        web_embed_url=web_embed_url,
+                    ),
+                }
+            )
 
         grupos = [g for g in grupos_map.values() if g["sources"]]
         resolved_candidates = sum(len(group["sources"]) for group in grupos)
@@ -507,15 +525,15 @@ class WatchWrestlingUfcScraper:
 
     def _resolver_streams_batch_http(
         self,
-        candidatos: List[Dict[str, Any]],
-    ) -> Dict[str, Dict[str, Any]]:
+        candidatos: list[dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
         """
         Resuelve todas las embed URLs en paralelo usando un ThreadPoolExecutor.
         Retorna {cache_key: stream_data} para los que tienen stream_url.
         """
-        resultados: Dict[str, Dict[str, Any]] = {}
+        resultados: dict[str, dict[str, Any]] = {}
 
-        def resolver_uno(candidato: Dict[str, Any]):
+        def resolver_uno(candidato: dict[str, Any]):
             embed_url = candidato.get("embed_url")
             cache_key = f"{candidato['group_index']}:{candidato['button_index']}"
             group_name = candidato.get("nombre_grupo", "")
@@ -527,7 +545,7 @@ class WatchWrestlingUfcScraper:
             if embed_url in self._provider_url_cache:
                 return cache_key, dict(self._provider_url_cache[embed_url])
 
-            stream_data: Dict[str, Any] = {}
+            stream_data: dict[str, Any] = {}
 
             if self._es_fuente_resolvable(group_name, label):
                 provider_url = self._resolver_provider_url_desde_token(
@@ -591,9 +609,9 @@ class WatchWrestlingUfcScraper:
     # Resolución de streams — métodos de soporte
     # ──────────────────────────────────────────────────────────────
 
-    def _obtener_metadata_embed(self, post_url: Optional[str]) -> Dict[str, Any]:
+    def _obtener_metadata_embed(self, post_url: str | None) -> dict[str, Any]:
         """Recupera metadata del post necesaria para construir URLs embebibles."""
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, Any] = {
             "category_name": self._normalizar_category_name("UFC"),
             "select_post": 1,
         }
@@ -629,12 +647,11 @@ class WatchWrestlingUfcScraper:
         if any(keyword in label_lower for keyword in self.SKIP_LABEL_KEYWORDS):
             return False
 
-        return (
-            any(keyword in group_lower for keyword in self.PRIORITY_GROUP_KEYWORDS)
-            or any(keyword in label_lower for keyword in self.PRIORITY_LABEL_KEYWORDS)
+        return any(keyword in group_lower for keyword in self.PRIORITY_GROUP_KEYWORDS) or any(
+            keyword in label_lower for keyword in self.PRIORITY_LABEL_KEYWORDS
         )
 
-    def _resolver_provider_url(self, embed_url: str) -> Optional[str]:
+    def _resolver_provider_url(self, embed_url: str) -> str | None:
         resolver_path = Path(__file__).resolve().parent / "utils" / "replay_embed_resolver.js"
         if not resolver_path.exists():
             self._log_warning(f"No existe el resolvedor JS: {resolver_path}")
@@ -672,10 +689,10 @@ class WatchWrestlingUfcScraper:
 
     def _resolver_provider_url_desde_token(
         self,
-        token: Optional[str],
-        token_enc: Optional[str],
-        referer_url: Optional[str],
-    ) -> Optional[str]:
+        token: str | None,
+        token_enc: str | None,
+        referer_url: str | None,
+    ) -> str | None:
         if not token or not token_enc:
             return None
 
@@ -713,9 +730,9 @@ class WatchWrestlingUfcScraper:
         salida = (result.stdout or "").strip()
         return salida or None
 
-    def _resolver_provider_stream(self, provider_url: str) -> Dict[str, Any]:
+    def _resolver_provider_stream(self, provider_url: str) -> dict[str, Any]:
         provider_url = self._normalizar_provider_url(provider_url)
-        stream_data: Dict[str, Any] = {"provider_url": provider_url}
+        stream_data: dict[str, Any] = {"provider_url": provider_url}
 
         if "dailymotion.com/embed/video/" in provider_url:
             stream_data.update(self._resolver_dailymotion_stream(provider_url))
@@ -724,136 +741,167 @@ class WatchWrestlingUfcScraper:
         if "ok.ru/videoembed/" in provider_url or "ok.ru/video/" in provider_url:
             video_id = self._extraer_okru_video_id(provider_url)
             stream_url = self._resolver_okru_stream(provider_url)
-            stream_data.update({
-                "provider": "okru",
-                "stream_url": stream_url,
-                "stream_format": "application/x-mpegURL" if stream_url else "embed",
-                "resolution_mode": "stream+embed" if stream_url else "embed",
-                "provider_video_id": video_id,
-            })
+            stream_data.update(
+                {
+                    "provider": "okru",
+                    "stream_url": stream_url,
+                    "stream_format": "application/x-mpegURL" if stream_url else "embed",
+                    "resolution_mode": "stream+embed" if stream_url else "embed",
+                    "provider_video_id": video_id,
+                }
+            )
             return stream_data
 
-        if "vidframe.com/embed/" in provider_url or urlparse(provider_url).path.startswith("/embed/"):
+        if "vidframe.com/embed/" in provider_url or urlparse(provider_url).path.startswith(
+            "/embed/"
+        ):
             video_id = self._extraer_vidframe_video_id(provider_url)
             stream_url = self._resolver_vidframe_stream(provider_url)
             if stream_url:
-                stream_data.update({
-                    "provider": "vidframe",
-                    "stream_url": stream_url,
-                    "stream_format": "application/x-mpegURL",
-                    "resolution_mode": "stream+embed",
-                    "provider_video_id": video_id,
-                })
+                stream_data.update(
+                    {
+                        "provider": "vidframe",
+                        "stream_url": stream_url,
+                        "stream_format": "application/x-mpegURL",
+                        "resolution_mode": "stream+embed",
+                        "provider_video_id": video_id,
+                    }
+                )
                 return stream_data
 
             if "vidframe.com/embed/" in provider_url:
-                stream_data.update({
-                    "provider": "vidframe",
-                    "stream_url": None,
-                    "stream_format": "embed",
-                    "resolution_mode": "embed",
-                    "provider_video_id": video_id,
-                })
+                stream_data.update(
+                    {
+                        "provider": "vidframe",
+                        "stream_url": None,
+                        "stream_format": "embed",
+                        "resolution_mode": "embed",
+                        "provider_video_id": video_id,
+                    }
+                )
                 return stream_data
 
         if "vk.com/video-" in provider_url or "vk.com/ext.php" in provider_url:
             video_id = self._extraer_vk_video_id(provider_url)
-            stream_data.update({
-                "provider": "vk",
-                "stream_url": None,
-                "stream_format": "embed",
-                "resolution_mode": "embed",
-                "provider_video_id": video_id,
-            })
+            stream_data.update(
+                {
+                    "provider": "vk",
+                    "stream_url": None,
+                    "stream_format": "embed",
+                    "resolution_mode": "embed",
+                    "provider_video_id": video_id,
+                }
+            )
             return stream_data
 
         if "hglink.to/e/" in provider_url.lower() or "vibuxer.com/e/" in provider_url.lower():
             stream_url = self._resolver_streamw_stream(provider_url)
-            stream_data.update({
-                "provider": "streamw",
-                "stream_url": stream_url,
-                "stream_format": "application/x-mpegURL" if stream_url else "embed",
-                "resolution_mode": "stream+embed" if stream_url else "embed",
-            })
+            stream_data.update(
+                {
+                    "provider": "streamw",
+                    "stream_url": stream_url,
+                    "stream_format": "application/x-mpegURL" if stream_url else "embed",
+                    "resolution_mode": "stream+embed" if stream_url else "embed",
+                }
+            )
             return stream_data
 
         if "streamw" in provider_url.lower():
-            stream_data.update({
-                "provider": "streamw",
-                "stream_url": None,
-                "stream_format": "embed",
-                "resolution_mode": "embed",
-            })
-            return stream_data
-
-        if "voe.sx" in provider_url.lower() or provider_url.startswith("https://voe.sx"):
-            stream_data.update({
-                "provider": "voe",
-                "stream_url": None,
-                "stream_format": "embed",
-                "resolution_mode": "embed",
-            })
-            return stream_data
-
-        if "streamtape" in provider_url.lower():
-            stream_data.update({
-                "provider": "streamtape",
-                "stream_url": None,
-                "stream_format": "embed",
-                "resolution_mode": "embed",
-            })
-            return stream_data
-
-        if "vtube" in provider_url.lower() or "vtube." in provider_url.lower():
-            stream_data.update({
-                "provider": "vtube",
-                "stream_url": None,
-                "stream_format": "embed",
-                "resolution_mode": "embed",
-            })
-            return stream_data
-
-        if "vot" in provider_url.lower():
-            stream_data.update({
-                "provider": "vot",
-                "stream_url": None,
-                "stream_format": "embed",
-                "resolution_mode": "embed",
-            })
-            return stream_data
-
-        if provider_url.endswith(".m3u8"):
-            stream_data.update({
-                "provider": self._detectar_provider_desde_url(provider_url),
-                "stream_url": provider_url,
-                "stream_format": "application/x-mpegURL",
-                "resolution_mode": "stream",
-            })
-            return stream_data
-
-        if provider_url.endswith(".mp4"):
-            stream_data.update({
-                "provider": self._detectar_provider_desde_url(provider_url),
-                "stream_url": provider_url,
-                "stream_format": "video/mp4",
-                "resolution_mode": "stream",
-            })
-            return stream_data
-
-        parsed_url = urlparse(provider_url)
-        if parsed_url.netloc and parsed_url.netloc not in {"dailywrestling.cc", "watch-wrestling.eu"}:
-            if "/embed/" in parsed_url.path or parsed_url.path.startswith("/e/"):
-                stream_data.update({
-                    "provider": self._detectar_provider_desde_url(provider_url),
+            stream_data.update(
+                {
+                    "provider": "streamw",
                     "stream_url": None,
                     "stream_format": "embed",
                     "resolution_mode": "embed",
-                })
+                }
+            )
+            return stream_data
+
+        if "voe.sx" in provider_url.lower() or provider_url.startswith("https://voe.sx"):
+            stream_data.update(
+                {
+                    "provider": "voe",
+                    "stream_url": None,
+                    "stream_format": "embed",
+                    "resolution_mode": "embed",
+                }
+            )
+            return stream_data
+
+        if "streamtape" in provider_url.lower():
+            stream_data.update(
+                {
+                    "provider": "streamtape",
+                    "stream_url": None,
+                    "stream_format": "embed",
+                    "resolution_mode": "embed",
+                }
+            )
+            return stream_data
+
+        if "vtube" in provider_url.lower() or "vtube." in provider_url.lower():
+            stream_data.update(
+                {
+                    "provider": "vtube",
+                    "stream_url": None,
+                    "stream_format": "embed",
+                    "resolution_mode": "embed",
+                }
+            )
+            return stream_data
+
+        if "vot" in provider_url.lower():
+            stream_data.update(
+                {
+                    "provider": "vot",
+                    "stream_url": None,
+                    "stream_format": "embed",
+                    "resolution_mode": "embed",
+                }
+            )
+            return stream_data
+
+        if provider_url.endswith(".m3u8"):
+            stream_data.update(
+                {
+                    "provider": self._detectar_provider_desde_url(provider_url),
+                    "stream_url": provider_url,
+                    "stream_format": "application/x-mpegURL",
+                    "resolution_mode": "stream",
+                }
+            )
+            return stream_data
+
+        if provider_url.endswith(".mp4"):
+            stream_data.update(
+                {
+                    "provider": self._detectar_provider_desde_url(provider_url),
+                    "stream_url": provider_url,
+                    "stream_format": "video/mp4",
+                    "resolution_mode": "stream",
+                }
+            )
+            return stream_data
+
+        parsed_url = urlparse(provider_url)
+        if parsed_url.netloc and parsed_url.netloc not in {
+            "dailywrestling.cc",
+            "watch-wrestling.eu",
+        }:
+            if "/embed/" in parsed_url.path or parsed_url.path.startswith("/e/"):
+                stream_data.update(
+                    {
+                        "provider": self._detectar_provider_desde_url(provider_url),
+                        "stream_url": None,
+                        "stream_format": "embed",
+                        "resolution_mode": "embed",
+                    }
+                )
                 return stream_data
 
         return stream_data
 
-    def _validar_stream_resuelto(self, stream_data: Dict[str, Any]) -> bool:
+    def _validar_stream_resuelto(self, stream_data: dict[str, Any]) -> bool:
         """Descarta enlaces caidos o paginas genericas sin video."""
         stream_url = stream_data.get("stream_url")
         candidate_url = stream_url
@@ -862,7 +910,11 @@ class WatchWrestlingUfcScraper:
 
         if not stream_url:
             provider_url = stream_data.get("provider_url")
-            if stream_format == "embed" and provider_url and self._es_embed_web_usable(str(provider_url)):
+            if (
+                stream_format == "embed"
+                and provider_url
+                and self._es_embed_web_usable(str(provider_url))
+            ):
                 candidate_url = provider_url
             else:
                 return False
@@ -874,7 +926,9 @@ class WatchWrestlingUfcScraper:
             return False
 
         if provider == "dailymotion":
-            if stream_data.get("provider_url") and self._es_embed_web_usable(stream_data.get("provider_url", "")):
+            if stream_data.get("provider_url") and self._es_embed_web_usable(
+                stream_data.get("provider_url", "")
+            ):
                 if stream_format in {"application/x-mpegurl", "video/mp4"}:
                     stream_data["resolution_mode"] = "stream+embed"
                 else:
@@ -911,7 +965,7 @@ class WatchWrestlingUfcScraper:
             except Exception:
                 return False
 
-            body = (response.text or "")
+            body = response.text or ""
             lowered_body = body.lower()
             if 'data-module="OKVideo"' not in body and "data-module='OKVideo'" not in body:
                 return False
@@ -1004,7 +1058,7 @@ class WatchWrestlingUfcScraper:
         location = response.headers.get("Location") or response.headers.get("location")
         return location or provider_url
 
-    def _resolver_vidframe_stream(self, provider_url: str) -> Optional[str]:
+    def _resolver_vidframe_stream(self, provider_url: str) -> str | None:
         """Extrae el m3u8 real desde el embed HTML de VidFrame."""
         try:
             response = self.session.get(
@@ -1027,7 +1081,7 @@ class WatchWrestlingUfcScraper:
 
         return None
 
-    def _resolver_okru_stream(self, provider_url: str) -> Optional[str]:
+    def _resolver_okru_stream(self, provider_url: str) -> str | None:
         """Extrae el m3u8 real desde el metadata embebido de OK.ru."""
         try:
             response = self.session.get(
@@ -1062,7 +1116,7 @@ class WatchWrestlingUfcScraper:
             self._log_warning(f"No se pudo parsear metadata OK.ru {provider_url}: {e}")
             return None
 
-    def _resolver_streamw_stream(self, provider_url: str) -> Optional[str]:
+    def _resolver_streamw_stream(self, provider_url: str) -> str | None:
         """Extrae el m3u8 real desde el player de StreamW/Vibuxer."""
         script_path = Path(__file__).resolve().parent / "utils" / "replay_streamw_resolver.js"
         try:
@@ -1087,7 +1141,7 @@ class WatchWrestlingUfcScraper:
         return salida or None
 
     @staticmethod
-    def _extraer_okru_video_id(url: str) -> Optional[str]:
+    def _extraer_okru_video_id(url: str) -> str | None:
         parsed = urlparse(url)
         path_parts = [p for p in parsed.path.split("/") if p]
         if path_parts:
@@ -1095,7 +1149,7 @@ class WatchWrestlingUfcScraper:
         return None
 
     @staticmethod
-    def _extraer_vidframe_video_id(url: str) -> Optional[str]:
+    def _extraer_vidframe_video_id(url: str) -> str | None:
         parsed = urlparse(url)
         path_parts = [p for p in parsed.path.split("/") if p]
         if path_parts:
@@ -1103,7 +1157,7 @@ class WatchWrestlingUfcScraper:
         return None
 
     @staticmethod
-    def _extraer_vk_video_id(url: str) -> Optional[str]:
+    def _extraer_vk_video_id(url: str) -> str | None:
         if "video-" in url:
             parts = url.split("video-")
             if len(parts) > 1:
@@ -1112,9 +1166,9 @@ class WatchWrestlingUfcScraper:
 
     def _seleccionar_embed_para_web(
         self,
-        embed_url: Optional[str],
-        provider_url: Optional[str],
-    ) -> Optional[str]:
+        embed_url: str | None,
+        provider_url: str | None,
+    ) -> str | None:
         """Elige la URL embebible más estable para la web."""
         if provider_url and self._es_embed_web_usable(provider_url):
             return provider_url
@@ -1122,9 +1176,9 @@ class WatchWrestlingUfcScraper:
 
     @staticmethod
     def _build_resolution_log_mode(
-        stream: Dict[str, Any],
-        web_embed_url: Optional[str],
-    ) -> Optional[str]:
+        stream: dict[str, Any],
+        web_embed_url: str | None,
+    ) -> str | None:
         stream_url = stream.get("stream_url")
         stream_format = (stream.get("stream_format") or "").lower()
         has_stream = bool(stream_url) and stream_format != "embed"
@@ -1144,26 +1198,32 @@ class WatchWrestlingUfcScraper:
     @staticmethod
     def _es_embed_web_usable(url: str) -> bool:
         lowered = (url or "").lower()
-        if any(marker in lowered for marker in (
-            "dailymotion.com/embed/video/",
-            "geo.dailymotion.com/player.html",
-            "ok.ru/videoembed/",
-            "ok.ru/video/",
-            "vidframe.com/embed/",
-            "vk.com/video-",
-            "vk.com/ext.php?",
-            "streamw",
-            "hglink.to/e/",
-            "vibuxer.com/e/",
-            "voe.sx",
-            "streamtape",
-            "vtube",
-            "vot",
-        )):
+        if any(
+            marker in lowered
+            for marker in (
+                "dailymotion.com/embed/video/",
+                "geo.dailymotion.com/player.html",
+                "ok.ru/videoembed/",
+                "ok.ru/video/",
+                "vidframe.com/embed/",
+                "vk.com/video-",
+                "vk.com/ext.php?",
+                "streamw",
+                "hglink.to/e/",
+                "vibuxer.com/e/",
+                "voe.sx",
+                "streamtape",
+                "vtube",
+                "vot",
+            )
+        ):
             return True
 
         parsed_url = urlparse(url or "")
-        if parsed_url.netloc and parsed_url.netloc not in {"dailywrestling.cc", "watch-wrestling.eu"}:
+        if parsed_url.netloc and parsed_url.netloc not in {
+            "dailywrestling.cc",
+            "watch-wrestling.eu",
+        }:
             return "/embed/" in parsed_url.path or parsed_url.path.startswith("/e/")
 
         return False
@@ -1172,12 +1232,12 @@ class WatchWrestlingUfcScraper:
     # Dailymotion
     # ──────────────────────────────────────────────────────────────
 
-    def _resolver_dailymotion_stream(self, provider_url: str) -> Dict[str, Any]:
+    def _resolver_dailymotion_stream(self, provider_url: str) -> dict[str, Any]:
         parsed = urlparse(provider_url)
         path_parts = [part for part in parsed.path.split("/") if part]
         access_id = path_parts[-1] if path_parts else None
 
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "provider": "dailymotion",
             "provider_access_id": access_id,
             "provider_video_id": access_id,
@@ -1210,8 +1270,8 @@ class WatchWrestlingUfcScraper:
 
     @staticmethod
     def _seleccionar_mejor_stream_dailymotion(
-        quality_sources: Dict[str, List[Dict[str, Any]]]
-    ) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+        quality_sources: dict[str, list[dict[str, Any]]],
+    ) -> tuple[str | None, dict[str, Any] | None]:
         if not quality_sources:
             return None, None
 
@@ -1237,7 +1297,7 @@ class WatchWrestlingUfcScraper:
 
         return None, None
 
-    def _obtener_dailymotion_metadata(self, access_id: str) -> Dict[str, Any]:
+    def _obtener_dailymotion_metadata(self, access_id: str) -> dict[str, Any]:
         metadata_url = f"https://www.dailymotion.com/player/metadata/video/{access_id}"
         params = {"embedder": "https://dailywrestling.cc/"}
 
@@ -1288,11 +1348,11 @@ class WatchWrestlingUfcScraper:
     def _build_embed_url(
         self,
         category_name: str,
-        event_date: Optional[str],
+        event_date: str | None,
         select_post: int,
         source_index: int,
         button_index: int,
-    ) -> Optional[str]:
+    ) -> str | None:
         if not event_date:
             return None
 
@@ -1307,7 +1367,7 @@ class WatchWrestlingUfcScraper:
         )
 
     @staticmethod
-    def _buscar_srccontainer_siguiente(bloque: Tag) -> Optional[Tag]:
+    def _buscar_srccontainer_siguiente(bloque: Tag) -> Tag | None:
         sibling = bloque.find_next_sibling()
         while sibling:
             if isinstance(sibling, Tag) and sibling.name == "div":
@@ -1329,7 +1389,7 @@ class WatchWrestlingUfcScraper:
             return "numbered"
         return "other"
 
-    def _extraer_fecha_evento(self, title: str, post: Dict[str, Any]) -> Optional[str]:
+    def _extraer_fecha_evento(self, title: str, post: dict[str, Any]) -> str | None:
         match = re.search(r"(\d{1,2})/(\d{1,2})/(\d{2,4})", title)
         if match:
             mes, dia, year = match.groups()
@@ -1350,7 +1410,7 @@ class WatchWrestlingUfcScraper:
         return normalizado[:10]
 
     @staticmethod
-    def _normalizar_datetime(value: Optional[str]) -> Optional[str]:
+    def _normalizar_datetime(value: str | None) -> str | None:
         if not value:
             return None
 
@@ -1383,6 +1443,7 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    import sys
     import asyncio
+    import sys
+
     sys.exit(asyncio.run(main()))

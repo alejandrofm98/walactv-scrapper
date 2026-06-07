@@ -18,38 +18,38 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import get_settings
 import utils.constants as CONSTANTS
-from services.bulk_insert import insert_bulk_optimized
+from config import get_settings
 from database import DatabasePG
+from services.bulk_insert import insert_bulk_optimized
 from utils.series_keys import build_series_key
 
 # Cargar configuración
 settings = get_settings()
 
-FILTER_LANGUAGES = ['EN', 'ENG', 'ES', 'LA', 'LAT']
+FILTER_LANGUAGES = ["EN", "ENG", "ES", "LA", "LAT"]
 LANGUAGE_ALIASES = {
-    'ENG': 'EN',
-    'ENGLISH': 'EN',
-    'EN': 'EN',
-    'ES': 'ES',
-    'ESP': 'ESP',
-    'ESPANOL': 'ES',
-    'SPANISH': 'ES',
-    'LA': 'LATAM',
-    'LAT': 'LATAM',
-    'LATAM': 'LATAM',
-    'LATINO': 'LATAM',
-    'VOSE': 'VOSE',
-    'CAST': 'CAST',
-    'CASTELLANO': 'CAST',
-    'SUB': 'SUB',
-    'SUBTITULADO': 'SUB',
+    "ENG": "EN",
+    "ENGLISH": "EN",
+    "EN": "EN",
+    "ES": "ES",
+    "ESP": "ESP",
+    "ESPANOL": "ES",
+    "SPANISH": "ES",
+    "LA": "LATAM",
+    "LAT": "LATAM",
+    "LATAM": "LATAM",
+    "LATINO": "LATAM",
+    "VOSE": "VOSE",
+    "CAST": "CAST",
+    "CASTELLANO": "CAST",
+    "SUB": "SUB",
+    "SUBTITULADO": "SUB",
 }
-FILTER_LANGUAGES_NORMALIZED = {'EN', 'ES', 'LATAM'}
-CATALOG_COUNTRIES_ALLOWED = {'EN', 'ES'}
+FILTER_LANGUAGES_NORMALIZED = {"EN", "ES", "LATAM"}
+CATALOG_COUNTRIES_ALLOWED = {"EN", "ES"}
 LANGUAGE_TOKEN_REGEX = re.compile(
-    r'(?i)(?<![A-Z0-9])(LATAM|LATINO|LAT|LA|ENGLISH|ENG|EN|ESPANOL|SPANISH|ESP|ES|VOSE|CASTELLANO|CAST|SUBTITULADO|SUB)(?![A-Z0-9])'
+    r"(?i)(?<![A-Z0-9])(LATAM|LATINO|LAT|LA|ENGLISH|ENG|EN|ESPANOL|SPANISH|ESP|ES|VOSE|CASTELLANO|CAST|SUBTITULADO|SUB)(?![A-Z0-9])"
 )
 
 
@@ -58,7 +58,7 @@ def contains_language(extinf_line: str) -> bool:
     Busca idioma en group-title, tvg-name o display name.
     """
     metadata = extraer_metadatos_normalizados_m3u(extinf_line)
-    return metadata['language'] in FILTER_LANGUAGES_NORMALIZED
+    return metadata["language"] in FILTER_LANGUAGES_NORMALIZED
 
 
 def debe_guardarse_en_catalogo(item: dict, tipo: str) -> bool:
@@ -66,14 +66,14 @@ def debe_guardarse_en_catalogo(item: dict, tipo: str) -> bool:
     if tipo not in {CONSTANTS.CONTENT_TYPE_MOVIE, CONSTANTS.CONTENT_TYPE_SERIE}:
         return True
 
-    country = extraer_country(item.get('group', ''))
+    country = extraer_country(item.get("group", ""))
     if country in CATALOG_COUNTRIES_ALLOWED:
         return True
 
     if country:
         return False
 
-    language = extraer_idioma_desde_nombre(item.get('name', ''))
+    language = extraer_idioma_desde_nombre(item.get("name", ""))
     return language in CATALOG_COUNTRIES_ALLOWED
 
 
@@ -84,21 +84,21 @@ def split_extinf_line(extinf_line: str) -> tuple[str, str]:
     for i, char in enumerate(extinf_line):
         if char == '"':
             in_quotes = not in_quotes
-        elif char == ',' and not in_quotes:
+        elif char == "," and not in_quotes:
             comma_index = i
             break
 
     if comma_index == -1:
-        return extinf_line, ''
+        return extinf_line, ""
 
-    return extinf_line[:comma_index], extinf_line[comma_index + 1:].strip()
+    return extinf_line[:comma_index], extinf_line[comma_index + 1 :].strip()
 
 
 def normalizar_idioma(raw_value: str | None) -> str | None:
     if not raw_value:
         return None
 
-    cleaned = re.sub(r'[^A-Z0-9]+', '', raw_value.upper())
+    cleaned = re.sub(r"[^A-Z0-9]+", "", raw_value.upper())
     return LANGUAGE_ALIASES.get(cleaned)
 
 
@@ -106,13 +106,13 @@ def extraer_idioma_desde_grupo(group_title: str) -> str | None:
     if not group_title:
         return None
 
-    pipe_tokens = re.findall(r'\|\s*([^|]+?)\s*\|', group_title)
+    pipe_tokens = re.findall(r"\|\s*([^|]+?)\s*\|", group_title)
     for token in pipe_tokens:
         normalized = normalizar_idioma(token)
         if normalized:
             return normalized
 
-    prefix_match = re.match(r'^\s*([A-Z]{2,12})\s*[-|]', group_title.upper())
+    prefix_match = re.match(r"^\s*([A-Z]{2,12})\s*[-|]", group_title.upper())
     if prefix_match:
         normalized = normalizar_idioma(prefix_match.group(1))
         if normalized:
@@ -129,7 +129,7 @@ def extraer_idioma_desde_nombre(name: str) -> str | None:
     if not name:
         return None
 
-    prefix_match = re.match(r'^\s*([A-Z]{2,12})\s*[-|]\s*', name.upper())
+    prefix_match = re.match(r"^\s*([A-Z]{2,12})\s*[-|]\s*", name.upper())
     if prefix_match:
         normalized = normalizar_idioma(prefix_match.group(1))
         if normalized:
@@ -140,7 +140,7 @@ def extraer_idioma_desde_nombre(name: str) -> str | None:
 
 def quitar_prefijo_idioma(texto: str, language: str | None) -> str:
     if not texto:
-        return ''
+        return ""
 
     cleaned = texto.strip()
     if not language:
@@ -148,33 +148,36 @@ def quitar_prefijo_idioma(texto: str, language: str | None) -> str:
 
     variants = [key for key, value in LANGUAGE_ALIASES.items() if value == language]
     variants.append(language)
-    pattern = r'^\s*(?:' + '|'.join(sorted(set(re.escape(v) for v in variants), key=len, reverse=True)) + r')\s*[-|:]\s*'
-    return re.sub(pattern, '', cleaned, count=1, flags=re.IGNORECASE).strip()
+    pattern = (
+        r"^\s*(?:"
+        + "|".join(sorted(set(re.escape(v) for v in variants), key=len, reverse=True))
+        + r")\s*[-|:]\s*"
+    )
+    return re.sub(pattern, "", cleaned, count=1, flags=re.IGNORECASE).strip()
 
 
 def limpiar_etiquetas_calidad(texto: str) -> str:
     """Elimina etiquetas de calidad del título: [UHD], (HQ), (LQ), 4K, FHD, HD, etc."""
     if not texto:
-        return ''
+        return ""
 
     cleaned = re.sub(
-        r'\s*[\[\(]\s*(UHD|FHD|HD|SD|4K|HEVC|H265|HQ|LQ)\s*[\]\)]\s*',
-        ' ', texto, flags=re.IGNORECASE
+        r"\s*[\[\(]\s*(UHD|FHD|HD|SD|4K|HEVC|H265|HQ|LQ)\s*[\]\)]\s*",
+        " ",
+        texto,
+        flags=re.IGNORECASE,
     )
-    cleaned = re.sub(
-        r'\b(UHD|FHD|HD|SD|4K|HEVC|H265|HQ|LQ)\b',
-        '', cleaned, flags=re.IGNORECASE
-    )
-    cleaned = re.sub(r'\s*\[\s*\]\s*', ' ', cleaned)
-    cleaned = re.sub(r'\s*\(\s*\)\s*', ' ', cleaned)
-    return re.sub(r'\s+', ' ', cleaned).strip()
+    cleaned = re.sub(r"\b(UHD|FHD|HD|SD|4K|HEVC|H265|HQ|LQ)\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*\[\s*\]\s*", " ", cleaned)
+    cleaned = re.sub(r"\s*\(\s*\)\s*", " ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 def extraer_año(nombre: str) -> int | None:
     """Extrae año de (2017) o (2015-2020) → retorna el último año"""
     if not nombre:
         return None
-    match = re.search(r'\(((?:19|20)\d{2})(?:-(\d{4}))?\)', nombre)
+    match = re.search(r"\(((?:19|20)\d{2})(?:-(\d{4}))?\)", nombre)
     if match:
         year = match.group(2) or match.group(1)
         return int(year)
@@ -183,19 +186,21 @@ def extraer_año(nombre: str) -> int | None:
 
 def normalizar_grupo(group_title: str, language: str | None) -> str:
     if not group_title:
-        return ''
+        return ""
 
     cleaned = group_title.strip()
     if language:
         variants = [key for key, value in LANGUAGE_ALIASES.items() if value == language]
         variants.append(language)
         for variant in sorted(set(variants), key=len, reverse=True):
-            cleaned = re.sub(rf'\|\s*{re.escape(variant)}\s*\|', '|', cleaned, flags=re.IGNORECASE)
-            cleaned = re.sub(rf'^\s*{re.escape(variant)}\s*[-|:]\s*', '', cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(rf"\|\s*{re.escape(variant)}\s*\|", "|", cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(
+                rf"^\s*{re.escape(variant)}\s*[-|:]\s*", "", cleaned, flags=re.IGNORECASE
+            )
 
-    cleaned = re.sub(r'\|+', '|', cleaned)
-    cleaned = cleaned.strip(' |-_')
-    return re.sub(r'\s+', ' ', cleaned).strip()
+    cleaned = re.sub(r"\|+", "|", cleaned)
+    cleaned = cleaned.strip(" |-_")
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 def extraer_serie_name_normalizado(nombre_normalizado: str) -> str | None:
@@ -215,34 +220,34 @@ def construir_metadatos_normalizados(name: str, group_title: str, content_type: 
     group_normalized = normalizar_grupo(group_title, language)
 
     return {
-        'language': language,
-        'name_normalized': name_normalized,
-        'group_normalized': group_normalized,
-        'series_name_normalized': extraer_serie_name_normalizado(name_normalized),
-        'year': extraer_año(name_normalized),
-        'dedup_key': _compute_dedup_key(name_normalized),
+        "language": language,
+        "name_normalized": name_normalized,
+        "group_normalized": group_normalized,
+        "series_name_normalized": extraer_serie_name_normalizado(name_normalized),
+        "year": extraer_año(name_normalized),
+        "dedup_key": _compute_dedup_key(name_normalized),
     }
 
 
 def _compute_dedup_key(text: str) -> str:
     if not text:
-        return ''
+        return ""
     result = text
     # Quitar corchetes con contenido ≤15 chars
-    result = re.sub(r'\[[^\]]{1,15}\]', '', result)
-    result = result.replace('[', '').replace(']', '')
+    result = re.sub(r"\[[^\]]{1,15}\]", "", result)
+    result = result.replace("[", "").replace("]", "")
     # Quitar paréntesis con contenido ≤15 chars
-    result = re.sub(r'\([^)]{1,15}\)', '', result)
-    result = result.replace('(', '').replace(')', '')
+    result = re.sub(r"\([^)]{1,15}\)", "", result)
+    result = result.replace("(", "").replace(")", "")
     # Quitar apóstrofes
-    result = result.replace("'", '').replace("'", '').replace("'", '')
+    result = result.replace("'", "").replace("'", "").replace("'", "")
     # Quitar patrones de temporada/episodio (SXX EXX) para series
-    result = re.sub(r'\s+[sS]\d+\s+[eE]\d+.*$', '', result)
+    result = re.sub(r"\s+[sS]\d+\s+[eE]\d+.*$", "", result)
     # Lowercase + quitar acentos
-    result = unicodedata.normalize('NFKD', result).encode('ascii', 'ignore').decode('ascii').lower()
+    result = unicodedata.normalize("NFKD", result).encode("ascii", "ignore").decode("ascii").lower()
     # Quitar caracteres especiales excepto espacios y dígitos
-    result = re.sub(r'[^a-z0-9\s]', '', result)
-    result = re.sub(r'\s+', ' ', result).strip()
+    result = re.sub(r"[^a-z0-9\s]", "", result)
+    result = re.sub(r"\s+", " ", result).strip()
     return result
 
 
@@ -251,8 +256,8 @@ def extraer_metadatos_normalizados_m3u(extinf_line: str) -> dict:
     group_match = re.search(r'group-title="([^"]+)"', attrs_part)
     tvg_name_match = re.search(r'tvg-name="([^"]+)"', attrs_part)
 
-    group_title = group_match.group(1).strip() if group_match else ''
-    tvg_name = tvg_name_match.group(1).strip() if tvg_name_match else ''
+    group_title = group_match.group(1).strip() if group_match else ""
+    tvg_name = tvg_name_match.group(1).strip() if tvg_name_match else ""
 
     source_name = display_name or tvg_name
     return construir_metadatos_normalizados(source_name, group_title, CONSTANTS.CONTENT_TYPE_MOVIE)
@@ -260,16 +265,16 @@ def extraer_metadatos_normalizados_m3u(extinf_line: str) -> dict:
 
 def enriquecer_extinf_con_metadatos(extinf_line: str, content_type: str = None) -> str:
     attrs_part, display_name = split_extinf_line(extinf_line)
-    
+
     # Para canales, usar extraer_country; para movies/series usar idioma normalizado
     if content_type == CONSTANTS.CONTENT_TYPE_CHANNEL:
         group_match = re.search(r'group-title="([^"]+)"', attrs_part)
-        group_title = group_match.group(1).strip() if group_match else ''
+        group_title = group_match.group(1).strip() if group_match else ""
         language = extraer_country(group_title)
     else:
         metadata = extraer_metadatos_normalizados_m3u(extinf_line)
-        language = metadata.get('language')
-    
+        language = metadata.get("language")
+
     # Reconstruir metadata para name y group normalization
     if content_type == CONSTANTS.CONTENT_TYPE_CHANNEL:
         metadata = extraer_metadatos_normalizados_m3u(extinf_line)
@@ -281,12 +286,10 @@ def enriquecer_extinf_con_metadatos(extinf_line: str, content_type: str = None) 
         f' walac-name-normalized="{metadata["name_normalized"]}"',
         f' walac-group-normalized="{metadata["group_normalized"]}"',
     ]
-    if metadata.get('series_name_normalized'):
-        extra_attrs.append(
-            f' walac-series-name-normalized="{metadata["series_name_normalized"]}"'
-        )
+    if metadata.get("series_name_normalized"):
+        extra_attrs.append(f' walac-series-name-normalized="{metadata["series_name_normalized"]}"')
 
-    return f'{attrs_part}{"".join(extra_attrs)},{display_name}'
+    return f"{attrs_part}{''.join(extra_attrs)},{display_name}"
 
 
 async def init_postgres() -> asyncpg.Pool:
@@ -297,17 +300,15 @@ async def init_postgres() -> asyncpg.Pool:
 async def obtener_config_desde_postgres(pool: asyncpg.Pool, key: str) -> str:
     """Obtiene un valor de la tabla config."""
     async with pool.acquire() as conn:
-        result = await conn.fetchrow(
-            "SELECT value FROM config WHERE key = $1",
-            key
-        )
+        result = await conn.fetchrow("SELECT value FROM config WHERE key = $1", key)
         if result:
-            return str(result['value'] or '')
-    return ''
+            return str(result["value"] or "")
+    return ""
 
 
-def construir_proxies_requests(proxy_ip: str, proxy_port: str,
-                               proxy_user: str, proxy_pass: str) -> dict[str, str] | None:
+def construir_proxies_requests(
+    proxy_ip: str, proxy_port: str, proxy_user: str, proxy_pass: str
+) -> dict[str, str] | None:
     """Construye configuración de proxy para requests."""
     if not proxy_ip or not proxy_port:
         return None
@@ -318,8 +319,8 @@ def construir_proxies_requests(proxy_ip: str, proxy_port: str,
         proxy_url = f"http://{proxy_ip}:{proxy_port}"
 
     return {
-        'http': proxy_url,
-        'https': proxy_url,
+        "http": proxy_url,
+        "https": proxy_url,
     }
 
 
@@ -332,9 +333,7 @@ def detectar_tipo_contenido(url, nombre):
     nombre_lower = nombre.lower()
 
     # Detectar series
-    if CONSTANTS.URL_SERIES_PATH in url_lower or re.search(
-        CONSTANTS.SERIES_PATTERN, nombre_lower
-    ):
+    if CONSTANTS.URL_SERIES_PATH in url_lower or re.search(CONSTANTS.SERIES_PATTERN, nombre_lower):
         return CONSTANTS.CONTENT_TYPE_SERIE
 
     # Detectar películas
@@ -370,7 +369,7 @@ def proxy_logo_url(logo_url: str, public_domain: str, content_type: str = "chann
         return logo_url.replace(tmdb_w185_prefix, tmdb_series_prefix, 1)
 
     # Si ya es HTTPS o es una URL local, dejarla como está
-    if logo_url.startswith('https://') or logo_url.startswith('/'):
+    if logo_url.startswith("https://") or logo_url.startswith("/"):
         return logo_url
 
     # Convertir HTTP a HTTPS usando el proxy con query string
@@ -405,7 +404,7 @@ def extraer_serie_name(nombre):
     Returns: nombre de la serie o None
     """
     # Patrón: opcionalmente empieza con "XX - " (código de país), luego el nombre, luego SXX EXX
-    match = re.search(r'^(?:[A-Z]{2}\s+-\s+)?(.+?)\s+S\d+\s+E\d+', nombre, re.IGNORECASE)
+    match = re.search(r"^(?:[A-Z]{2}\s+-\s+)?(.+?)\s+S\d+\s+E\d+", nombre, re.IGNORECASE)
     if match:
         return match.group(1).strip()
 
@@ -413,22 +412,23 @@ def extraer_serie_name(nombre):
 
 
 COUNTRY_KEYWORDS = {
-    'BR': ['BRASIL', 'BRA', 'BRAZIL', 'BRASILEIRAO', 'GLOBO', 'SBT', 'BAND', 'REDE', 'TV GLOBO'],
-    'AR': ['ARGENTINA', 'ARG', 'CANAL 13', 'TELEFE', 'TYC', 'ARGENTINOS'],
-    'MX': ['MEXICO', 'MEX', 'TELEVISA', 'TV AZTECA', 'CANAL ONCE', 'NUEVO LEON'],
-    'CO': ['COLOMBIA', 'COL', 'CARACOL', 'RCN', 'COLOMBIAN'],
-    'CL': ['CHILE', 'CHI', 'CHANNEL', 'TVN', 'CHV', 'CANAL 13 CHILE'],
-    'PE': ['PERU', 'PER', 'ATV', 'AMERICA TV', 'LIMA'],
-    'VE': ['VENEZUELA', 'VEN', 'VENEVISION', 'TELESUR'],
-    'US': ['USA', 'ESTADOS UNIDOS', 'AMERICAN', 'UNIVISION', 'ESPN US'],
-    'UK': ['UK', 'ENGLAND', 'BRITISH', 'BBC', 'SKY UK'],
-    'ES': ['ESPAÑA', 'SPAIN', 'ES', 'SPANISH', 'CANAL+', 'MOVISTAR', 'TELEDEPORTE'],
-    'PT': ['PORTUGAL', 'POR', 'PORTUGUESE', 'RTP', 'SIC'],
-    'IT': ['ITALIA', 'ITA', 'ITALIAN', 'RAI', 'MEDIASET'],
-    'FR': ['FRANCIA', 'FRA', 'FRENCH', 'TF1', 'FRANCE'],
-    'DE': ['ALEMANIA', 'GERMANY', 'DEU', 'GERMAN', 'ZDF', 'ARD'],
-    'UY': ['URUGUAY', 'URU', 'URUGUAYAN', 'CANAL 10', 'TVU'],
+    "BR": ["BRASIL", "BRA", "BRAZIL", "BRASILEIRAO", "GLOBO", "SBT", "BAND", "REDE", "TV GLOBO"],
+    "AR": ["ARGENTINA", "ARG", "CANAL 13", "TELEFE", "TYC", "ARGENTINOS"],
+    "MX": ["MEXICO", "MEX", "TELEVISA", "TV AZTECA", "CANAL ONCE", "NUEVO LEON"],
+    "CO": ["COLOMBIA", "COL", "CARACOL", "RCN", "COLOMBIAN"],
+    "CL": ["CHILE", "CHI", "CHANNEL", "TVN", "CHV", "CANAL 13 CHILE"],
+    "PE": ["PERU", "PER", "ATV", "AMERICA TV", "LIMA"],
+    "VE": ["VENEZUELA", "VEN", "VENEVISION", "TELESUR"],
+    "US": ["USA", "ESTADOS UNIDOS", "AMERICAN", "UNIVISION", "ESPN US"],
+    "UK": ["UK", "ENGLAND", "BRITISH", "BBC", "SKY UK"],
+    "ES": ["ESPAÑA", "SPAIN", "ES", "SPANISH", "CANAL+", "MOVISTAR", "TELEDEPORTE"],
+    "PT": ["PORTUGAL", "POR", "PORTUGUESE", "RTP", "SIC"],
+    "IT": ["ITALIA", "ITA", "ITALIAN", "RAI", "MEDIASET"],
+    "FR": ["FRANCIA", "FRA", "FRENCH", "TF1", "FRANCE"],
+    "DE": ["ALEMANIA", "GERMANY", "DEU", "GERMAN", "ZDF", "ARD"],
+    "UY": ["URUGUAY", "URU", "URUGUAYAN", "CANAL 10", "TVU"],
 }
+
 
 def extraer_country(grupo):
     """
@@ -445,7 +445,7 @@ def extraer_country(grupo):
 
     # Primero: buscar código de país al inicio con patrón flexible
     # Soporta: BR|, |BR|, BR|, BR |, etc.
-    match = re.match(r'^[|\s]*([A-Z]{2})[\s|]?', grupo)
+    match = re.match(r"^[|\s]*([A-Z]{2})[\s|]?", grupo)
     if match:
         return match.group(1)
 
@@ -470,9 +470,9 @@ def extraer_provider_id(url: str) -> str:
     """
     try:
         # Obtener la última parte de la URL (después del último /)
-        last_part = url.rstrip('/').split('/')[-1]
+        last_part = url.rstrip("/").split("/")[-1]
         # Quitar extensión si existe (.mkv, .mp4, .ts, etc.)
-        provider_id = last_part.split('.')[0]
+        provider_id = last_part.split(".")[0]
         # Truncar a máximo 50 caracteres (límite de la base de datos)
         return provider_id[:50]
     except Exception:
@@ -484,19 +484,19 @@ def construir_stream_url(url: str, provider_username: str, provider_password: st
     if not provider_id:
         return ""
 
-    base_url = settings.public_domain.rstrip('/')
+    base_url = settings.public_domain.rstrip("/")
     url_lower = url.lower()
-    last_part = url.rstrip('/').split('/')[-1]
-    extension = ''
-    if '.' in last_part:
-        extension = '.' + last_part.split('.')[-1]
+    last_part = url.rstrip("/").split("/")[-1]
+    extension = ""
+    if "." in last_part:
+        extension = "." + last_part.split(".")[-1]
 
     username_placeholder = "{{USERNAME}}"
     password_placeholder = "{{PASSWORD}}"
 
-    if '/series/' in url_lower:
+    if "/series/" in url_lower:
         return f"{base_url}/series/{username_placeholder}/{password_placeholder}/{provider_id}{extension}"
-    if '/movie/' in url_lower:
+    if "/movie/" in url_lower:
         return f"{base_url}/movie/{username_placeholder}/{password_placeholder}/{provider_id}{extension}"
     return f"{base_url}/live/{username_placeholder}/{password_placeholder}/{provider_id}"
 
@@ -506,49 +506,49 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
     item_id = str(idx)[:50]  # Truncar a máximo 50 caracteres
 
     # Extraer country del grupo
-    country = extraer_country(item['group'])
-    metadata = construir_metadatos_normalizados(item['name'], item['group'], tipo)
+    country = extraer_country(item["group"])
+    metadata = construir_metadatos_normalizados(item["name"], item["group"], tipo)
 
     # Convertir URL del logo a HTTPS usando el proxy
-    logo_url = proxy_logo_url(item['logo'], settings.public_domain, tipo)
+    logo_url = proxy_logo_url(item["logo"], settings.public_domain, tipo)
 
     # Extraer provider_id de la URL
-    provider_id = extraer_provider_id(item['url'])
-    stream_url = construir_stream_url(item['url'], provider_username, provider_password)
+    provider_id = extraer_provider_id(item["url"])
+    stream_url = construir_stream_url(item["url"], provider_username, provider_password)
 
     # Datos base comunes a todos los tipos
     data_base = {
         "id": item_id,
         "numero": idx,
-        "nombre": item['name'],
+        "nombre": item["name"],
         "logo": logo_url,
-        "url": item['url'],
+        "url": item["url"],
         "provider_id": provider_id,
         "stream_url": stream_url,
-        "grupo": item['group'],
-        "grupo_normalizado": metadata['group_normalized'],
+        "grupo": item["group"],
+        "grupo_normalizado": metadata["group_normalized"],
         "country": country,
-        "nombre_normalizado": metadata['name_normalized'],
-        "tvg_id": item.get('tvg_id', '')
+        "nombre_normalizado": metadata["name_normalized"],
+        "tvg_id": item.get("tvg_id", ""),
     }
 
     # Si es serie, añadir temporada, episodio, serie_name y nombre_dedup_key
     if tipo == CONSTANTS.CONTENT_TYPE_SERIE:
-        temporada, episodio = extraer_temporada_episodio(item['name'])
-        serie_name = extraer_serie_name(metadata['name_normalized'])
+        temporada, episodio = extraer_temporada_episodio(item["name"])
+        serie_name = extraer_serie_name(metadata["name_normalized"])
         # Fallback: si no se pudo extraer serie_name, usar nombre_normalizado limpio
         if not serie_name:
-            serie_name = metadata['name_normalized']
-        series_key = build_series_key(serie_name, metadata['name_normalized'])
-        data_base['temporada'] = temporada
-        data_base['episodio'] = episodio
-        data_base['serie_name'] = serie_name
-        data_base['series_key'] = series_key
-        data_base['year'] = metadata.get('year')
-        data_base['nombre_dedup_key'] = metadata.get('dedup_key', '')
+            serie_name = metadata["name_normalized"]
+        series_key = build_series_key(serie_name, metadata["name_normalized"])
+        data_base["temporada"] = temporada
+        data_base["episodio"] = episodio
+        data_base["serie_name"] = serie_name
+        data_base["series_key"] = series_key
+        data_base["year"] = metadata.get("year")
+        data_base["nombre_dedup_key"] = metadata.get("dedup_key", "")
     elif tipo == CONSTANTS.CONTENT_TYPE_MOVIE:
-        data_base['year'] = metadata.get('year')
-        data_base['nombre_dedup_key'] = metadata.get('dedup_key', '')
+        data_base["year"] = metadata.get("year")
+        data_base["nombre_dedup_key"] = metadata.get("dedup_key", "")
     # canales: NO incluir year ni nombre_dedup_key (la tabla channels no tiene esas columnas)
 
     return data_base
@@ -575,13 +575,13 @@ def limpiar_m3u_antiguos(m3u_dir: str, copias_mantener: int = None):
 
         for filename in os.listdir(m3u_dir):
             # Eliminar TODOS los archivos .m3u sin excepciones
-            if filename.endswith('.m3u'):
+            if filename.endswith(".m3u"):
                 filepath = os.path.join(m3u_dir, filename)
                 if os.path.isfile(filepath):
                     archivos_a_eliminar.append(filepath)
 
         if len(archivos_a_eliminar) == 0:
-            print(f"  📂 Directorio limpio, no hay archivos M3U para eliminar")
+            print("  📂 Directorio limpio, no hay archivos M3U para eliminar")
             return
 
         # Eliminar todos los archivos
@@ -602,17 +602,18 @@ def limpiar_m3u_antiguos(m3u_dir: str, copias_mantener: int = None):
 def extraer_provider_base_url(url_source: str) -> str:
     """
     Extrae la URL base del proveedor desde la URL de la playlist.
-    
+
     Ejemplos:
         - http://line.8kultradnscloud.ru:80/get.php?username=X&password=Y&type=m3u
           -> http://line.8kultradnscloud.ru:80
         - http://servidor.com:8080/playlist.m3u
           -> http://servidor.com:8080
-    
+
     Returns:
         URL base del proveedor (sin path)
     """
     from urllib.parse import urlparse
+
     parsed = urlparse(url_source)
     return f"{parsed.scheme}://{parsed.netloc}"
 
@@ -621,11 +622,11 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
     """
     Procesa el M3U original y crea templates con placeholders, clasificados por tipo.
     Filtra movies y series por idiomas: EN, ENG, ES, LA, LAT
-    
+
     Args:
         contenido_m3u: Contenido del M3U original con credenciales del proveedor
         provider_url: URL base del proveedor (ej: http://line.8kultradnscloud.ru:80)
-        
+
     Returns:
         dict con:
             - 'full': template completo (live sin filtrar + movies/series filtrados)
@@ -634,98 +635,98 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
             - 'series': solo series filtradas
             - 'counts': contador por tipo
     """
-    lines = contenido_m3u.split('\n')
-    
-    all_lines = ['#EXTM3U']
-    live_lines = ['#EXTM3U']
-    movie_lines = ['#EXTM3U']
-    series_lines = ['#EXTM3U']
-    
-    counts = {'live': 0, 'movie': 0, 'series': 0, 'full': 0}
-    filtered = {'movie': 0, 'series': 0}
-    
+    lines = contenido_m3u.split("\n")
+
+    all_lines = ["#EXTM3U"]
+    live_lines = ["#EXTM3U"]
+    movie_lines = ["#EXTM3U"]
+    series_lines = ["#EXTM3U"]
+
+    counts = {"live": 0, "movie": 0, "series": 0, "full": 0}
+    filtered = {"movie": 0, "series": 0}
+
     provider_url_escaped = re.escape(provider_url)
 
-    pattern_series = re.compile(
-        rf'{provider_url_escaped}/series/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)'
-    )
-    pattern_movie = re.compile(
-        rf'{provider_url_escaped}/movie/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)'
-    )
+    pattern_series = re.compile(rf"{provider_url_escaped}/series/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)")
+    pattern_movie = re.compile(rf"{provider_url_escaped}/movie/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)")
     pattern_live = re.compile(
-        rf'{provider_url_escaped}/(?:(?P<prefix>[^/]+)/)?[^/]+/[^/]+/(?P<id>\d+)(?P<ext>\.ts)?'
+        rf"{provider_url_escaped}/(?:(?P<prefix>[^/]+)/)?[^/]+/[^/]+/(?P<id>\d+)(?P<ext>\.ts)?"
     )
 
     def replace_live_url(match: re.Match) -> str:
-        prefix = match.group('prefix')
-        stream_id = match.group('id')
-        ext = match.group('ext') or ''
+        prefix = match.group("prefix")
+        stream_id = match.group("id")
+        ext = match.group("ext") or ""
 
         prefix_part = f"{prefix}/" if prefix else ""
         return f"{{{{DOMAIN}}}}/{prefix_part}{{{{USERNAME}}}}/{{{{PASSWORD}}}}/{stream_id}{ext}"
-    
+
     current_extinf = None
-    
+
     for line in lines:
-        line = line.rstrip('\r\n\t ')
-        
-        if line.startswith('#EXTINF:'):
+        line = line.rstrip("\r\n\t ")
+
+        if line.startswith("#EXTINF:"):
             current_extinf = line
             all_lines.append(line)
             continue
-        
-        if not line or line.startswith('#'):
+
+        if not line or line.startswith("#"):
             all_lines.append(line)
             continue
-        
+
         content_type = None
         processed_line = line
-        
+
         if pattern_series.search(line):
-            processed_line = pattern_series.sub(r'{{DOMAIN}}/series/{{USERNAME}}/{{PASSWORD}}/\1.\2', line)
-            content_type = 'series'
+            processed_line = pattern_series.sub(
+                r"{{DOMAIN}}/series/{{USERNAME}}/{{PASSWORD}}/\1.\2", line
+            )
+            content_type = "series"
         elif pattern_movie.search(line):
-            processed_line = pattern_movie.sub(r'{{DOMAIN}}/movie/{{USERNAME}}/{{PASSWORD}}/\1.\2', line)
-            content_type = 'movie'
+            processed_line = pattern_movie.sub(
+                r"{{DOMAIN}}/movie/{{USERNAME}}/{{PASSWORD}}/\1.\2", line
+            )
+            content_type = "movie"
         elif pattern_live.search(line):
             processed_line = pattern_live.sub(replace_live_url, line)
-            content_type = 'live'
-        
+            content_type = "live"
+
         all_lines.append(processed_line)
-        
+
         if content_type and current_extinf:
             should_include = True
             include_in_full = True
-            
-            if content_type in ['movie', 'series']:
+
+            if content_type in ["movie", "series"]:
                 if not contains_language(current_extinf):
                     should_include = False
                     filtered[content_type] += 1
                     include_in_full = False
-            
+
             if should_include:
                 counts[content_type] += 1
-                if content_type == 'live':
+                if content_type == "live":
                     live_lines.append(current_extinf)
                     live_lines.append(processed_line)
-                elif content_type == 'movie':
+                elif content_type == "movie":
                     movie_lines.append(current_extinf)
                     movie_lines.append(processed_line)
-                elif content_type == 'series':
+                elif content_type == "series":
                     series_lines.append(current_extinf)
                     series_lines.append(processed_line)
-            
-            counts['full'] += 1
-        
+
+            counts["full"] += 1
+
         current_extinf = None
-    
+
     return {
-        'full': '\n'.join(all_lines),
-        'live': '\n'.join(live_lines),
-        'movie': '\n'.join(movie_lines),
-        'series': '\n'.join(series_lines),
-        'counts': counts,
-        'filtered': filtered
+        "full": "\n".join(all_lines),
+        "live": "\n".join(live_lines),
+        "movie": "\n".join(movie_lines),
+        "series": "\n".join(series_lines),
+        "counts": counts,
+        "filtered": filtered,
     }
 
 
@@ -739,8 +740,8 @@ def guardar_m3u_local(contenido_m3u: str, m3u_dir: str = None, provider_url: str
         - playlist_template_series.m3u (solo series)
     """
     is_docker = (
-        os.path.exists(CONSTANTS.DOCKER_ENV_PATH) or
-        os.getenv(CONSTANTS.DOCKER_ENV_FLAG) == CONSTANTS.DOCKER_ENV_VALUE
+        os.path.exists(CONSTANTS.DOCKER_ENV_PATH)
+        or os.getenv(CONSTANTS.DOCKER_ENV_FLAG) == CONSTANTS.DOCKER_ENV_VALUE
     )
 
     if m3u_dir is None:
@@ -749,58 +750,62 @@ def guardar_m3u_local(contenido_m3u: str, m3u_dir: str = None, provider_url: str
         else:
             project_root = Path(__file__).parent.parent
             m3u_dir = os.getenv(
-                CONSTANTS.M3U_DIR_ENV,
-                str(project_root / CONSTANTS.M3U_DIR_LOCAL_DEFAULT)
+                CONSTANTS.M3U_DIR_ENV, str(project_root / CONSTANTS.M3U_DIR_LOCAL_DEFAULT)
             )
 
     try:
         print(f"📁 Preparando directorio: {m3u_dir}")
         os.makedirs(m3u_dir, exist_ok=True)
 
-        print(f"  🧹 Limpiando archivos M3U anteriores...")
+        print("  🧹 Limpiando archivos M3U anteriores...")
         limpiar_m3u_antiguos(m3u_dir)
 
-        print(f"💾 Generando templates M3U...")
+        print("💾 Generando templates M3U...")
         if not provider_url:
             if not settings.iptv_source_url:
                 raise ValueError("No se puede crear template: falta URL del proveedor")
             provider_url = extraer_provider_base_url(settings.iptv_source_url)
-        
+
         templates = crear_template_m3u(contenido_m3u, provider_url)
-        
+
         def write_atomic(content: str, filename: str):
             path = os.path.join(m3u_dir, filename)
             path_tmp = f"{path}.tmp"
-            with open(path_tmp, 'w', encoding='utf-8') as f:
+            with open(path_tmp, "w", encoding="utf-8") as f:
                 f.write(content)
             os.rename(path_tmp, path)
             return path
-        
+
         results = {}
-        
-        for name, key in [('Completo', 'full'), ('Live', 'live'), ('Movie', 'movie'), ('Series', 'series')]:
+
+        for name, key in [
+            ("Completo", "full"),
+            ("Live", "live"),
+            ("Movie", "movie"),
+            ("Series", "series"),
+        ]:
             content = templates[key]
-            size_mb = len(content.encode('utf-8')) / 1024 / 1024
-            filename = f"playlist_template_{key}.m3u" if key != 'full' else "playlist_template.m3u"
+            size_mb = len(content.encode("utf-8")) / 1024 / 1024
+            filename = f"playlist_template_{key}.m3u" if key != "full" else "playlist_template.m3u"
             path = write_atomic(content, filename)
             results[key] = {"path": path, "filename": filename, "size_mb": size_mb}
             print(f"    ✅ {name}: {filename} ({size_mb:.2f} MB)")
-        
-        print(f"\n📊 Conteo por tipo:")
-        for t, c in templates['counts'].items():
+
+        print("\n📊 Conteo por tipo:")
+        for t, c in templates["counts"].items():
             print(f"    {t}: {c:,} items")
-        
-        if 'filtered' in templates:
-            print(f"\n🔍 Filtrados por idioma (EN, ENG, ES, LA, LAT):")
-            for t, c in templates['filtered'].items():
+
+        if "filtered" in templates:
+            print("\n🔍 Filtrados por idioma (EN, ENG, ES, LA, LAT):")
+            for t, c in templates["filtered"].items():
                 print(f"    {t}: {c:,} items excluidos")
 
         return {
-            "template_path": results['full']['path'],
-            "template_filename": results['full']['filename'],
-            "size_mb": results['full']['size_mb'],
+            "template_path": results["full"]["path"],
+            "template_filename": results["full"]["filename"],
+            "size_mb": results["full"]["size_mb"],
             "templates": results,
-            "counts": templates['counts']
+            "counts": templates["counts"],
         }
 
     except Exception as e:
@@ -871,9 +876,14 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                             RETURNING id
                             """,
                             m.get("nombre_normalizado") or m.get("nombre", ""),
-                            dedup_key, canonical_key, m.get("year"),
-                            m.get("grupo_normalizado"), m.get("country"),
-                            m.get("logo"), provider_id, tmdb_id,
+                            dedup_key,
+                            canonical_key,
+                            m.get("year"),
+                            m.get("grupo_normalizado"),
+                            m.get("country"),
+                            m.get("logo"),
+                            provider_id,
+                            tmdb_id,
                         )
                         if result:
                             catalog_id_map[canonical_key] = result["id"]
@@ -918,7 +928,9 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
     if not series:
         return True
 
-    print(f"\n📦 INSERTANDO EN SERIES_CATALOG + SERIES_EPISODES + SERIES_STREAMS ({len(series):,} streams)...")
+    print(
+        f"\n📦 INSERTANDO EN SERIES_CATALOG + SERIES_EPISODES + SERIES_STREAMS ({len(series):,} streams)..."
+    )
 
     try:
         async with pool.acquire() as conn:
@@ -934,8 +946,11 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                 print(f"  ⚠️  No se pudieron cargar tmdb_id: {e}")
 
             # Truncar tablas
-            for table in [CONSTANTS.SERIES_STREAMS_TABLE, CONSTANTS.SERIES_EPISODES_TABLE,
-                          CONSTANTS.SERIES_CATALOG_TABLE]:
+            for table in [
+                CONSTANTS.SERIES_STREAMS_TABLE,
+                CONSTANTS.SERIES_EPISODES_TABLE,
+                CONSTANTS.SERIES_CATALOG_TABLE,
+            ]:
                 if not await limpiar_tabla_optimizada(pool, table):
                     return False
 
@@ -946,8 +961,10 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
             for s in series:
                 sk = s.get("series_key") or ""
                 if not sk:
-                    serie_name = s.get("serie_name") or s.get("nombre_normalizado") or s.get("nombre", "")
-                    sk = re.sub(r'[^a-z0-9]', '', serie_name.lower())
+                    serie_name = (
+                        s.get("serie_name") or s.get("nombre_normalizado") or s.get("nombre", "")
+                    )
+                    sk = re.sub(r"[^a-z0-9]", "", serie_name.lower())
                 if not sk:
                     continue
 
@@ -965,10 +982,17 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                             RETURNING id
                             """,
-                            s.get("serie_name") or s.get("nombre_normalizado") or s.get("nombre", ""),
-                            sk, canonical_key, s.get("year"),
-                            s.get("grupo_normalizado"), s.get("country"),
-                            s.get("logo"), s.get("provider_id"), tmdb_id,
+                            s.get("serie_name")
+                            or s.get("nombre_normalizado")
+                            or s.get("nombre", ""),
+                            sk,
+                            canonical_key,
+                            s.get("year"),
+                            s.get("grupo_normalizado"),
+                            s.get("country"),
+                            s.get("logo"),
+                            s.get("provider_id"),
+                            tmdb_id,
                         )
                         if result:
                             catalog_id_map[canonical_key] = result["id"]
@@ -983,8 +1007,16 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                 try:
                     season_str = s.get("temporada") or "0"
                     episode_str = s.get("episodio") or "0"
-                    season_num = int(re.sub(r'[^0-9]', '', season_str)) if re.sub(r'[^0-9]', '', season_str) else 0
-                    episode_num = int(re.sub(r'[^0-9]', '', episode_str)) if re.sub(r'[^0-9]', '', episode_str) else 0
+                    season_num = (
+                        int(re.sub(r"[^0-9]", "", season_str))
+                        if re.sub(r"[^0-9]", "", season_str)
+                        else 0
+                    )
+                    episode_num = (
+                        int(re.sub(r"[^0-9]", "", episode_str))
+                        if re.sub(r"[^0-9]", "", episode_str)
+                        else 0
+                    )
                 except (ValueError, TypeError):
                     continue
 
@@ -1000,13 +1032,17 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                             ON CONFLICT (catalog_id, season_number, episode_number) DO NOTHING
                             RETURNING id
                             """,
-                            catalog_id, season_num, episode_num,
+                            catalog_id,
+                            season_num,
+                            episode_num,
                             s.get("numero", 0),
                         )
                         if not result:
                             result = await conn.fetchrow(
                                 "SELECT id FROM series_episodes WHERE catalog_id = $1 AND season_number = $2 AND episode_number = $3",
-                                catalog_id, season_num, episode_num,
+                                catalog_id,
+                                season_num,
+                                episode_num,
                             )
                         if result:
                             episode_map[ep_key] = result["id"]
@@ -1038,7 +1074,9 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                 except Exception as e:
                     print(f"  ⚠️  Error insertando series_stream: {e}")
 
-        print(f"  ✅ Series: {len(catalog_id_map):,} catálogo + {len(episode_map):,} episodios + {stream_count:,} streams")
+        print(
+            f"  ✅ Series: {len(catalog_id_map):,} catálogo + {len(episode_map):,} episodios + {stream_count:,} streams"
+        )
         return True
 
     except Exception as e:
@@ -1050,7 +1088,7 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
 def parsear_m3u(m3u_content: str) -> list:
     """Parsea contenido M3U y retorna lista de items"""
     items_temp = []
-    lines = m3u_content.split('\n')
+    lines = m3u_content.split("\n")
     current_item = {}
 
     for line in lines:
@@ -1058,30 +1096,25 @@ def parsear_m3u(m3u_content: str) -> list:
 
         if line.startswith(CONSTANTS.M3U_EXTINF_PREFIX):
             # Extraer información del item
-            group = ''
+            group = ""
             if CONSTANTS.M3U_GROUP_TITLE_ATTR in line:
                 group = line.split(CONSTANTS.M3U_GROUP_TITLE_ATTR)[1].split('"')[0]
 
-            name = line.split(',')[-1].strip() if ',' in line else 'Unknown'
+            name = line.split(",")[-1].strip() if "," in line else "Unknown"
 
-            logo = ''
+            logo = ""
             if CONSTANTS.M3U_TVG_LOGO_ATTR in line:
                 raw_logo = line.split(CONSTANTS.M3U_TVG_LOGO_ATTR)[1].split('"')[0]
                 logo = proxy_logo_url(raw_logo, settings.public_domain, "channel")
 
-            tvg_id = ''
+            tvg_id = ""
             if CONSTANTS.M3U_TVG_ID_ATTR in line:
                 tvg_id = line.split(CONSTANTS.M3U_TVG_ID_ATTR)[1].split('"')[0]
 
-            current_item = {
-                'name': name,
-                'group': group,
-                'logo': logo,
-                'tvg_id': tvg_id
-            }
+            current_item = {"name": name, "group": group, "logo": logo, "tvg_id": tvg_id}
 
-        elif line and not line.startswith('#') and current_item:
-            current_item['url'] = line
+        elif line and not line.startswith("#") and current_item:
+            current_item["url"] = line
             items_temp.append(current_item.copy())
             current_item = {}
 
@@ -1094,7 +1127,7 @@ async def sync_to_postgres():
     hora_inicio = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     print("\n" + "=" * 70)
-    print(f"🚀 INICIANDO SINCRONIZACIÓN IPTV")
+    print("🚀 INICIANDO SINCRONIZACIÓN IPTV")
     print("=" * 70)
     print(f"⏰ Hora de inicio: {hora_inicio}")
     print("=" * 70 + "\n")
@@ -1118,22 +1151,25 @@ async def sync_to_postgres():
     download_proxies: dict[str, str] | None = None
 
     try:
-        provider_url = await obtener_config_desde_postgres(pool, 'IPTV_BASE_URL')
-        provider_username = await obtener_config_desde_postgres(pool, 'IPTV_USERNAME')
-        provider_password = await obtener_config_desde_postgres(pool, 'IPTV_PASSWORD')
+        provider_url = await obtener_config_desde_postgres(pool, "IPTV_BASE_URL")
+        provider_username = await obtener_config_desde_postgres(pool, "IPTV_USERNAME")
+        provider_password = await obtener_config_desde_postgres(pool, "IPTV_PASSWORD")
 
-        proxy_ip = await obtener_config_desde_postgres(pool, 'PROXY_IP')
-        proxy_port = await obtener_config_desde_postgres(pool, 'PROXY_PORT')
-        proxy_user = await obtener_config_desde_postgres(pool, 'PROXY_USER')
-        proxy_pass = await obtener_config_desde_postgres(pool, 'PROXY_PASS')
+        proxy_ip = await obtener_config_desde_postgres(pool, "PROXY_IP")
+        proxy_port = await obtener_config_desde_postgres(pool, "PROXY_PORT")
+        proxy_user = await obtener_config_desde_postgres(pool, "PROXY_USER")
+        proxy_pass = await obtener_config_desde_postgres(pool, "PROXY_PASS")
         download_proxies = construir_proxies_requests(
-            proxy_ip, proxy_port, proxy_user, proxy_pass,
+            proxy_ip,
+            proxy_port,
+            proxy_user,
+            proxy_pass,
         )
 
         if provider_url and provider_username and provider_password:
-            base_url = provider_url.rstrip('/')
+            base_url = provider_url.rstrip("/")
             playlist_url = f"{base_url}/get.php?username={provider_username}&password={provider_password}&type=m3u_plus&output=ts"
-            print(f"✅ Configuración del proveedor obtenida desde config")
+            print("✅ Configuración del proveedor obtenida desde config")
             print(f"   URL Base: {provider_url}")
             print(f"   Username: {provider_username}")
             if download_proxies:
@@ -1143,7 +1179,7 @@ async def sync_to_postgres():
         else:
             playlist_url = str(settings.iptv_source_url) if settings.iptv_source_url else ""
             provider_url = extraer_provider_base_url(playlist_url) if playlist_url else ""
-            print(f"⚠️  Config incompleta en PostgreSQL, usando iptv_source_url")
+            print("⚠️  Config incompleta en PostgreSQL, usando iptv_source_url")
 
     except Exception as e:
         playlist_url = str(settings.iptv_source_url) if settings.iptv_source_url else ""
@@ -1164,7 +1200,9 @@ async def sync_to_postgres():
     while retry_count < MAX_RETRIES:
         try:
             inicio_descarga = time.time()
-            response = requests.get(url, timeout=CONSTANTS.PLAYLIST_DOWNLOAD_TIMEOUT, proxies=download_proxies)
+            response = requests.get(
+                url, timeout=CONSTANTS.PLAYLIST_DOWNLOAD_TIMEOUT, proxies=download_proxies
+            )
             response.raise_for_status()
             m3u_content = response.text
             fin_descarga = time.time()
@@ -1175,7 +1213,11 @@ async def sync_to_postgres():
         except requests.exceptions.HTTPError as e:
             retry_count += 1
             status_code = e.response.status_code if e.response is not None else None
-            if status_code is not None and 400 <= status_code < 500 and status_code not in [408, 429]:
+            if (
+                status_code is not None
+                and 400 <= status_code < 500
+                and status_code not in [408, 429]
+            ):
                 print(f"❌ Error HTTP {status_code}: no se reintenta")
                 print(f"   URL: {url}")
                 return 1
@@ -1214,12 +1256,12 @@ async def sync_to_postgres():
     series = []
 
     stats = {
-        'channels': {'total': 0, 'con_logo': 0, 'sin_logo': 0},
-        'movies': {'total': 0, 'con_logo': 0, 'sin_logo': 0, 'filtradas': 0},
-        'series': {'total': 0, 'con_logo': 0, 'sin_logo': 0, 'filtradas': 0}
+        "channels": {"total": 0, "con_logo": 0, "sin_logo": 0},
+        "movies": {"total": 0, "con_logo": 0, "sin_logo": 0, "filtradas": 0},
+        "series": {"total": 0, "con_logo": 0, "sin_logo": 0, "filtradas": 0},
     }
 
-    print(f"\n🔍 FASE 3: Clasificando contenido por tipo...")
+    print("\n🔍 FASE 3: Clasificando contenido por tipo...")
     inicio_clasificacion = time.time()
 
     idx_channel = 1
@@ -1227,48 +1269,48 @@ async def sync_to_postgres():
     idx_serie = 1
 
     for item in items_temp:
-        tipo = detectar_tipo_contenido(item['url'], item['name'])
+        tipo = detectar_tipo_contenido(item["url"], item["name"])
 
         if tipo == CONSTANTS.CONTENT_TYPE_CHANNEL:
             item_data = procesar_item(item, idx_channel, tipo, provider_username, provider_password)
             channels.append(item_data)
             idx_channel += 1
-            stats['channels']['total'] += 1
-            if item['logo']:
-                stats['channels']['con_logo'] += 1
+            stats["channels"]["total"] += 1
+            if item["logo"]:
+                stats["channels"]["con_logo"] += 1
             else:
-                stats['channels']['sin_logo'] += 1
+                stats["channels"]["sin_logo"] += 1
         elif tipo == CONSTANTS.CONTENT_TYPE_MOVIE:
             if not debe_guardarse_en_catalogo(item, tipo):
-                stats['movies']['filtradas'] += 1
+                stats["movies"]["filtradas"] += 1
                 continue
             item_data = procesar_item(item, idx_movie, tipo, provider_username, provider_password)
             movies.append(item_data)
             idx_movie += 1
-            stats['movies']['total'] += 1
-            if item['logo']:
-                stats['movies']['con_logo'] += 1
+            stats["movies"]["total"] += 1
+            if item["logo"]:
+                stats["movies"]["con_logo"] += 1
             else:
-                stats['movies']['sin_logo'] += 1
+                stats["movies"]["sin_logo"] += 1
         elif tipo == CONSTANTS.CONTENT_TYPE_SERIE:
             if not debe_guardarse_en_catalogo(item, tipo):
-                stats['series']['filtradas'] += 1
+                stats["series"]["filtradas"] += 1
                 continue
             item_data = procesar_item(item, idx_serie, tipo, provider_username, provider_password)
             series.append(item_data)
             idx_serie += 1
-            stats['series']['total'] += 1
-            if item['logo']:
-                stats['series']['con_logo'] += 1
+            stats["series"]["total"] += 1
+            if item["logo"]:
+                stats["series"]["con_logo"] += 1
             else:
-                stats['series']['sin_logo'] += 1
+                stats["series"]["sin_logo"] += 1
 
     fin_clasificacion = time.time()
     duracion_clasificacion = fin_clasificacion - inicio_clasificacion
 
     print(f"✅ Clasificación completada en {duracion_clasificacion:.2f}s")
     print("\n" + "=" * 50)
-    print(f"📊 Resumen de clasificación:")
+    print("📊 Resumen de clasificación:")
     print(f"  📺 Canales: {stats['channels']['total']:,}")
     print(f"  🎬 Películas: {stats['movies']['total']:,}")
     print(f"  📺 Series: {stats['series']['total']:,}")
@@ -1280,11 +1322,15 @@ async def sync_to_postgres():
     count_movies_catalog_db = await contar_registros_tabla(pool, CONSTANTS.MOVIES_CATALOG_TABLE)
     count_series_catalog_db = await contar_registros_tabla(pool, CONSTANTS.SERIES_CATALOG_TABLE)
 
-    print(f"  📊 Estado actual en BD:")
+    print("  📊 Estado actual en BD:")
     print(f"    - Canales: {count_channels_db:,}")
-    print(f"    - Películas (catálogo): {count_movies_catalog_db:,} ({count_movie_streams_db:,} streams)")
-    print(f"    - Series (catálogo): {count_series_catalog_db:,} ({count_series_streams_db:,} streams)")
-    print(f"  📊 Nuevos datos a insertar:")
+    print(
+        f"    - Películas (catálogo): {count_movies_catalog_db:,} ({count_movie_streams_db:,} streams)"
+    )
+    print(
+        f"    - Series (catálogo): {count_series_catalog_db:,} ({count_series_streams_db:,} streams)"
+    )
+    print("  📊 Nuevos datos a insertar:")
     print(f"    - Canales: {len(channels):,}")
     print(f"    - Películas: {len(movies):,}")
     print(f"    - Series: {len(series):,}")
@@ -1307,7 +1353,9 @@ async def sync_to_postgres():
             if json_results:
                 for content_type, result in json_results.items():
                     if result:
-                        print(f"  ✅ {content_type}: {result.get('total', 0):,} items, {result.get('gz_size_mb', 0):.2f} MB")
+                        print(
+                            f"  ✅ {content_type}: {result.get('total', 0):,} items, {result.get('gz_size_mb', 0):.2f} MB"
+                        )
         except Exception as json_err:
             print(f"⚠️  Error generando JSONs: {json_err}")
 
@@ -1343,7 +1391,7 @@ async def sync_to_postgres():
                 table_name=CONSTANTS.CHANNELS_TABLE,
                 data=channels,
                 batch_size=CONSTANTS.DB_DEFAULT_BATCH_SIZE,
-                max_workers=CONSTANTS.DB_DEFAULT_MAX_WORKERS
+                max_workers=CONSTANTS.DB_DEFAULT_MAX_WORKERS,
             )
             tiempo_channels = time.time() - inicio_channels
         else:
@@ -1373,18 +1421,20 @@ async def sync_to_postgres():
         async with pool.acquire() as conn:
             metadata = {
                 "ultima_actualizacion": datetime.now(),
-                "total_canales": stats_channels.inserted_records if stats_channels else count_channels_db,
+                "total_canales": stats_channels.inserted_records
+                if stats_channels
+                else count_channels_db,
                 "total_movies": len(movies),
                 "total_series": len(series),
-                "m3u_template_path": m3u_info['template_path'] if m3u_info else None,
-                "m3u_template_filename": m3u_info['template_filename'] if m3u_info else None,
-                "m3u_size_mb": m3u_info['size_mb'] if m3u_info else None,
-                "channels_con_logo": stats['channels']['con_logo'],
-                "channels_sin_logo": stats['channels']['sin_logo'],
-                "movies_con_logo": stats['movies']['con_logo'],
-                "movies_sin_logo": stats['movies']['sin_logo'],
-                "series_con_logo": stats['series']['con_logo'],
-                "series_sin_logo": stats['series']['sin_logo']
+                "m3u_template_path": m3u_info["template_path"] if m3u_info else None,
+                "m3u_template_filename": m3u_info["template_filename"] if m3u_info else None,
+                "m3u_size_mb": m3u_info["size_mb"] if m3u_info else None,
+                "channels_con_logo": stats["channels"]["con_logo"],
+                "channels_sin_logo": stats["channels"]["sin_logo"],
+                "movies_con_logo": stats["movies"]["con_logo"],
+                "movies_sin_logo": stats["movies"]["sin_logo"],
+                "series_con_logo": stats["series"]["con_logo"],
+                "series_sin_logo": stats["series"]["sin_logo"],
             }
             await conn.execute(
                 """
@@ -1409,19 +1459,19 @@ async def sync_to_postgres():
                     series_sin_logo = EXCLUDED.series_sin_logo
                 """,
                 CONSTANTS.SYNC_METADATA_ID,
-                metadata['ultima_actualizacion'],
-                metadata['total_canales'],
-                metadata['total_movies'],
-                metadata['total_series'],
-                metadata['m3u_template_path'],
-                metadata['m3u_template_filename'],
-                metadata['m3u_size_mb'],
-                metadata['channels_con_logo'],
-                metadata['channels_sin_logo'],
-                metadata['movies_con_logo'],
-                metadata['movies_sin_logo'],
-                metadata['series_con_logo'],
-                metadata['series_sin_logo']
+                metadata["ultima_actualizacion"],
+                metadata["total_canales"],
+                metadata["total_movies"],
+                metadata["total_series"],
+                metadata["m3u_template_path"],
+                metadata["m3u_template_filename"],
+                metadata["m3u_size_mb"],
+                metadata["channels_con_logo"],
+                metadata["channels_sin_logo"],
+                metadata["movies_con_logo"],
+                metadata["movies_sin_logo"],
+                metadata["series_con_logo"],
+                metadata["series_sin_logo"],
             )
 
         fin_total = time.time()
@@ -1429,15 +1479,15 @@ async def sync_to_postgres():
         hora_fin = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         print("\n" + "=" * 70)
-        print(f"✅ ¡SINCRONIZACIÓN COMPLETADA CON ÉXITO!")
+        print("✅ ¡SINCRONIZACIÓN COMPLETADA CON ÉXITO!")
         print("=" * 70)
-        print(f"📊 RESUMEN DE DATOS:")
+        print("📊 RESUMEN DE DATOS:")
         print(f"  📺 Canales:    {metadata['total_canales']:>10,}")
         print(f"  🎬 Películas:  {metadata['total_movies']:>10,}")
         print(f"  📺 Series:     {metadata['total_series']:>10,}")
         print(f"  📊 TOTAL:      {total_items:>10,} items")
         print()
-        print(f"⏱️  TIEMPOS:")
+        print("⏱️  TIEMPOS:")
         print(f"  🕐 Inicio:     {hora_inicio}")
         print(f"  🕐 Fin:        {hora_fin}")
         print(f"  ⏱️  Duración:   {duracion_total:.2f}s")

@@ -1,12 +1,11 @@
-from io import BytesIO
 import os
 import shutil
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from urllib.request import Request, urlopen
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
-
 
 SCALE = 2
 W, H = 1600, 900
@@ -22,7 +21,9 @@ FONT_PATHS = (
 )
 IMAGES_DIR = Path(os.getenv("IMAGES_DIR", PROJECT_DIR / "resources" / "images"))
 PUBLIC_DOMAIN = os.getenv("PUBLIC_DOMAIN", "").rstrip("/")
-IMAGES_BASE_URL = (os.getenv("IMAGES_BASE_URL") or (f"{PUBLIC_DOMAIN}/images" if PUBLIC_DOMAIN else "")).rstrip("/")
+IMAGES_BASE_URL = (
+    os.getenv("IMAGES_BASE_URL") or (f"{PUBLIC_DOMAIN}/images" if PUBLIC_DOMAIN else "")
+).rstrip("/")
 EVENTOS_DIR = IMAGES_DIR / "events" / "futbol"
 TENNIS_EVENTOS_DIR = IMAGES_DIR / "events" / "tenis"
 EVENT_IMAGES_RETENTION_DAYS = int(os.getenv("EVENT_IMAGES_RETENTION_DAYS", "3"))
@@ -38,6 +39,7 @@ DEFAULT_EVENT_IMAGES = {
     "f1": "f1_default.jpg",
     "motociclismo": "moto_default.jpg",
     "hockey-hielo": "nhl_default.jpg",
+    "ishockey": "nhl_default.jpg",
     "nhl": "nhl_default.jpg",
     "golf": "golf_default.webp",
     "padel": "padel_default.jpg",
@@ -46,6 +48,7 @@ DEFAULT_EVENT_IMAGES = {
     "automovilismo": "automovilismo_default.jpg",
     "boxeo": "boxeo_default.webp",
     "balonmano": "balonmano_default.webp",
+    "mma": "ufc_default.jpg",
     "ufc": "ufc_default.jpg",
 }
 
@@ -60,9 +63,12 @@ def crear_slug(texto: str) -> str:
     return texto or "evento"
 
 
-def obtener_imagen_evento_default(categoria: str) -> str:
-    """Devuelve imagen por defecto para categoría si existe."""
+def obtener_imagen_evento_default(categoria: str, competicion: str = "") -> str:
+    """Devuelve imagen por defecto para categoría si existe.
+    Intenta primero con categoria, luego con competicion como fallback."""
     archivo = DEFAULT_EVENT_IMAGES.get(crear_slug(categoria))
+    if not archivo and competicion:
+        archivo = DEFAULT_EVENT_IMAGES.get(crear_slug(competicion))
     if not archivo:
         return ""
 
@@ -129,7 +135,10 @@ def generar_imagen_evento(
     bg_path: Path = FUTBOL_BACKGROUND_PATH,
 ) -> str:
     salida_dir = output_dir / fecha_slug
-    salida = salida_dir / f"{crear_slug(hora)}-{crear_slug(nombre_local)}-vs-{crear_slug(nombre_visitante)}.jpg"
+    salida = (
+        salida_dir
+        / f"{crear_slug(hora)}-{crear_slug(nombre_local)}-vs-{crear_slug(nombre_visitante)}.jpg"
+    )
 
     img = Image.new("RGB", (W, H), "#11121a")
     if bg_path and bg_path.exists():
@@ -189,7 +198,9 @@ def generar_imagen_evento(
     return url_publica_imagen(salida)
 
 
-def ajustar_texto(draw, texto: str, font_path: Path | None, max_width: int, max_size: int, min_size: int = 22):
+def ajustar_texto(
+    draw, texto: str, font_path: Path | None, max_width: int, max_size: int, min_size: int = 22
+):
     for size in range(max_size, min_size - 1, -2):
         font = ImageFont.truetype(font_path, size) if font_path else ImageFont.load_default()
         bbox = draw.textbbox((0, 0), texto, font=font)
@@ -210,7 +221,10 @@ def generar_imagen_evento_tenis(
     bg_path: Path = TENIS_BACKGROUND_PATH,
 ) -> str:
     salida_dir = output_dir / fecha_slug
-    salida = salida_dir / f"{crear_slug(hora)}-{crear_slug(nombre_local)}-vs-{crear_slug(nombre_visitante)}.jpg"
+    salida = (
+        salida_dir
+        / f"{crear_slug(hora)}-{crear_slug(nombre_local)}-vs-{crear_slug(nombre_visitante)}.jpg"
+    )
 
     img = Image.new("RGB", (W, H), "#0b1324")
     if bg_path and bg_path.exists():

@@ -10,7 +10,6 @@ from urllib.request import Request, urlopen
 
 from PIL import Image
 
-
 USER_AGENT = "Mozilla/5.0 (compatible; walactv-scrapper/1.0)"
 BASE_DIR = Path(__file__).resolve().parents[1]
 PROJECT_DIR = Path(__file__).resolve().parents[2]

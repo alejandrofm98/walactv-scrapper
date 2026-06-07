@@ -7,9 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, ProxyHandler, build_opener, urlopen
+from urllib.request import ProxyHandler, Request, build_opener, urlopen
 from xml.etree import ElementTree
-
 
 SITEMAP_URL = "https://football-logos.cc/image-sitemap.xml"
 USER_AGENT = (
@@ -33,8 +32,19 @@ SITEMAP_NS = {
 }
 
 STOPWORDS = {
-    "afc", "athletic", "ca", "cd", "cf", "club", "de", "fc", "femenino",
-    "football", "fs", "team", "women",
+    "afc",
+    "athletic",
+    "ca",
+    "cd",
+    "cf",
+    "club",
+    "de",
+    "fc",
+    "femenino",
+    "football",
+    "fs",
+    "team",
+    "women",
 }
 
 COMPETICION_PAISES = {
@@ -173,7 +183,9 @@ def parsear_sitemap(xml: str) -> list[CandidatoLogo]:
     return candidatos
 
 
-def calcular_score(busqueda: str, candidato: CandidatoLogo, paises_preferidos: tuple[str, ...] = ()) -> float:
+def calcular_score(
+    busqueda: str, candidato: CandidatoLogo, paises_preferidos: tuple[str, ...] = ()
+) -> float:
     busqueda_normalizada = normalizar_texto(busqueda)
     tokens_busqueda = tokens_relevantes(busqueda)
     if not busqueda_normalizada or not tokens_busqueda:
@@ -215,8 +227,15 @@ def buscar_candidatos(
     paises_preferidos: tuple[str, ...] = (),
 ) -> list[CandidatoLogo]:
     puntuados = [
-        CandidatoLogo(c.nombre, c.nombre_normalizado, c.tokens, c.pais, c.pagina_url, c.imagen_url,
-                      calcular_score(nombre_equipo, c, paises_preferidos))
+        CandidatoLogo(
+            c.nombre,
+            c.nombre_normalizado,
+            c.tokens,
+            c.pais,
+            c.pagina_url,
+            c.imagen_url,
+            calcular_score(nombre_equipo, c, paises_preferidos),
+        )
         for c in candidatos
     ]
     return sorted((c for c in puntuados if c.score > 0), key=lambda c: c.score, reverse=True)
@@ -311,10 +330,14 @@ class FootballLogosResolver:
         except (HTTPError, URLError, TimeoutError) as e:
             if isinstance(e, HTTPError) and e.code == 403:
                 self._remote_disabled = True
-                fuente = fuente_desde_url(imagen_url if "imagen_url" in locals() else primero.pagina_url)
+                fuente = fuente_desde_url(
+                    imagen_url if "imagen_url" in locals() else primero.pagina_url
+                )
                 print(f"⚠️ Logos externos bloqueados ({fuente}), usando fallbacks: {e}")
                 return ""
-            fuente = fuente_desde_url(imagen_url if "imagen_url" in locals() else primero.pagina_url)
+            fuente = fuente_desde_url(
+                imagen_url if "imagen_url" in locals() else primero.pagina_url
+            )
             print(f"⚠️ Error descargando logo '{nombre_equipo}' desde {fuente}: {e}")
             return ""
 

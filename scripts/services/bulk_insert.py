@@ -5,15 +5,19 @@ Implementa múltiples estrategias para acelerar la inserción de grandes volúme
 
 import asyncio
 import time
-from typing import List, Dict, Any, Optional, Callable
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
+
 from asyncpg import Pool
+
 from scripts.utils import constants as CONSTANTS
 
 
 @dataclass
 class InsertStats:
     """Estadísticas de inserción"""
+
     total_records: int = 0
     inserted_records: int = 0
     failed_records: int = 0
@@ -53,9 +57,9 @@ class InsertStats:
         if seconds < 60:
             return f"{seconds:.0f}s"
         elif seconds < 3600:
-            return f"{seconds/60:.1f}min"
+            return f"{seconds / 60:.1f}min"
         else:
-            return f"{seconds/3600:.1f}h"
+            return f"{seconds / 3600:.1f}h"
 
 
 class BulkInserter:
@@ -77,7 +81,7 @@ class BulkInserter:
         batch_size: int = CONSTANTS.DB_DEFAULT_BATCH_SIZE,
         max_workers: int = CONSTANTS.DB_DEFAULT_MAX_WORKERS,
         max_retries: int = CONSTANTS.DB_DEFAULT_MAX_RETRIES,
-        progress_callback: Optional[Callable[[InsertStats], None]] = None
+        progress_callback: Callable[[InsertStats], None] | None = None,
     ):
         """
         Args:
@@ -97,19 +101,16 @@ class BulkInserter:
 
         self.stats = InsertStats()
 
-    def _create_batches(self, data: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+    def _create_batches(self, data: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
         """Divide los datos en batches"""
         batches = []
         for i in range(0, len(data), self.batch_size):
-            batch = data[i:i + self.batch_size]
+            batch = data[i : i + self.batch_size]
             batches.append(batch)
         return batches
 
     async def _insert_batch(
-        self,
-        batch: List[Dict[str, Any]],
-        batch_num: int,
-        total_batches: int
+        self, batch: list[dict[str, Any]], batch_num: int, total_batches: int
     ) -> tuple[bool, int]:
         """
         Inserta un batch con reintentos
@@ -122,7 +123,7 @@ class BulkInserter:
                 async with self.pool.acquire() as conn:
                     async with conn.transaction():
                         columns = list(batch[0].keys())
-                        placeholders = ', '.join([f'${i+1}' for i in range(len(columns))])
+                        placeholders = ", ".join([f"${i + 1}" for i in range(len(columns))])
                         query = f"INSERT INTO {self.table_name} ({', '.join(columns)}) VALUES ({placeholders})"
 
                         for row in batch:
@@ -147,16 +148,20 @@ class BulkInserter:
             except Exception as e:
                 if attempt < self.max_retries - 1:
                     wait_time = (attempt + 1) * 5
-                    print(f"⚠️  Batch {batch_num}/{total_batches} falló (intento {attempt + 1}/{self.max_retries}), reintentando en {wait_time}s...")
+                    print(
+                        f"⚠️  Batch {batch_num}/{total_batches} falló (intento {attempt + 1}/{self.max_retries}), reintentando en {wait_time}s..."
+                    )
                     await asyncio.sleep(wait_time)
                 else:
-                    print(f"❌ Batch {batch_num}/{total_batches} falló después de {self.max_retries} intentos: {e}")
+                    print(
+                        f"❌ Batch {batch_num}/{total_batches} falló después de {self.max_retries} intentos: {e}"
+                    )
                     self.stats.failed_records += len(batch)
                     return False, 0
 
         return False, 0
 
-    async def insert_bulk(self, data: List[Dict[str, Any]]) -> InsertStats:
+    async def insert_bulk(self, data: list[dict[str, Any]]) -> InsertStats:
         """
         Inserta datos en bulk usando procesamiento paralelo
 
@@ -183,10 +188,7 @@ class BulkInserter:
         print(f"   🔢 Total de batches: {total_batches}")
         print()
 
-        tasks = [
-            self._insert_batch(batch, i + 1, total_batches)
-            for i, batch in enumerate(batches)
-        ]
+        tasks = [self._insert_batch(batch, i + 1, total_batches) for i, batch in enumerate(batches)]
 
         await asyncio.gather(*tasks)
 
@@ -199,15 +201,17 @@ class BulkInserter:
         elapsed = self.stats.get_elapsed_time()
         rate = self.stats.get_rate()
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"✅ Inserción completada en tabla '{self.table_name}'")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"📊 Total registros:     {self.stats.total_records:,}")
-        print(f"✅ Insertados:          {self.stats.inserted_records:,} ({self.stats.get_progress_pct():.1f}%)")
+        print(
+            f"✅ Insertados:          {self.stats.inserted_records:,} ({self.stats.get_progress_pct():.1f}%)"
+        )
         print(f"❌ Fallidos:            {self.stats.failed_records:,}")
         print(f"⏱️  Tiempo total:        {self.stats.format_time(elapsed)}")
         print(f"🚀 Velocidad promedio:  {rate:.0f} registros/seg")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
 
 def default_progress_callback(stats: InsertStats):
@@ -228,9 +232,9 @@ def default_progress_callback(stats: InsertStats):
 async def insert_bulk_optimized(
     pool: Pool,
     table_name: str,
-    data: List[Dict[str, Any]],
+    data: list[dict[str, Any]],
     batch_size: int = 500,
-    max_workers: int = 1
+    max_workers: int = 1,
 ) -> InsertStats:
     """
     Función de conveniencia para insertar datos en bulk
@@ -250,7 +254,7 @@ async def insert_bulk_optimized(
         table_name=table_name,
         batch_size=batch_size,
         max_workers=max_workers,
-        progress_callback=default_progress_callback
+        progress_callback=default_progress_callback,
     )
 
     return await inserter.insert_bulk(data)

@@ -8,9 +8,9 @@ Usage:
 O importado desde sync_iptv.py:
     await generar_channels_json(pool)
 """
+
 import gzip
 import json
-import os
 import sys
 import time
 from datetime import datetime
@@ -21,8 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from database import DatabasePG
 from utils.constants import (
-    CHANNELS_TABLE,
-    SYNC_METADATA_TABLE,
     SYNC_METADATA_ID,
 )
 
@@ -74,24 +72,22 @@ async def generar_channels_json(pool=None, close_pool=True):
         canales = []
 
         for row in rows:
-            canales.append({
-                "id": str(row['id']),
-                "numero": row['numero'],
-                "provider_id": row['provider_id'],
-                "logo": row['logo'],
-                "country": row['country'],
-                "nombre_normalizado": row['nombre_normalizado'],
-                "grupo_normalizado": row['grupo_normalizado']
-            })
+            canales.append(
+                {
+                    "id": str(row["id"]),
+                    "numero": row["numero"],
+                    "provider_id": row["provider_id"],
+                    "logo": row["logo"],
+                    "country": row["country"],
+                    "nombre_normalizado": row["nombre_normalizado"],
+                    "grupo_normalizado": row["grupo_normalizado"],
+                }
+            )
 
         total = len(canales)
         generated_at = datetime.now()
 
-        payload = {
-            "items": canales,
-            "total": total,
-            "generated_at": generated_at
-        }
+        payload = {"items": canales, "total": total, "generated_at": generated_at}
 
         json_dir = Path(__file__).parent.parent / "data" / "json"
         json_dir.mkdir(parents=True, exist_ok=True)
@@ -99,23 +95,27 @@ async def generar_channels_json(pool=None, close_pool=True):
         json_path = json_dir / "channels.json"
         gz_path = json_dir / "channels.json.gz"
 
-        with open(json_path, 'w', encoding='utf-8') as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
 
-        with open(gz_path, 'wb') as f:
-            with gzip.open(f, 'wt', encoding='utf-8') as gz:
-                gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
+        with open(gz_path, "wb") as f, gzip.open(f, "wt", encoding="utf-8") as gz:
+            gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
 
         json_size_mb = json_path.stat().st_size / (1024 * 1024)
         gz_size_mb = gz_path.stat().st_size / (1024 * 1024)
 
-        await pool.execute("""
+        await pool.execute(
+            """
             INSERT INTO sync_metadata (id, channels_generated_at, channels_json_size_mb)
             VALUES ($1, $2, $3)
             ON CONFLICT (id) DO UPDATE SET
                 channels_generated_at = EXCLUDED.channels_generated_at,
                 channels_json_size_mb = EXCLUDED.channels_json_size_mb
-        """, SYNC_METADATA_ID, generated_at, round(gz_size_mb, 2))
+        """,
+            SYNC_METADATA_ID,
+            generated_at,
+            round(gz_size_mb, 2),
+        )
 
         duracion = time.time() - inicio
 
@@ -133,12 +133,13 @@ async def generar_channels_json(pool=None, close_pool=True):
             "json_size_mb": json_size_mb,
             "gz_size_mb": gz_size_mb,
             "generated_at": generated_at,
-            "duracion": duracion
+            "duracion": duracion,
         }
 
     except Exception as e:
         print(f"❌ Error al generar JSON de canales: {e}")
         import traceback
+
         traceback.print_exc()
         return None
 
@@ -190,26 +191,24 @@ async def generar_movies_json(pool=None, close_pool=True):
         movies = []
 
         for row in rows:
-            movies.append({
-                "id": str(row['id']),
-                "provider_id": row['provider_id'],
-                "nombre": row['nombre'],
-                "logo": row['logo'],
-                "country": row['country'],
-                "nombre_normalizado": row['nombre_normalizado'],
-                "grupo_normalizado": row['grupo_normalizado'],
-                "nombre_dedup_key": row['nombre_dedup_key'],
-                "year": row['year']
-            })
+            movies.append(
+                {
+                    "id": str(row["id"]),
+                    "provider_id": row["provider_id"],
+                    "nombre": row["nombre"],
+                    "logo": row["logo"],
+                    "country": row["country"],
+                    "nombre_normalizado": row["nombre_normalizado"],
+                    "grupo_normalizado": row["grupo_normalizado"],
+                    "nombre_dedup_key": row["nombre_dedup_key"],
+                    "year": row["year"],
+                }
+            )
 
         total = len(movies)
         generated_at = datetime.now()
 
-        payload = {
-            "items": movies,
-            "total": total,
-            "generated_at": generated_at
-        }
+        payload = {"items": movies, "total": total, "generated_at": generated_at}
 
         json_dir = Path(__file__).parent.parent / "data" / "json"
         json_dir.mkdir(parents=True, exist_ok=True)
@@ -217,23 +216,27 @@ async def generar_movies_json(pool=None, close_pool=True):
         json_path = json_dir / "movies.json"
         gz_path = json_dir / "movies.json.gz"
 
-        with open(json_path, 'w', encoding='utf-8') as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
 
-        with open(gz_path, 'wb') as f:
-            with gzip.open(f, 'wt', encoding='utf-8') as gz:
-                gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
+        with open(gz_path, "wb") as f, gzip.open(f, "wt", encoding="utf-8") as gz:
+            gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
 
         json_size_mb = json_path.stat().st_size / (1024 * 1024)
         gz_size_mb = gz_path.stat().st_size / (1024 * 1024)
 
-        await pool.execute("""
+        await pool.execute(
+            """
             INSERT INTO sync_metadata (id, movies_generated_at, movies_json_size_mb)
             VALUES ($1, $2, $3)
             ON CONFLICT (id) DO UPDATE SET
                 movies_generated_at = EXCLUDED.movies_generated_at,
                 movies_json_size_mb = EXCLUDED.movies_json_size_mb
-        """, SYNC_METADATA_ID, generated_at, round(gz_size_mb, 2))
+        """,
+            SYNC_METADATA_ID,
+            generated_at,
+            round(gz_size_mb, 2),
+        )
 
         duracion = time.time() - inicio
 
@@ -251,12 +254,13 @@ async def generar_movies_json(pool=None, close_pool=True):
             "json_size_mb": json_size_mb,
             "gz_size_mb": gz_size_mb,
             "generated_at": generated_at,
-            "duracion": duracion
+            "duracion": duracion,
         }
 
     except Exception as e:
         print(f"❌ Error al generar JSON de peliculas: {e}")
         import traceback
+
         traceback.print_exc()
         return None
 
@@ -310,27 +314,25 @@ async def generar_series_json(pool=None, close_pool=True):
         series = []
 
         for row in rows:
-            series.append({
-                "id": str(row['id']),
-                "provider_id": row['provider_id'],
-                "logo": row['logo'],
-                "country": row['country'],
-                "temporada": row['temporada'],
-                "episodio": row['episodio'],
-                "serie_name": row['serie_name'],
-                "nombre_normalizado": row['nombre_normalizado'],
-                "grupo_normalizado": row['grupo_normalizado'],
-                "year": row['year']
-            })
+            series.append(
+                {
+                    "id": str(row["id"]),
+                    "provider_id": row["provider_id"],
+                    "logo": row["logo"],
+                    "country": row["country"],
+                    "temporada": row["temporada"],
+                    "episodio": row["episodio"],
+                    "serie_name": row["serie_name"],
+                    "nombre_normalizado": row["nombre_normalizado"],
+                    "grupo_normalizado": row["grupo_normalizado"],
+                    "year": row["year"],
+                }
+            )
 
         total = len(series)
         generated_at = datetime.now()
 
-        payload = {
-            "items": series,
-            "total": total,
-            "generated_at": generated_at
-        }
+        payload = {"items": series, "total": total, "generated_at": generated_at}
 
         json_dir = Path(__file__).parent.parent / "data" / "json"
         json_dir.mkdir(parents=True, exist_ok=True)
@@ -338,23 +340,27 @@ async def generar_series_json(pool=None, close_pool=True):
         json_path = json_dir / "series.json"
         gz_path = json_dir / "series.json.gz"
 
-        with open(json_path, 'w', encoding='utf-8') as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
 
-        with open(gz_path, 'wb') as f:
-            with gzip.open(f, 'wt', encoding='utf-8') as gz:
-                gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
+        with open(gz_path, "wb") as f, gzip.open(f, "wt", encoding="utf-8") as gz:
+            gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
 
         json_size_mb = json_path.stat().st_size / (1024 * 1024)
         gz_size_mb = gz_path.stat().st_size / (1024 * 1024)
 
-        await pool.execute("""
+        await pool.execute(
+            """
             INSERT INTO sync_metadata (id, series_generated_at, series_json_size_mb)
             VALUES ($1, $2, $3)
             ON CONFLICT (id) DO UPDATE SET
                 series_generated_at = EXCLUDED.series_generated_at,
                 series_json_size_mb = EXCLUDED.series_json_size_mb
-        """, SYNC_METADATA_ID, generated_at, round(gz_size_mb, 2))
+        """,
+            SYNC_METADATA_ID,
+            generated_at,
+            round(gz_size_mb, 2),
+        )
 
         duracion = time.time() - inicio
 
@@ -372,12 +378,13 @@ async def generar_series_json(pool=None, close_pool=True):
             "json_size_mb": json_size_mb,
             "gz_size_mb": gz_size_mb,
             "generated_at": generated_at,
-            "duracion": duracion
+            "duracion": duracion,
         }
 
     except Exception as e:
         print(f"❌ Error al generar JSON de series: {e}")
         import traceback
+
         traceback.print_exc()
         return None
 
@@ -408,13 +415,13 @@ async def generar_todos_json(pool=None, close_pool=True):
         results = {}
 
         result_channels = await generar_channels_json(pool, close_pool=False)
-        results['channels'] = result_channels
+        results["channels"] = result_channels
 
         result_movies = await generar_movies_json(pool, close_pool=False)
-        results['movies'] = result_movies
+        results["movies"] = result_movies
 
         result_series = await generar_series_json(pool, close_pool=False)
-        results['series'] = result_series
+        results["series"] = result_series
 
         print("\n" + "=" * 60)
         print("✅ TODOS LOS JSONS GENERADOS")
@@ -425,6 +432,7 @@ async def generar_todos_json(pool=None, close_pool=True):
     except Exception as e:
         print(f"❌ Error al generar JSONs: {e}")
         import traceback
+
         traceback.print_exc()
         return None
 
@@ -435,4 +443,5 @@ async def generar_todos_json(pool=None, close_pool=True):
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(generar_todos_json())
