@@ -2,11 +2,11 @@ import asyncio
 import re
 import time
 from datetime import datetime, timedelta
-from typing import Set
 
 import requests
 from bs4 import BeautifulSoup
-from database import ChannelMappingManager, DataManagerSupabase, DatabasePG
+
+from database import ChannelMappingManager, DatabasePG, DataManagerSupabase
 from services.event_images import borrar_imagenes_eventos_fechas
 from services.football_logos import FootballLogosResolver
 from services.tennis_flags import TennisFlagsResolver
@@ -16,18 +16,25 @@ from utils.constants import (
     HEALTH_CHECK_TIMEOUT,
 )
 
+
 def limpia_html(html_canal):
     html_canal = html_canal.replace("&gt", "")
     html_canal = html_canal.replace("&lt", "")
     html_canal = html_canal.replace(";", "")
     html_canal = html_canal.replace("strong", "")
-    html_canal = re.sub(r'\(.+', "", html_canal)
+    html_canal = re.sub(r"\(.+", "", html_canal)
     return html_canal
 
+
 class ScrapperFutbolenlatv:
-    publicidad = ["DAZN (Regístrate)", "Amazon Prime Video (Prueba gratis)",
-                  "GolStadium Premium (acceder)", "MAX",
-                  "DAZN App Gratis (Regístrate)", "DAZN (Ver en directo)"]
+    publicidad = [
+        "DAZN (Regístrate)",
+        "Amazon Prime Video (Prueba gratis)",
+        "GolStadium Premium (acceder)",
+        "MAX",
+        "DAZN App Gratis (Regístrate)",
+        "DAZN (Ver en directo)",
+    ]
     CANALES_UFC_PREFERIDOS = {
         "default": [
             "TNT SPORTS",
@@ -83,7 +90,7 @@ class ScrapperFutbolenlatv:
                 for fecha_str, partidos in todos_eventos.items():
                     for fecha in fecha_str if isinstance(fecha_str, list) else [fecha_str]:
                         try:
-                            fecha_date = datetime.strptime(fecha, '%d/%m/%Y').date()
+                            fecha_date = datetime.strptime(fecha, "%d/%m/%Y").date()
                         except ValueError:
                             continue
 
@@ -94,7 +101,9 @@ class ScrapperFutbolenlatv:
                             continue
 
                         async with conn.transaction():
-                            await conn.execute("DELETE FROM calendario WHERE fecha = $1", fecha_date)
+                            await conn.execute(
+                                "DELETE FROM calendario WHERE fecha = $1", fecha_date
+                            )
 
                             for partido in partidos_validos:
                                 try:
@@ -114,16 +123,18 @@ class ScrapperFutbolenlatv:
                                             subtitulo_competicion = EXCLUDED.subtitulo_competicion
                                         """,
                                         fecha_date,
-                                        partido.get('hora', '00:00'),
-                                        partido.get('equipos', ''),
-                                        partido.get('competicion', ''),
-                                        partido.get('canales', []),
-                                        partido.get('categoria', ''),
-                                        partido.get('imagen_evento', ''),
-                                        partido.get('subtitulo_competicion', '')
+                                        partido.get("hora", "00:00"),
+                                        partido.get("equipos", ""),
+                                        partido.get("competicion", ""),
+                                        partido.get("canales", []),
+                                        partido.get("categoria", ""),
+                                        partido.get("imagen_evento", ""),
+                                        partido.get("subtitulo_competicion", ""),
                                     )
                                 except Exception as e:
-                                    print(f"❌ Error guardando partido '{partido.get('equipos', '')}': {e}")
+                                    print(
+                                        f"❌ Error guardando partido '{partido.get('equipos', '')}': {e}"
+                                    )
 
         except Exception as e:
             print(f"❌ Error general guardando calendario: {e}")
@@ -144,11 +155,12 @@ class ScrapperFutbolenlatv:
         except Exception as e:
             print(f"Error accediendo a {self.url}: {e}")
             self.soup = None
-            
+
         self.canales = []
         self._mapeos_cache = mapeos if mapeos is not None else {}
         self._football_logos_resolver = FootballLogosResolver(proxy_url=football_logos_proxy)
         self._tennis_flags_resolver = TennisFlagsResolver()
+        self._proxy_url = football_logos_proxy
 
     @staticmethod
     def _mejorar_url_futbolenlatv(url):
@@ -254,7 +266,9 @@ class ScrapperFutbolenlatv:
             nombre_jugador=nombre_visitante,
         )
         if not bandera_local_resuelta:
-            print(f"⚠️ Bandera local no resuelta para '{nombre_local}', usando fallback: {fallback_local}")
+            print(
+                f"⚠️ Bandera local no resuelta para '{nombre_local}', usando fallback: {fallback_local}"
+            )
         if not bandera_visitante_resuelta:
             print(
                 f"⚠️ Bandera visitante no resuelta para '{nombre_visitante}', "
@@ -300,7 +314,7 @@ class ScrapperFutbolenlatv:
     ):
         from services.event_images import obtener_imagen_evento_default
 
-        imagen_default = obtener_imagen_evento_default(categoria)
+        imagen_default = obtener_imagen_evento_default(categoria, contexto_competicion)
 
         if categoria == "Fútbol":
             imagen = self._generar_imagen_evento_futbol(
@@ -346,9 +360,13 @@ class ScrapperFutbolenlatv:
         self._ufc_imagen_cache = ""
 
         try:
+            proxies = None
+            if self._proxy_url:
+                proxies = {"http": self._proxy_url, "https": self._proxy_url}
             resp = requests.get(
                 "https://www.ufcespanol.com/events",
                 headers=self.REQUEST_HEADERS,
+                proxies=proxies,
                 timeout=30,
             )
             resp.raise_for_status()
@@ -398,7 +416,7 @@ class ScrapperFutbolenlatv:
     def obtener_partidos(self, fecha):
         if not self.soup:
             return {}
-            
+
         # Primero verificamos si hay tabla para esta fecha
         if not self.existe_fecha(fecha):
             print(f"No se encontró tabla para la fecha {fecha}")
@@ -407,35 +425,37 @@ class ScrapperFutbolenlatv:
         try:
             carpetas_borradas = borrar_imagenes_eventos_fechas([fecha])
             if carpetas_borradas:
-                print(f"🧹 Carpetas de imágenes de eventos borradas para {fecha}: {carpetas_borradas}")
+                print(
+                    f"🧹 Carpetas de imágenes de eventos borradas para {fecha}: {carpetas_borradas}"
+                )
         except Exception as e:
             print(f"⚠️ Error borrando imágenes de eventos para {fecha}: {e}")
-             
+
         try:
             cabecera = self.soup.find("td", string=re.compile(fecha))
             if not cabecera:
                 return {}
-                
+
             tbody = cabecera.find_parent("tbody")
             if not tbody:
                 return {}
-                
+
             trs = tbody.find_all("tr")
             eventos = {}
             cont = 0
-            
+
             for tr in trs:
                 tds = tr.find_all("td")
                 if not tds:
                     continue
-                    
+
                 num_columnas = len(tds)
                 self.canales = []
-                
+
                 # Verificar si es una fila de evento válido
                 # En BS4, attrs['class'] devuelve una lista
                 clases = tds[0].get("class", [])
-                
+
                 if "hora" in clases:
                     hora = tds[0].text.strip()
 
@@ -456,7 +476,9 @@ class ScrapperFutbolenlatv:
                         local_td = tr.find("td", {"class": "local"})
                         visitante_td = tr.find("td", {"class": "visitante"})
                         nombre_local, fallback_local = self._extraer_info_imagen_equipo(local_td)
-                        nombre_visitante, fallback_visitante = self._extraer_info_imagen_equipo(visitante_td)
+                        nombre_visitante, fallback_visitante = self._extraer_info_imagen_equipo(
+                            visitante_td
+                        )
 
                         # Ajustar equipos si hay columna extra
                         if num_columnas == self.COLUMNAS_EVENTO_NORMAL and len(tds) > 3:
@@ -488,7 +510,7 @@ class ScrapperFutbolenlatv:
                                 "categoria": categoria,
                                 "equipos": equipos,
                                 "canales": self.canales,
-                                "imagen_evento": imagen_evento
+                                "imagen_evento": imagen_evento,
                             }
             return eventos
         except Exception as e:
@@ -499,7 +521,9 @@ class ScrapperFutbolenlatv:
         texto_evento = " ".join([competicion or "", categoria or "", equipos or ""]).upper()
         return "UFC" in texto_evento
 
-    def obtener_fase_ufc(self, competicion: str = "", categoria: str = "", equipos: str = "") -> str:
+    def obtener_fase_ufc(
+        self, competicion: str = "", categoria: str = "", equipos: str = ""
+    ) -> str:
         texto_evento = " ".join([competicion or "", categoria or "", equipos or ""]).upper()
 
         if "PRELIMS" in texto_evento:
@@ -510,16 +534,16 @@ class ScrapperFutbolenlatv:
 
         return "default"
 
-    def obtener_canales_manuales_evento(self, competicion: str = "", categoria: str = "",
-                                       equipos: str = "") -> list:
+    def obtener_canales_manuales_evento(
+        self, competicion: str = "", categoria: str = "", equipos: str = ""
+    ) -> list:
         if self.es_evento_ufc(competicion, categoria, equipos):
             fase_ufc = self.obtener_fase_ufc(competicion, categoria, equipos)
             canales_preferidos = list(self.CANALES_UFC_PREFERIDOS.get("default", []))
             canales_preferidos.extend(self.CANALES_UFC_PREFERIDOS.get(fase_ufc, []))
 
             canales_disponibles = [
-                canal for canal in canales_preferidos
-                if canal in self._get_mapeos()
+                canal for canal in canales_preferidos if canal in self._get_mapeos()
             ]
 
             if canales_disponibles:
@@ -588,10 +612,17 @@ class ScrapperFutbolenlatv:
 # === Health check para canales de eventos ===
 
 _VIDEO_CONTENT_TYPES = [
-    'video/mp2t', 'video/mp4', 'video/x-flv',
-    'video/quicktime', 'video/x-matroska', 'video/webm',
-    'video/3gpp', 'video/ogg', 'video/mpeg',
-    'application/vnd.apple.mpegurl', 'application/x-mpegurl',
+    "video/mp2t",
+    "video/mp4",
+    "video/x-flv",
+    "video/quicktime",
+    "video/x-matroska",
+    "video/webm",
+    "video/3gpp",
+    "video/ogg",
+    "video/mpeg",
+    "application/vnd.apple.mpegurl",
+    "application/x-mpegurl",
 ]
 
 
@@ -611,7 +642,7 @@ def _check_single_channel(url: str, timeout: int, bytes_to_check: int) -> tuple:
         if not response.ok:
             return False, elapsed_ms, f"HTTP {response.status_code}"
 
-        content_type = (response.headers.get('Content-Type', '') or '').lower()
+        content_type = (response.headers.get("Content-Type", "") or "").lower()
         body = response.content
 
         if len(body) == 0:
@@ -628,7 +659,7 @@ def _check_single_channel(url: str, timeout: int, bytes_to_check: int) -> tuple:
 
 
 async def verificar_salud_canales_evento(
-    source_names: Set[str],
+    source_names: set[str],
     provider_username: str,
     provider_password: str,
 ):
@@ -648,21 +679,19 @@ async def verificar_salud_canales_evento(
     print(f"\n🔍 Verificando salud de {total} streams...")
 
     sem = asyncio.Semaphore(HEALTH_CHECK_CONCURRENCY)
-    stats = {'ok': 0, 'error': 0}
+    stats = {"ok": 0, "error": 0}
     completed = 0
     total_checks = total
 
     async def _check_variant(sn: str, variant: dict):
         nonlocal completed
         async with sem:
-            stream_url = variant['stream_url']
+            stream_url = variant["stream_url"]
             if not stream_url:
                 return
 
-            test_url = (
-                stream_url
-                .replace("{{USERNAME}}", provider_username)
-                .replace("{{PASSWORD}}", provider_password)
+            test_url = stream_url.replace("{{USERNAME}}", provider_username).replace(
+                "{{PASSWORD}}", provider_password
             )
             if test_url == stream_url:
                 return
@@ -671,19 +700,17 @@ async def verificar_salud_canales_evento(
                 None, _check_single_channel, test_url, HEALTH_CHECK_TIMEOUT, HEALTH_CHECK_BYTES
             )
 
-            estado = 'ok' if is_alive else 'error'
-            await ChannelMappingManager.update_channel_health(variant['channel_id'], estado, ms)
+            estado = "ok" if is_alive else "error"
+            await ChannelMappingManager.update_channel_health(variant["channel_id"], estado, ms)
 
             completed += 1
             icon = "✅" if is_alive else "❌"
             print(f"  {icon} [{variant['quality']}] {sn} ({ms}ms)  {'' if is_alive else info}")
-            stats['ok' if is_alive else 'error'] += 1
+            stats["ok" if is_alive else "error"] += 1
 
-    tasks = [
-        _check_variant(sn, v)
-        for sn, vars_list in variants_map.items()
-        for v in vars_list
-    ]
+    tasks = [_check_variant(sn, v) for sn, vars_list in variants_map.items() for v in vars_list]
     await asyncio.gather(*tasks)
 
-    print(f"  📊 Health check: ✅ {stats['ok']} ok, ❌ {stats['error']} error (de {total_checks} total)")
+    print(
+        f"  📊 Health check: ✅ {stats['ok']} ok, ❌ {stats['error']} error (de {total_checks} total)"
+    )
