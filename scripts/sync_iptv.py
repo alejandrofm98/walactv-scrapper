@@ -936,7 +936,7 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
 
     try:
         async with pool.acquire() as conn:
-            # Cargar tmdb_id existentes ANTES de truncar (desde catalog, por series_key)
+            # Cargar tmdb_id existentes ANTES de truncar (por series_key)
             tmdb_map: dict[str, str] = {}
             try:
                 rows = await conn.fetch(
@@ -971,9 +971,9 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                     continue
 
                 tmdb_id = tmdb_map.get(sk)
-                canonical_key = f"tmdb_{tmdb_id}" if tmdb_id else sk
+                dedup_key = f"tmdb_{tmdb_id}" if tmdb_id else sk
 
-                catalog_id = catalog_id_map.get(canonical_key)
+                catalog_id = catalog_id_map.get(dedup_key)
                 if not catalog_id:
                     try:
                         result = await conn.fetchrow(
@@ -988,7 +988,7 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                             or s.get("nombre_normalizado")
                             or s.get("nombre", ""),
                             sk,
-                            canonical_key,
+                            dedup_key,
                             s.get("year"),
                             s.get("grupo_normalizado"),
                             s.get("country"),
@@ -997,7 +997,7 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                             tmdb_id,
                         )
                         if result:
-                            catalog_id_map[canonical_key] = result["id"]
+                            catalog_id_map[dedup_key] = result["id"]
                             catalog_id = result["id"]
                     except Exception as e:
                         print(f"  ⚠️  Error insertando series_catalog '{s.get('serie_name')}': {e}")
@@ -1022,7 +1022,7 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                 except (ValueError, TypeError):
                     continue
 
-                ep_key = (catalog_id, season_num, episode_num)
+                ep_key = (dedup_key, season_num, episode_num)
                 episode_id = episode_map.get(ep_key)
                 if not episode_id:
                     try:
