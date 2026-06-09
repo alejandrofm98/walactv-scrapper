@@ -156,6 +156,24 @@ def quitar_prefijo_idioma(texto: str, language: str | None) -> str:
     return re.sub(pattern, "", cleaned, count=1, flags=re.IGNORECASE).strip()
 
 
+QUALITY_TOKENS = ("UHD", "FHD", "HD", "SD", "4K", "HEVC", "H265", "HQ", "LQ")
+QUALITY_REGEX = re.compile(
+    rf"(?:[\[\(]\s*({'|'.join(QUALITY_TOKENS)})\s*[\]\)]\b|\b({'|'.join(QUALITY_TOKENS)})\b)",
+    re.IGNORECASE,
+)
+
+
+def extraer_calidad(nombre: str) -> str | None:
+    """Extrae la etiqueta de calidad del nombre: [FHD], (HD), 4K, etc."""
+    if not nombre:
+        return None
+    match = QUALITY_REGEX.search(nombre)
+    if not match:
+        return None
+    token = match.group(1) or match.group(2)
+    return token.upper() if token else None
+
+
 def limpiar_etiquetas_calidad(texto: str) -> str:
     """Elimina etiquetas de calidad del título: [UHD], (HQ), (LQ), 4K, FHD, HD, etc."""
     if not texto:
@@ -516,6 +534,9 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
     provider_id = extraer_provider_id(item["url"])
     stream_url = construir_stream_url(item["url"], provider_username, provider_password)
 
+    # Extraer calidad del nombre antes de limpiar
+    quality = extraer_calidad(item["name"])
+
     # Datos base comunes a todos los tipos
     data_base = {
         "id": item_id,
@@ -528,6 +549,7 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
         "grupo": item["group"],
         "grupo_normalizado": metadata["group_normalized"],
         "country": country,
+        "quality": quality,
         "nombre_normalizado": metadata["name_normalized"],
         "tvg_id": item.get("tvg_id", ""),
     }
@@ -902,11 +924,12 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                         """
                         INSERT INTO movie_streams
                             (movie_id, country, quality, provider_id, stream_url, url, label, numero)
-                        VALUES ($1, $2, NULL, $3, $4, $5, $6, $7)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                         ON CONFLICT DO NOTHING
                         """,
                         catalog_id,
                         m.get("country") or "UNKNOWN",
+                        m.get("quality"),
                         m.get("provider_id"),
                         m.get("stream_url") or m.get("url", ""),
                         m.get("url", ""),
@@ -1061,11 +1084,12 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                         """
                         INSERT INTO series_streams
                             (episode_id, country, quality, provider_id, stream_url, url, label, numero)
-                        VALUES ($1, $2, NULL, $3, $4, $5, $6, $7)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                         ON CONFLICT DO NOTHING
                         """,
                         episode_id,
                         s.get("country") or "UNKNOWN",
+                        s.get("quality"),
                         s.get("provider_id"),
                         s.get("stream_url") or s.get("url", ""),
                         s.get("url", ""),
