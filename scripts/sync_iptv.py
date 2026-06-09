@@ -836,14 +836,16 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
 
     try:
         async with pool.acquire() as conn:
-            # Cargar tmdb_id existentes ANTES de truncar (desde catalog, usando provider_id)
+            # Cargar tmdb_id existentes ANTES de truncar (indexado por dedup_key)
+            # Permite que la misma pelicula con diferente provider_id herede el tmdb_id
             tmdb_map: dict[str, str] = {}
             try:
                 rows = await conn.fetch(
-                    "SELECT provider_id, tmdb_id FROM movies_catalog WHERE tmdb_id IS NOT NULL AND provider_id IS NOT NULL"
+                    "SELECT nombre_dedup_key, tmdb_id FROM movies_catalog "
+                    "WHERE tmdb_id IS NOT NULL AND nombre_dedup_key IS NOT NULL"
                 )
-                tmdb_map = {r["provider_id"]: r["tmdb_id"] for r in rows}
-                print(f"  🔗 {len(tmdb_map):,} tmdb_id cargados desde catalog (por provider_id)")
+                tmdb_map = {r["nombre_dedup_key"]: r["tmdb_id"] for r in rows}
+                print(f"  🔗 {len(tmdb_map):,} tmdb_id cargados desde catalog (por dedup_key)")
             except Exception as e:
                 print(f"  ⚠️  No se pudieron cargar tmdb_id: {e}")
 
@@ -861,7 +863,7 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                     continue
 
                 provider_id = m.get("provider_id")
-                tmdb_id = tmdb_map.get(provider_id)
+                tmdb_id = tmdb_map.get(dedup_key)
                 canonical_key = f"tmdb_{tmdb_id}" if tmdb_id else dedup_key
 
                 catalog_id = catalog_id_map.get(canonical_key)
