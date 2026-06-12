@@ -479,6 +479,15 @@ class TMDBScraper:
                 updated_at = NOW()
             """
             try:
+                existing = self.db.execute_query(
+                    "SELECT provider_id FROM movies_catalog WHERE tmdb_id = %s AND provider_id != %s LIMIT 1",
+                    (result.tmdb_id, result.provider_id),
+                )
+                if existing:
+                    logger.warning(
+                        f"   ⚠️ tmdb_id {result.tmdb_id} ya asignado a provider {existing[0]['provider_id']}, skip"
+                    )
+                    return
                 self.db.execute_command(
                     sql,
                     (
@@ -756,6 +765,15 @@ class TMDBScraper:
                 updated_at = NOW()
             """
             try:
+                existing = self.db.execute_query(
+                    "SELECT series_key FROM series_catalog WHERE tmdb_id = %s AND series_key != %s LIMIT 1",
+                    (result.tmdb_id, result.series_key),
+                )
+                if existing:
+                    logger.warning(
+                        f"   ⚠️ tmdb_id {result.tmdb_id} ya asignado a series_key {existing[0]['series_key']}, skip"
+                    )
+                    return
                 self.db.execute_command(
                     sql,
                     (
