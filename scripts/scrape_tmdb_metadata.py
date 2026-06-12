@@ -516,6 +516,10 @@ class TMDBScraper:
                     if current and current[0]["id"] != keep_id:
                         current_id = current[0]["id"]
                         self.db.execute_command(
+                            "DELETE FROM movie_streams WHERE movie_id = %s AND provider_id IN (SELECT provider_id FROM movie_streams WHERE movie_id = %s)",
+                            (current_id, keep_id),
+                        )
+                        self.db.execute_command(
                             "UPDATE movie_streams SET movie_id = %s WHERE movie_id = %s",
                             (keep_id, current_id),
                         )
@@ -823,7 +827,24 @@ class TMDBScraper:
                     )
                     if current and current[0]["id"] != keep_id:
                         current_id = current[0]["id"]
-                        # Move streams from conflicting episodes to target episodes
+                        self.db.execute_command(
+                            """
+                            DELETE FROM series_streams WHERE id IN (
+                                SELECT ss_cur.id
+                                FROM series_streams ss_cur
+                                JOIN series_episodes se_cur ON ss_cur.episode_id = se_cur.id
+                                JOIN series_episodes se_keep
+                                    ON se_keep.catalog_id = %s
+                                    AND se_keep.season_number = se_cur.season_number
+                                    AND se_keep.episode_number = se_cur.episode_number
+                                JOIN series_streams ss_keep
+                                    ON ss_keep.episode_id = se_keep.id
+                                    AND ss_keep.provider_id = ss_cur.provider_id
+                                WHERE se_cur.catalog_id = %s
+                            )
+                            """,
+                            (keep_id, current_id),
+                        )
                         self.db.execute_command(
                             """
                             UPDATE series_streams ss
