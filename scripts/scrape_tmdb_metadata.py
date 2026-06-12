@@ -479,15 +479,6 @@ class TMDBScraper:
                 updated_at = NOW()
             """
             try:
-                existing = self.db.execute_query(
-                    "SELECT provider_id FROM movies_catalog WHERE tmdb_id = %s AND provider_id != %s LIMIT 1",
-                    (result.tmdb_id, result.provider_id),
-                )
-                if existing:
-                    logger.warning(
-                        f"   ⚠️ tmdb_id {result.tmdb_id} ya asignado a provider {existing[0]['provider_id']}, skip"
-                    )
-                    return
                 self.db.execute_command(
                     sql,
                     (
@@ -510,10 +501,37 @@ class TMDBScraper:
                         json.dumps(result.tmdb_data) if result.tmdb_data else None,
                     ),
                 )
-                self.db.execute_command(
-                    "UPDATE movies_catalog SET tmdb_id = %s, not_found = FALSE WHERE provider_id = %s",
+                # Check if this tmdb_id is already assigned to ANOTHER catalog entry.
+                # If so, merge streams into existing entry and delete duplicate.
+                existing = self.db.execute_query(
+                    "SELECT id FROM movies_catalog WHERE tmdb_id = %s AND provider_id != %s LIMIT 1",
                     (result.tmdb_id, result.provider_id),
                 )
+                if existing:
+                    keep_id = existing[0]["id"]
+                    current = self.db.execute_query(
+                        "SELECT id FROM movies_catalog WHERE provider_id = %s LIMIT 1",
+                        (result.provider_id,),
+                    )
+                    if current and current[0]["id"] != keep_id:
+                        current_id = current[0]["id"]
+                        self.db.execute_command(
+                            "UPDATE movie_streams SET movie_id = %s WHERE movie_id = %s",
+                            (keep_id, current_id),
+                        )
+                        self.db.execute_command(
+                            "DELETE FROM movies_catalog WHERE id = %s",
+                            (current_id,),
+                        )
+                        logger.info(
+                            f"   🔀 Mergeado: streams movidos a catalog {keep_id}, "
+                            f"provider {result.provider_id} eliminado"
+                        )
+                else:
+                    self.db.execute_command(
+                        "UPDATE movies_catalog SET tmdb_id = %s, not_found = FALSE WHERE provider_id = %s",
+                        (result.tmdb_id, result.provider_id),
+                    )
                 self.db.execute_command(
                     "DELETE FROM scraper_failures WHERE provider_id = %s", (result.provider_id,)
                 )
@@ -765,15 +783,6 @@ class TMDBScraper:
                 updated_at = NOW()
             """
             try:
-                existing = self.db.execute_query(
-                    "SELECT series_key FROM series_catalog WHERE tmdb_id = %s AND series_key != %s LIMIT 1",
-                    (result.tmdb_id, result.series_key),
-                )
-                if existing:
-                    logger.warning(
-                        f"   ⚠️ tmdb_id {result.tmdb_id} ya asignado a series_key {existing[0]['series_key']}, skip"
-                    )
-                    return
                 self.db.execute_command(
                     sql,
                     (
@@ -795,10 +804,63 @@ class TMDBScraper:
                         json.dumps(result.tmdb_data) if result.tmdb_data else None,
                     ),
                 )
-                self.db.execute_command(
-                    "UPDATE series_catalog SET tmdb_id = %s, not_found = FALSE WHERE series_key = %s",
+                # Check if this tmdb_id is already assigned to ANOTHER catalog entry.
+                # If so, merge episodes/streams into existing entry and delete duplicate.
+                existing = self.db.execute_query(
+                    "SELECT id FROM series_catalog WHERE tmdb_id = %s AND series_key != %s LIMIT 1",
                     (result.tmdb_id, result.series_key),
                 )
+                if existing:
+                    keep_id = existing[0]["id"]
+                    current = self.db.execute_query(
+                        "SELECT id FROM series_catalog WHERE series_key = %s LIMIT 1",
+                        (result.series_key,),
+                    )
+                    if current and current[0]["id"] != keep_id:
+                        current_id = current[0]["id"]
+                        # Move streams from conflicting episodes to target episodes
+                        self.db.execute_command(
+                            """
+                            UPDATE series_streams ss
+                            SET episode_id = target_ep.id
+                            FROM series_episodes src_ep
+                            JOIN series_episodes target_ep
+                                ON target_ep.catalog_id = %s
+                                AND target_ep.season_number = src_ep.season_number
+                                AND target_ep.episode_number = src_ep.episode_number
+                            WHERE ss.episode_id = src_ep.id
+                            AND src_ep.catalog_id = %s
+                            """,
+                            (keep_id, current_id),
+                        )
+                        # Move non-conflicting episodes to the kept catalog
+                        self.db.execute_command(
+                            """
+                            UPDATE series_episodes SET catalog_id = %s
+                            WHERE catalog_id = %s
+                            AND NOT EXISTS (
+                                SELECT 1 FROM series_episodes target
+                                WHERE target.catalog_id = %s
+                                AND target.season_number = series_episodes.season_number
+                                AND target.episode_number = series_episodes.episode_number
+                            )
+                            """,
+                            (keep_id, current_id, keep_id),
+                        )
+                        # Delete duplicate catalog entry (CASCADE removes remaining orphans)
+                        self.db.execute_command(
+                            "DELETE FROM series_catalog WHERE id = %s",
+                            (current_id,),
+                        )
+                        logger.info(
+                            f"   🔀 Mergeado: episodios → catalog {keep_id}, "
+                            f"series_key {result.series_key} eliminado"
+                        )
+                else:
+                    self.db.execute_command(
+                        "UPDATE series_catalog SET tmdb_id = %s, not_found = FALSE WHERE series_key = %s",
+                        (result.tmdb_id, result.series_key),
+                    )
                 self.db.execute_command(
                     "DELETE FROM scraper_failures WHERE series_key = %s", (result.series_key,)
                 )

@@ -21,7 +21,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import utils.constants as CONSTANTS
 from config import get_settings
 from database import DatabasePG
-from services.bulk_insert import insert_bulk_optimized
 from utils.series_keys import build_series_key
 
 # Cargar configuración
@@ -850,16 +849,92 @@ async def limpiar_tabla_optimizada(pool: asyncpg.Pool, tabla: str) -> bool:
         return False
 
 
+async def insert_channels_upsert(pool: asyncpg.Pool, channels: list) -> bool:
+    """Inserta o actualiza canales usando upsert. Preserva datos operacionales (ultimo_chequeo, estado_stream, tiempo_respuesta_ms)."""
+    if not channels:
+        return True
+
+    print(f"\n📺 SINCRONIZANDO CANALES ({len(channels):,})...")
+
+    try:
+        async with pool.acquire() as conn:
+            sync_start = datetime.now()
+
+            for c in channels:
+                channel_id = c.get("id") or ""
+                if not channel_id:
+                    continue
+
+                try:
+                    await conn.execute(
+                        """
+                        INSERT INTO channels
+                            (id, numero, nombre, logo, url, grupo, country, tvg_id,
+                             nombre_normalizado, grupo_normalizado, stream_url, provider_id,
+                             last_sync_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                        ON CONFLICT (id) DO UPDATE SET
+                            numero = EXCLUDED.numero,
+                            nombre = EXCLUDED.nombre,
+                            logo = COALESCE(EXCLUDED.logo, channels.logo),
+                            url = EXCLUDED.url,
+                            grupo = EXCLUDED.grupo,
+                            country = EXCLUDED.country,
+                            tvg_id = EXCLUDED.tvg_id,
+                            nombre_normalizado = EXCLUDED.nombre_normalizado,
+                            grupo_normalizado = EXCLUDED.grupo_normalizado,
+                            stream_url = EXCLUDED.stream_url,
+                            provider_id = EXCLUDED.provider_id,
+                            last_sync_at = EXCLUDED.last_sync_at
+                        """,
+                        channel_id,
+                        c.get("numero", 0),
+                        c.get("nombre", ""),
+                        c.get("logo"),
+                        c.get("url", ""),
+                        c.get("grupo"),
+                        c.get("country"),
+                        c.get("tvg_id", ""),
+                        c.get("nombre_normalizado"),
+                        c.get("grupo_normalizado"),
+                        c.get("stream_url", ""),
+                        c.get("provider_id"),
+                        sync_start,
+                    )
+                except Exception as e:
+                    print(f"  ⚠️  Error insertando canal '{c.get('nombre')}': {e}")
+                    continue
+
+            # Limpiar canales que desaparecieron del M3U
+            result = await conn.execute(
+                "DELETE FROM channels WHERE last_sync_at IS NULL OR last_sync_at < $1",
+                sync_start,
+            )
+            if result and "DELETE" in str(result):
+                n = int(str(result).replace("DELETE ", ""))
+                if n > 0:
+                    print(f"  🗑️  {n:,} canales obsoletos eliminados")
+
+        print(f"  ✅ Canales sincronizados: {len(channels):,}")
+        return True
+
+    except Exception as e:
+        print(f"  ❌ Error en insert_channels_upsert: {e}")
+        traceback.print_exc()
+        return False
+
+
 async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
     if not movies:
         return True
 
-    print(f"\n📦 INSERTANDO EN MOVIES_CATALOG + MOVIE_STREAMS ({len(movies):,} streams)...")
+    print(f"\n📦 SINCRONIZANDO MOVIES_CATALOG + MOVIE_STREAMS ({len(movies):,} streams)...")
 
     try:
         async with pool.acquire() as conn:
-            # Cargar tmdb_id existentes ANTES de truncar (indexado por dedup_key)
-            # Permite que la misma pelicula con diferente provider_id herede el tmdb_id
+            sync_start = datetime.now()
+
+            # Cargar tmdb_id existentes para formar canonical_key correctamente
             tmdb_map: dict[str, str] = {}
             try:
                 rows = await conn.fetch(
@@ -870,11 +945,6 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                 print(f"  🔗 {len(tmdb_map):,} tmdb_id cargados desde catalog (por dedup_key)")
             except Exception as e:
                 print(f"  ⚠️  No se pudieron cargar tmdb_id: {e}")
-
-            # Truncar tablas
-            for table in [CONSTANTS.MOVIE_STREAMS_TABLE, CONSTANTS.MOVIES_CATALOG_TABLE]:
-                if not await limpiar_tabla_optimizada(pool, table):
-                    return False
 
             catalog_id_map: dict[str, str] = {}
             stream_count = 0
@@ -895,8 +965,17 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                             """
                             INSERT INTO movies_catalog
                                 (title, nombre_dedup_key, canonical_key, year, group_normalizado,
-                                 country, logo, provider_id, tmdb_id)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                                 country, logo, provider_id, tmdb_id, last_sync_at)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                            ON CONFLICT (canonical_key) DO UPDATE SET
+                                title = EXCLUDED.title,
+                                nombre_dedup_key = EXCLUDED.nombre_dedup_key,
+                                year = COALESCE(EXCLUDED.year, movies_catalog.year),
+                                group_normalizado = EXCLUDED.group_normalizado,
+                                logo = COALESCE(EXCLUDED.logo, movies_catalog.logo),
+                                provider_id = EXCLUDED.provider_id,
+                                tmdb_id = COALESCE(movies_catalog.tmdb_id, EXCLUDED.tmdb_id),
+                                last_sync_at = EXCLUDED.last_sync_at
                             RETURNING id
                             """,
                             m.get("nombre_normalizado") or m.get("nombre", ""),
@@ -908,6 +987,7 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                             m.get("logo"),
                             provider_id,
                             tmdb_id,
+                            sync_start,
                         )
                         if result:
                             catalog_id_map[canonical_key] = result["id"]
@@ -925,7 +1005,7 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                         INSERT INTO movie_streams
                             (movie_id, country, quality, provider_id, stream_url, url, label, numero)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                        ON CONFLICT DO NOTHING
+                        ON CONFLICT (movie_id, provider_id) DO NOTHING
                         """,
                         catalog_id,
                         m.get("country") or "UNKNOWN",
@@ -939,6 +1019,16 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                     stream_count += 1
                 except Exception as e:
                     print(f"  ⚠️  Error insertando movie_stream: {e}")
+
+            # Limpiar entries que desaparecieron del M3U
+            result = await conn.execute(
+                "DELETE FROM movies_catalog WHERE last_sync_at IS NULL OR last_sync_at < $1",
+                sync_start,
+            )
+            if result and "DELETE" in str(result):
+                n = int(str(result).replace("DELETE ", ""))
+                if n > 0:
+                    print(f"  🗑️  {n:,} entries obsoletos eliminados")
 
         print(f"  ✅ Movies: {len(catalog_id_map):,} catálogo + {stream_count:,} streams")
         return True
@@ -954,12 +1044,14 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
         return True
 
     print(
-        f"\n📦 INSERTANDO EN SERIES_CATALOG + SERIES_EPISODES + SERIES_STREAMS ({len(series):,} streams)..."
+        f"\n📦 SINCRONIZANDO SERIES_CATALOG + SERIES_EPISODES + SERIES_STREAMS ({len(series):,} streams)..."
     )
 
     try:
         async with pool.acquire() as conn:
-            # Cargar tmdb_id existentes ANTES de truncar (por series_key)
+            sync_start = datetime.now()
+
+            # Cargar tmdb_id existentes para formar canonical_key correctamente
             tmdb_map: dict[str, str] = {}
             try:
                 rows = await conn.fetch(
@@ -970,18 +1062,10 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
             except Exception as e:
                 print(f"  ⚠️  No se pudieron cargar tmdb_id: {e}")
 
-            # Truncar tablas
-            for table in [
-                CONSTANTS.SERIES_STREAMS_TABLE,
-                CONSTANTS.SERIES_EPISODES_TABLE,
-                CONSTANTS.SERIES_CATALOG_TABLE,
-            ]:
-                if not await limpiar_tabla_optimizada(pool, table):
-                    return False
-
             catalog_id_map: dict[str, str] = {}
             episode_map: dict[tuple, str] = {}
             stream_count = 0
+            cleaned_catalogs: set[str] = set()
 
             for s in series:
                 sk = s.get("series_key") or ""
@@ -1003,8 +1087,17 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                             """
                             INSERT INTO series_catalog
                                 (title, series_key, canonical_key, year, group_normalizado,
-                                 country, logo, provider_id, tmdb_id)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                                 country, logo, provider_id, tmdb_id, last_sync_at)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                            ON CONFLICT (canonical_key) DO UPDATE SET
+                                title = EXCLUDED.title,
+                                series_key = EXCLUDED.series_key,
+                                year = COALESCE(EXCLUDED.year, series_catalog.year),
+                                group_normalizado = EXCLUDED.group_normalizado,
+                                logo = COALESCE(EXCLUDED.logo, series_catalog.logo),
+                                provider_id = EXCLUDED.provider_id,
+                                tmdb_id = COALESCE(series_catalog.tmdb_id, EXCLUDED.tmdb_id),
+                                last_sync_at = EXCLUDED.last_sync_at
                             RETURNING id
                             """,
                             s.get("serie_name")
@@ -1018,13 +1111,25 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                             s.get("logo"),
                             s.get("provider_id"),
                             tmdb_id,
+                            sync_start,
                         )
                         if result:
-                            catalog_id_map[dedup_key] = result["id"]
                             catalog_id = result["id"]
+                            catalog_id_map[dedup_key] = catalog_id
                     except Exception as e:
                         print(f"  ⚠️  Error insertando series_catalog '{s.get('serie_name')}': {e}")
                         continue
+
+                    # Primera vez que vemos este catálogo: limpiar episodios antiguos
+                    if catalog_id and dedup_key not in cleaned_catalogs:
+                        try:
+                            await conn.execute(
+                                "DELETE FROM series_episodes WHERE catalog_id = $1",
+                                catalog_id,
+                            )
+                            cleaned_catalogs.add(dedup_key)
+                        except Exception as e:
+                            print(f"  ⚠️  Error limpiando episodios: {e}")
 
                 if not catalog_id:
                     continue
@@ -1085,7 +1190,7 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                         INSERT INTO series_streams
                             (episode_id, country, quality, provider_id, stream_url, url, label, numero)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                        ON CONFLICT DO NOTHING
+                        ON CONFLICT (episode_id, provider_id) DO NOTHING
                         """,
                         episode_id,
                         s.get("country") or "UNKNOWN",
@@ -1099,6 +1204,16 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                     stream_count += 1
                 except Exception as e:
                     print(f"  ⚠️  Error insertando series_stream: {e}")
+
+            # Limpiar entries de catálogo que desaparecieron del M3U (CASCADE elimina episodios y streams)
+            result = await conn.execute(
+                "DELETE FROM series_catalog WHERE last_sync_at IS NULL OR last_sync_at < $1",
+                sync_start,
+            )
+            if result and "DELETE" in str(result):
+                n = int(str(result).replace("DELETE ", ""))
+                if n > 0:
+                    print(f"  🗑️  {n:,} series obsoletas eliminadas")
 
         print(
             f"  ✅ Series: {len(catalog_id_map):,} catálogo + {len(episode_map):,} episodios + {stream_count:,} streams"
@@ -1411,18 +1526,10 @@ async def sync_to_postgres():
 
         if not channels_match and len(channels) > 0:
             inicio_channels = time.time()
-            await limpiar_tabla_optimizada(pool, CONSTANTS.CHANNELS_TABLE)
-            stats_channels = await insert_bulk_optimized(
-                pool=pool,
-                table_name=CONSTANTS.CHANNELS_TABLE,
-                data=channels,
-                batch_size=CONSTANTS.DB_DEFAULT_BATCH_SIZE,
-                max_workers=CONSTANTS.DB_DEFAULT_MAX_WORKERS,
-            )
+            await insert_channels_upsert(pool, channels)
             tiempo_channels = time.time() - inicio_channels
         else:
             print(f"  ⏭️  Canales: sin cambios ({count_channels_db:,} registros)")
-            stats_channels = None
 
         # 5. Poblar tablas de catálogo normalizadas directamente desde datos en memoria
         if not movies_match and len(movies) > 0:
@@ -1447,9 +1554,7 @@ async def sync_to_postgres():
         async with pool.acquire() as conn:
             metadata = {
                 "ultima_actualizacion": datetime.now(),
-                "total_canales": stats_channels.inserted_records
-                if stats_channels
-                else count_channels_db,
+                "total_canales": len(channels),
                 "total_movies": len(movies),
                 "total_series": len(series),
                 "m3u_template_path": m3u_info["template_path"] if m3u_info else None,
