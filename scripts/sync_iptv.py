@@ -1020,6 +1020,23 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                 except Exception as e:
                     print(f"  ⚠️  Error insertando movie_stream: {e}")
 
+            # Refrescar countries array desde los streams para TODOS los entries
+            # Es idempotente: si no hay cambios, sobreescribe con los mismos valores
+            await conn.execute("""
+                UPDATE movies_catalog mc SET countries = (
+                    SELECT COALESCE(
+                        ARRAY_AGG(DISTINCT c ORDER BY c) FILTER (WHERE c IS NOT NULL AND c != ''),
+                        '{}'::varchar(10)[]
+                    )
+                    FROM (
+                        SELECT mc.country AS c
+                        WHERE mc.country IS NOT NULL AND mc.country != ''
+                        UNION
+                        SELECT ms.country FROM movie_streams ms WHERE ms.movie_id = mc.id
+                    ) sub
+                )
+            """)
+
             # Limpiar entries que desaparecieron del M3U
             result = await conn.execute(
                 "DELETE FROM movies_catalog WHERE last_sync_at IS NULL OR last_sync_at < $1",
@@ -1204,6 +1221,25 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                     stream_count += 1
                 except Exception as e:
                     print(f"  ⚠️  Error insertando series_stream: {e}")
+
+            # Refrescar countries array desde los streams para TODOS los entries
+            await conn.execute("""
+                UPDATE series_catalog sc SET countries = (
+                    SELECT COALESCE(
+                        ARRAY_AGG(DISTINCT c ORDER BY c) FILTER (WHERE c IS NOT NULL AND c != ''),
+                        '{}'::varchar(10)[]
+                    )
+                    FROM (
+                        SELECT sc.country AS c
+                        WHERE sc.country IS NOT NULL AND sc.country != ''
+                        UNION
+                        SELECT ss.country
+                        FROM series_episodes se
+                        JOIN series_streams ss ON ss.episode_id = se.id
+                        WHERE se.catalog_id = sc.id
+                    ) sub
+                )
+            """)
 
             # Limpiar entries de catálogo que desaparecieron del M3U (CASCADE elimina episodios y streams)
             result = await conn.execute(
