@@ -527,10 +527,15 @@ class TMDBScraper:
                             f"   🔀 Mergeado: streams movidos a catalog {keep_id}, "
                             f"provider {result.provider_id} eliminado"
                         )
+                        # Actualizar canonical_key del entry sobreviviente
+                        self.db.execute_command(
+                            "UPDATE movies_catalog SET canonical_key = %s WHERE tmdb_id = %s AND canonical_key != %s",
+                            (f"tmdb_{result.tmdb_id}", result.tmdb_id, f"tmdb_{result.tmdb_id}"),
+                        )
                 else:
                     self.db.execute_command(
-                        "UPDATE movies_catalog SET tmdb_id = %s, not_found = FALSE WHERE provider_id = %s",
-                        (result.tmdb_id, result.provider_id),
+                        "UPDATE movies_catalog SET tmdb_id = %s, canonical_key = %s, not_found = FALSE WHERE provider_id = %s",
+                        (result.tmdb_id, f"tmdb_{result.tmdb_id}", result.provider_id),
                     )
                 self.db.execute_command(
                     "DELETE FROM scraper_failures WHERE provider_id = %s", (result.provider_id,)
@@ -856,10 +861,15 @@ class TMDBScraper:
                             f"   🔀 Mergeado: episodios → catalog {keep_id}, "
                             f"series_key {result.series_key} eliminado"
                         )
+                        # Actualizar canonical_key del entry sobreviviente
+                        self.db.execute_command(
+                            "UPDATE series_catalog SET canonical_key = %s WHERE tmdb_id = %s AND canonical_key != %s",
+                            (f"tmdb_{result.tmdb_id}", result.tmdb_id, f"tmdb_{result.tmdb_id}"),
+                        )
                 else:
                     self.db.execute_command(
-                        "UPDATE series_catalog SET tmdb_id = %s, not_found = FALSE WHERE series_key = %s",
-                        (result.tmdb_id, result.series_key),
+                        "UPDATE series_catalog SET tmdb_id = %s, canonical_key = %s, not_found = FALSE WHERE series_key = %s",
+                        (result.tmdb_id, f"tmdb_{result.tmdb_id}", result.series_key),
                     )
                 self.db.execute_command(
                     "DELETE FROM scraper_failures WHERE series_key = %s", (result.series_key,)
