@@ -180,14 +180,25 @@ ruff format scripts/ && ruff check scripts/ --fix && mypy scripts/ --config-file
   - Tests de parsing de HTML del scrapper.
   - Tests de singleton de DatabasePG.
 
-## 8. Criterios para cambios
+## 8. Despliegue (Dokploy)
+
+Este proyecto usa **Dokploy** para despliegue continuo. Cada `git push` a `master`
+despliega automaticamente el nuevo codigo en produccion.
+
+- **NO es necesario** hacer deploy manual, SSH al servidor, docker compose, etc.
+- **Solo hacer `git push`** — Dokploy detecta el push y reconstruye + reinicia el contenedor.
+- Los crons de Ofelia se configuran en `docker-compose.yaml` y se actualizan automaticamente con cada deploy.
+- Tener en cuenta: cualquier push a `master` va a produccion inmediatamente.
+  Si necesitas probar sin afectar produccion, trabajar en una rama y hacer PR.
+
+## 9. Criterios para cambios
 
 1. No romper el pipeline de Ofelia (cron). Cada cambio debe preserving el `if __name__ == "__main__"` guard.
 2. Si modificas tablas o esquemas, actualizar `database/schema.sql`.
 3. Si agregas un script nuevo, registrarlo en docker-compose.yaml y en este archivo.
 4. Evitar cambios de estilo en archivos no tocados.
 
-## 9. Roadmap (no en esta iteracion)
+## 10. Roadmap (no en esta iteracion)
 
 1. Activar pre-commit con ruff + mypy + vulture.
 2. CI en GitHub Actions.
@@ -197,7 +208,7 @@ ruff format scripts/ && ruff check scripts/ --fix && mypy scripts/ --config-file
 6. Agregar mas tests (target: 80% coverage en sync_iptv y scrapper).
 7. Mover `actualiza_epg.py` a Ofelia schedule.
 
-## 10. Checklist antes de cerrar una tarea
+## 11. Checklist antes de cerrar una tarea
 
 1. Codigo formateado: `ruff format` sin diffs.
 2. Lint limpio: `ruff check` sin warnings.
