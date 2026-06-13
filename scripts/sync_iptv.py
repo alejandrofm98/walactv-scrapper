@@ -1028,7 +1028,7 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                         '{}'::varchar(10)[]
                     )
                     FROM (
-                        SELECT ms.country FROM movie_streams ms WHERE ms.movie_id = mc.id
+                        SELECT ms.country AS c FROM movie_streams ms WHERE ms.movie_id = mc.id
                     ) sub
                 )
             """)
@@ -1225,7 +1225,7 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                         '{}'::varchar(10)[]
                     )
                     FROM (
-                        SELECT ss.country
+                        SELECT ss.country AS c
                         FROM series_episodes se
                         JOIN series_streams ss ON ss.episode_id = se.id
                         WHERE se.catalog_id = sc.id
