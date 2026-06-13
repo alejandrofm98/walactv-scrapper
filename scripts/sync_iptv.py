@@ -965,8 +965,8 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                             """
                             INSERT INTO movies_catalog
                                 (title, nombre_dedup_key, canonical_key, year, group_normalizado,
-                                 country, logo, provider_id, tmdb_id, last_sync_at)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                                 logo, provider_id, tmdb_id, last_sync_at)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                             ON CONFLICT (canonical_key) DO UPDATE SET
                                 title = EXCLUDED.title,
                                 nombre_dedup_key = EXCLUDED.nombre_dedup_key,
@@ -983,7 +983,6 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                             canonical_key,
                             m.get("year"),
                             m.get("grupo_normalizado"),
-                            m.get("country"),
                             m.get("logo"),
                             provider_id,
                             tmdb_id,
@@ -1029,9 +1028,6 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                         '{}'::varchar(10)[]
                     )
                     FROM (
-                        SELECT mc.country AS c
-                        WHERE mc.country IS NOT NULL AND mc.country != ''
-                        UNION
                         SELECT ms.country FROM movie_streams ms WHERE ms.movie_id = mc.id
                     ) sub
                 )
@@ -1104,8 +1100,8 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                             """
                             INSERT INTO series_catalog
                                 (title, series_key, canonical_key, year, group_normalizado,
-                                 country, logo, provider_id, tmdb_id, last_sync_at)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                                 logo, provider_id, tmdb_id, last_sync_at)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                             ON CONFLICT (canonical_key) DO UPDATE SET
                                 title = EXCLUDED.title,
                                 series_key = EXCLUDED.series_key,
@@ -1124,7 +1120,6 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                             dedup_key,
                             s.get("year"),
                             s.get("grupo_normalizado"),
-                            s.get("country"),
                             s.get("logo"),
                             s.get("provider_id"),
                             tmdb_id,
@@ -1230,9 +1225,6 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                         '{}'::varchar(10)[]
                     )
                     FROM (
-                        SELECT sc.country AS c
-                        WHERE sc.country IS NOT NULL AND sc.country != ''
-                        UNION
                         SELECT ss.country
                         FROM series_episodes se
                         JOIN series_streams ss ON ss.episode_id = se.id

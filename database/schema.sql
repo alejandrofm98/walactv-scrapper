@@ -206,7 +206,7 @@ CREATE TABLE IF NOT EXISTS series_catalog (
     tmdb_id VARCHAR(20),
     nombre_dedup_key TEXT,
     year INT,
-    country VARCHAR(10),
+    countries VARCHAR(10)[] DEFAULT '{}',
     group_normalizado TEXT,
     logo TEXT,
     not_found BOOLEAN DEFAULT FALSE,
@@ -253,7 +253,7 @@ CREATE TABLE IF NOT EXISTS movies_catalog (
     nombre_dedup_key TEXT,
     canonical_key VARCHAR,
     year INT,
-    country VARCHAR(10),
+    countries VARCHAR(10)[] DEFAULT '{}',
     group_normalizado TEXT,
     logo TEXT,
     not_found BOOLEAN DEFAULT FALSE,
@@ -282,7 +282,7 @@ CREATE TABLE IF NOT EXISTS movie_streams (
 CREATE INDEX IF NOT EXISTS idx_series_catalog_series_key ON series_catalog(series_key);
 CREATE INDEX IF NOT EXISTS idx_series_catalog_tmdb ON series_catalog(tmdb_id);
 CREATE INDEX IF NOT EXISTS idx_series_catalog_group ON series_catalog(group_normalizado);
-CREATE INDEX IF NOT EXISTS idx_series_catalog_country ON series_catalog(country);
+CREATE INDEX IF NOT EXISTS idx_series_catalog_countries ON series_catalog USING gin(countries);
 CREATE INDEX IF NOT EXISTS idx_series_catalog_year ON series_catalog(year);
 CREATE INDEX IF NOT EXISTS idx_series_episodes_catalog ON series_episodes(catalog_id);
 CREATE INDEX IF NOT EXISTS idx_series_streams_episode ON series_streams(episode_id);
@@ -290,7 +290,7 @@ CREATE INDEX IF NOT EXISTS idx_series_streams_country ON series_streams(country)
 CREATE INDEX IF NOT EXISTS idx_movies_catalog_tmdb ON movies_catalog(tmdb_id);
 CREATE INDEX IF NOT EXISTS idx_movies_catalog_dedup ON movies_catalog(nombre_dedup_key);
 CREATE INDEX IF NOT EXISTS idx_movies_catalog_group ON movies_catalog(group_normalizado);
-CREATE INDEX IF NOT EXISTS idx_movies_catalog_country ON movies_catalog(country);
+CREATE INDEX IF NOT EXISTS idx_movies_catalog_countries ON movies_catalog USING gin(countries);
 CREATE INDEX IF NOT EXISTS idx_movies_catalog_year ON movies_catalog(year);
 CREATE INDEX IF NOT EXISTS idx_movie_streams_movie ON movie_streams(movie_id);
 CREATE INDEX IF NOT EXISTS idx_movie_streams_country ON movie_streams(country);
