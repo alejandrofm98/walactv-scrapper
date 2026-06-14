@@ -463,6 +463,20 @@ class TMDBScraper:
         """
         return self.db.execute_query(sql, (limit,))
 
+    def _get_series_with_episodes_without_metadata(self, limit: int = 100) -> list[dict]:
+        """Obtiene series que ya tienen tmdb_id pero con episodios sin datos TMDB."""
+        sql = """
+        SELECT DISTINCT sc.tmdb_id, sc.series_key
+        FROM series_catalog sc
+        JOIN series_episodes se ON se.catalog_id = sc.id
+        WHERE sc.tmdb_id IS NOT NULL
+          AND sc.not_found = FALSE
+          AND (se.title IS NULL OR se.overview IS NULL)
+        ORDER BY sc.series_key ASC
+        LIMIT %s
+        """
+        return self.db.execute_query(sql, (limit,))
+
     # _backfill_series_keys eliminado — series_key se genera al insertar directamente en el catálogo
 
     def _save_metadata(self, result: ScrapeResult):
@@ -1172,6 +1186,22 @@ class TMDBScraper:
                 total_not_found,
                 max_items,
             )
+
+        # -- Episodios sin metadata TMDB --
+        logger.info("\n📺 PROCESANDO EPISODIOS SIN METADATA TMDB")
+        logger.info("-" * 60)
+        episodes_processed = 0
+        while True:
+            series_with_missing = self._get_series_with_episodes_without_metadata(batch_size)
+            if not series_with_missing:
+                logger.info("No hay más series con episodios sin metadata")
+                break
+            logger.info(f"Lote de {len(series_with_missing)} series con episodios sin metadata")
+            for s in series_with_missing:
+                self._process_episodes_for_series(s["tmdb_id"], s["series_key"])
+                episodes_processed += 1
+                time.sleep(0.05)
+        logger.info(f"   Total series procesadas: {episodes_processed}")
 
         # -- Resumen --
         logger.info("\n" + "=" * 60)
