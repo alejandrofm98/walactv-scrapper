@@ -471,7 +471,7 @@ class TMDBScraper:
         JOIN series_episodes se ON se.catalog_id = sc.id
         WHERE sc.tmdb_id IS NOT NULL
           AND sc.not_found = FALSE
-          AND (se.title IS NULL OR se.overview IS NULL)
+          AND se.tmdb_checked = FALSE
         ORDER BY sc.series_key ASC
         LIMIT %s
         """
@@ -974,48 +974,64 @@ class TMDBScraper:
                 return
             catalog_id = catalog_rows[0]["id"]
 
-            # Obtener temporadas únicas que tenemos en BD
-            season_rows = self.db.execute_query(
-                "SELECT DISTINCT season_number FROM series_episodes WHERE catalog_id = %s ORDER BY season_number",
+            # Obtener episodios pendientes de esta serie (tmdb_checked = FALSE)
+            episode_rows = self.db.execute_query(
+                """SELECT id, season_number, episode_number
+                FROM series_episodes
+                WHERE catalog_id = %s AND tmdb_checked = FALSE
+                ORDER BY season_number, episode_number""",
                 (catalog_id,),
             )
-            if not season_rows:
+            if not episode_rows:
                 return
 
-            logger.info(f"   📺 {series_name[:60]} — {len(season_rows)} temporadas")
+            # Agrupar episodios por temporada para minimizar llamadas a TMDB
+            seasons_to_process: dict[int, list[dict]] = {}
+            for ep in episode_rows:
+                sn = ep["season_number"]
+                if sn not in seasons_to_process:
+                    seasons_to_process[sn] = []
+                seasons_to_process[sn].append(ep)
 
-            for season_row in season_rows:
-                season_number = season_row["season_number"]
+            logger.info(
+                f"   📺 {series_name[:60]} — {len(episode_rows)} episodios en {len(seasons_to_process)} temporadas"
+            )
+
+            for season_number, season_episodes in seasons_to_process.items():
+                # Obtener datos de TMDB para esta temporada
                 season_data = self._get_tv_season_details(tmdb_id, season_number)
                 if not season_data:
                     logger.warning(f"   ⚠️ Temporada {season_number} no encontrada en TMDB")
+                    # Marcar todos los episodios de esta temporada como checked
+                    for ep in season_episodes:
+                        self.db.execute_command(
+                            "UPDATE series_episodes SET tmdb_checked = TRUE WHERE id = %s",
+                            (ep["id"],),
+                        )
                     continue
 
-                # Procesar episodios en español
-                episodes_es = season_data.get("es", {}).get("episodes", [])
-                episodes_en = season_data.get("en", {}).get("episodes", [])
+                # Crear mapas de TMDB por número de episodio
+                episodes_es = {
+                    ep["episode_number"]: ep for ep in season_data.get("es", {}).get("episodes", [])
+                }
+                episodes_en = {
+                    ep["episode_number"]: ep for ep in season_data.get("en", {}).get("episodes", [])
+                }
 
-                # Crear mapa de episodios en inglés por número
-                en_by_number = {ep["episode_number"]: ep for ep in episodes_en}
+                # Iterar sobre episodios de la BD
+                for db_ep in season_episodes:
+                    ep_num = db_ep["episode_number"]
+                    ep_es = episodes_es.get(ep_num, {})
+                    ep_en = episodes_en.get(ep_num, {})
 
-                for ep_es in episodes_es:
-                    episode_number = ep_es.get("episode_number")
-                    if not episode_number:
-                        continue
+                    if ep_es:
+                        self._save_episode_metadata(db_ep["id"], ep_es, ep_en)
 
-                    # Buscar episodio en nuestra BD
-                    episode_rows = self.db.execute_query(
-                        "SELECT id FROM series_episodes WHERE catalog_id = %s AND season_number = %s AND episode_number = %s",
-                        (catalog_id, season_number, episode_number),
+                    # Marcar como checked (sin importar si TMDB devolvió datos)
+                    self.db.execute_command(
+                        "UPDATE series_episodes SET tmdb_checked = TRUE WHERE id = %s",
+                        (db_ep["id"],),
                     )
-                    if not episode_rows:
-                        continue  # No tenemos este episodio, saltar
-
-                    episode_id = episode_rows[0]["id"]
-                    ep_en = en_by_number.get(episode_number, {})
-
-                    # Guardar datos del episodio
-                    self._save_episode_metadata(episode_id, ep_es, ep_en)
 
         except Exception as e:
             logger.error(f"Error procesando episodios para serie {series_key}: {e}")
