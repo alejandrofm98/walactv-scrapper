@@ -662,3 +662,13 @@ CREATE TABLE IF NOT EXISTS scraper_failures (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_failures_provider ON scraper_failures(provider_id) WHERE provider_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_failures_series ON scraper_failures(series_key) WHERE series_key IS NOT NULL;
+
+-- ==========================================
+-- 13. Columnas adicionales para series_episodes (TMDB episode metadata)
+-- ==========================================
+ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS title_en TEXT;
+ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS overview_en TEXT;
+ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS runtime INTEGER;
+ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS vote_average NUMERIC(3,1);
+ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS vote_count INTEGER;
+ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS episode_type VARCHAR(50);

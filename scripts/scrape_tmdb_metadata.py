@@ -393,6 +393,26 @@ class TMDBScraper:
             "combined": {**data_es, "overview_en": data_en.get("overview")},
         }
 
+    def _get_tv_season_details(self, tmdb_id: str, season_number: int) -> dict | None:
+        """Obtiene detalles de una temporada desde TMDB (español + inglés)."""
+        self._rate_limit()
+        response_es = self.session.get(
+            f"{TMDB_BASE_URL}/tv/{tmdb_id}/season/{season_number}",
+            params={"api_key": TMDB_API_KEY, "language": "es-ES"},
+            timeout=10,
+        )
+        if response_es.status_code != 200:
+            return None
+        self._rate_limit()
+        response_en = self.session.get(
+            f"{TMDB_BASE_URL}/tv/{tmdb_id}/season/{season_number}",
+            params={"api_key": TMDB_API_KEY, "language": "en-US"},
+            timeout=10,
+        )
+        data_es = response_es.json()
+        data_en = response_en.json() if response_en.status_code == 200 else {}
+        return {"es": data_es, "en": data_en}
+
     def _get_movies_without_metadata(self, limit: int = 100) -> list[dict]:
         sql = """
         SELECT provider_id, title AS nombre, year, title AS nombre_normalizado,
@@ -896,6 +916,8 @@ class TMDBScraper:
                     "DELETE FROM scraper_failures WHERE series_key = %s", (result.series_key,)
                 )
                 logger.info(f"   💾 Guardado TMDB {result.tmdb_id} + catalog actualizado")
+                # Procesar episodios de la serie
+                self._process_episodes_for_series(result.tmdb_id, result.series_key)
             except Exception as e:
                 logger.error(f"Error guardando metadata de serie: {e}")
         else:
@@ -922,6 +944,117 @@ class TMDBScraper:
                 logger.info("   💾 Guardado como no encontrado")
             except Exception as e:
                 logger.error(f"Error guardando metadata de serie: {e}")
+
+    def _process_episodes_for_series(self, tmdb_id: str, series_key: str):
+        """Procesa episodios de una serie desde TMDB para actualizar datos existentes."""
+        if self.dry_run:
+            return
+
+        try:
+            # Obtener catalog_id de la serie
+            catalog_rows = self.db.execute_query(
+                "SELECT id FROM series_catalog WHERE tmdb_id = %s AND series_key = %s LIMIT 1",
+                (tmdb_id, series_key),
+            )
+            if not catalog_rows:
+                return
+            catalog_id = catalog_rows[0]["id"]
+
+            # Obtener temporadas únicas que tenemos en BD
+            season_rows = self.db.execute_query(
+                "SELECT DISTINCT season_number FROM series_episodes WHERE catalog_id = %s ORDER BY season_number",
+                (catalog_id,),
+            )
+            if not season_rows:
+                return
+
+            logger.info(f"   📺 Procesando episodios de {len(season_rows)} temporadas")
+
+            for season_row in season_rows:
+                season_number = season_row["season_number"]
+                season_data = self._get_tv_season_details(tmdb_id, season_number)
+                if not season_data:
+                    logger.warning(f"   ⚠️ Temporada {season_number} no encontrada en TMDB")
+                    continue
+
+                # Procesar episodios en español
+                episodes_es = season_data.get("es", {}).get("episodes", [])
+                episodes_en = season_data.get("en", {}).get("episodes", [])
+
+                # Crear mapa de episodios en inglés por número
+                en_by_number = {ep["episode_number"]: ep for ep in episodes_en}
+
+                for ep_es in episodes_es:
+                    episode_number = ep_es.get("episode_number")
+                    if not episode_number:
+                        continue
+
+                    # Buscar episodio en nuestra BD
+                    episode_rows = self.db.execute_query(
+                        "SELECT id FROM series_episodes WHERE catalog_id = %s AND season_number = %s AND episode_number = %s",
+                        (catalog_id, season_number, episode_number),
+                    )
+                    if not episode_rows:
+                        continue  # No tenemos este episodio, saltar
+
+                    episode_id = episode_rows[0]["id"]
+                    ep_en = en_by_number.get(episode_number, {})
+
+                    # Guardar datos del episodio
+                    self._save_episode_metadata(episode_id, ep_es, ep_en)
+
+        except Exception as e:
+            logger.error(f"Error procesando episodios para serie {series_key}: {e}")
+
+    def _save_episode_metadata(self, episode_id: str, data_es: dict, data_en: dict):
+        """Guarda metadata de un episodio desde TMDB."""
+        if self.dry_run:
+            return
+
+        title_es = _or_none(data_es.get("name"))
+        title_en = _or_none(data_en.get("name"))
+        overview_es = _or_none(data_es.get("overview"))
+        overview_en = _or_none(data_en.get("overview"))
+        air_date = _or_none(data_es.get("air_date"))
+        still_path = _or_none(data_es.get("still_path"))
+        runtime = data_es.get("runtime")
+        vote_average = data_es.get("vote_average")
+        vote_count = data_es.get("vote_count")
+        episode_type = _or_none(data_es.get("episode_type"))
+
+        sql = """
+        UPDATE series_episodes
+        SET title = COALESCE(%s, title),
+            title_en = COALESCE(%s, title_en),
+            overview = COALESCE(%s, overview),
+            overview_en = COALESCE(%s, overview_en),
+            air_date = COALESCE(%s, air_date),
+            still_path = COALESCE(%s, still_path),
+            runtime = COALESCE(%s, runtime),
+            vote_average = COALESCE(%s, vote_average),
+            vote_count = COALESCE(%s, vote_count),
+            episode_type = COALESCE(%s, episode_type)
+        WHERE id = %s
+        """
+        try:
+            self.db.execute_command(
+                sql,
+                (
+                    title_es,
+                    title_en,
+                    overview_es,
+                    overview_en,
+                    air_date,
+                    still_path,
+                    runtime,
+                    vote_average,
+                    vote_count,
+                    episode_type,
+                    episode_id,
+                ),
+            )
+        except Exception as e:
+            logger.error(f"Error guardando episodio {episode_id}: {e}")
 
     def _process_batch(
         self,
