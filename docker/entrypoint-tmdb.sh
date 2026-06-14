@@ -41,7 +41,7 @@ fi
 
 echo ""
 echo "📋 Programación:"
-echo "   - Ofelia ejecutará scrape cada domingo a las 3:00 AM"
+echo "   - Ofelia ejecutará scrape 4 veces al día (3:30, 9:30, 15:30, 21:30)"
 echo "   - Contenedor se mantiene activo para recibir comandos"
 echo ""
 echo "💡 Comandos manuales:"

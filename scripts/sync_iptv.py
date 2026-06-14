@@ -975,7 +975,9 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                                 logo = COALESCE(EXCLUDED.logo, movies_catalog.logo),
                                 provider_id = EXCLUDED.provider_id,
                                 tmdb_id = COALESCE(movies_catalog.tmdb_id, EXCLUDED.tmdb_id),
-                                last_sync_at = EXCLUDED.last_sync_at
+                                last_sync_at = EXCLUDED.last_sync_at,
+                                not_found = FALSE,
+                                retry_count = 0
                             RETURNING id
                             """,
                             m.get("nombre_normalizado") or m.get("nombre", ""),
@@ -1110,7 +1112,9 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                                 logo = COALESCE(EXCLUDED.logo, series_catalog.logo),
                                 provider_id = EXCLUDED.provider_id,
                                 tmdb_id = COALESCE(series_catalog.tmdb_id, EXCLUDED.tmdb_id),
-                                last_sync_at = EXCLUDED.last_sync_at
+                                last_sync_at = EXCLUDED.last_sync_at,
+                                not_found = FALSE,
+                                retry_count = 0
                             RETURNING id
                             """,
                             s.get("serie_name")
