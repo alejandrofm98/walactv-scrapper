@@ -1009,7 +1009,7 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                         ON CONFLICT (movie_id, provider_id) DO NOTHING
                         """,
                         catalog_id,
-                        m.get("country") or "UNKNOWN",
+                        m.get("country"),
                         m.get("quality"),
                         m.get("provider_id"),
                         m.get("stream_url") or m.get("url", ""),
@@ -1209,7 +1209,7 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                         ON CONFLICT (episode_id, provider_id) DO NOTHING
                         """,
                         episode_id,
-                        s.get("country") or "UNKNOWN",
+                        s.get("country"),
                         s.get("quality"),
                         s.get("provider_id"),
                         s.get("stream_url") or s.get("url", ""),
