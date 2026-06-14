@@ -466,7 +466,7 @@ class TMDBScraper:
     def _get_series_with_episodes_without_metadata(self, limit: int = 100) -> list[dict]:
         """Obtiene series que ya tienen tmdb_id pero con episodios sin datos TMDB."""
         sql = """
-        SELECT DISTINCT sc.tmdb_id, sc.series_key
+        SELECT DISTINCT sc.tmdb_id, sc.series_key, sc.title
         FROM series_catalog sc
         JOIN series_episodes se ON se.catalog_id = sc.id
         WHERE sc.tmdb_id IS NOT NULL
@@ -959,7 +959,7 @@ class TMDBScraper:
             except Exception as e:
                 logger.error(f"Error guardando metadata de serie: {e}")
 
-    def _process_episodes_for_series(self, tmdb_id: str, series_key: str):
+    def _process_episodes_for_series(self, tmdb_id: str, series_key: str, series_name: str = ""):
         """Procesa episodios de una serie desde TMDB para actualizar datos existentes."""
         if self.dry_run:
             return
@@ -982,7 +982,7 @@ class TMDBScraper:
             if not season_rows:
                 return
 
-            logger.info(f"   📺 Procesando episodios de {len(season_rows)} temporadas")
+            logger.info(f"   📺 {series_name[:60]} — {len(season_rows)} temporadas")
 
             for season_row in season_rows:
                 season_number = season_row["season_number"]
@@ -1198,7 +1198,7 @@ class TMDBScraper:
                 break
             logger.info(f"Lote de {len(series_with_missing)} series con episodios sin metadata")
             for s in series_with_missing:
-                self._process_episodes_for_series(s["tmdb_id"], s["series_key"])
+                self._process_episodes_for_series(s["tmdb_id"], s["series_key"], s["title"] or "")
                 episodes_processed += 1
                 time.sleep(0.05)
         logger.info(f"   Total series procesadas: {episodes_processed}")
