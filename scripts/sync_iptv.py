@@ -522,9 +522,9 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
     """Procesa un item (canal/movie/serie) según su tipo"""
     item_id = str(idx)[:50]  # Truncar a máximo 50 caracteres
 
-    # Extraer country del grupo
-    country = extraer_country(item["group"])
+    # Extraer country del grupo, con fallback a language detectado
     metadata = construir_metadatos_normalizados(item["name"], item["group"], tipo)
+    country = extraer_country(item["group"]) or metadata.get("language") or "UNKNOWN"
 
     # Convertir URL del logo a HTTPS usando el proxy
     logo_url = proxy_logo_url(item["logo"], settings.public_domain, tipo)
