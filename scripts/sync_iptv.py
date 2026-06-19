@@ -1080,7 +1080,9 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
             catalog_id_map: dict[str, str] = {}
             episode_map: dict[tuple, str] = {}
             stream_count = 0
-            cleaned_catalogs: set[str] = set()
+
+            # No se eliminan episodios preexistentes para preservar la metadata
+            # enriquecida por TMDB (title, overview, air_date, still_path, etc.).
 
             for s in series:
                 sk = s.get("series_key") or ""
@@ -1136,17 +1138,6 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                         print(f"  ⚠️  Error insertando series_catalog '{s.get('serie_name')}': {e}")
                         continue
 
-                    # Primera vez que vemos este catálogo: limpiar episodios antiguos
-                    if catalog_id and dedup_key not in cleaned_catalogs:
-                        try:
-                            await conn.execute(
-                                "DELETE FROM series_episodes WHERE catalog_id = $1",
-                                catalog_id,
-                            )
-                            cleaned_catalogs.add(dedup_key)
-                        except Exception as e:
-                            print(f"  ⚠️  Error limpiando episodios: {e}")
-
                 if not catalog_id:
                     continue
 
@@ -1173,23 +1164,42 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                         result = await conn.fetchrow(
                             """
                             INSERT INTO series_episodes
-                                (catalog_id, season_number, episode_number, numero)
-                            VALUES ($1, $2, $3, $4)
-                            ON CONFLICT (catalog_id, season_number, episode_number) DO NOTHING
+                                (catalog_id, season_number, episode_number, numero,
+                                 title, overview, air_date, still_path, runtime,
+                                 vote_average, vote_count, episode_type, title_en, overview_en,
+                                 tmdb_checked)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                            ON CONFLICT (catalog_id, season_number, episode_number) DO UPDATE SET
+                                numero = EXCLUDED.numero,
+                                title = COALESCE(EXCLUDED.title, series_episodes.title),
+                                overview = COALESCE(EXCLUDED.overview, series_episodes.overview),
+                                air_date = COALESCE(EXCLUDED.air_date, series_episodes.air_date),
+                                still_path = COALESCE(EXCLUDED.still_path, series_episodes.still_path),
+                                runtime = COALESCE(EXCLUDED.runtime, series_episodes.runtime),
+                                vote_average = COALESCE(EXCLUDED.vote_average, series_episodes.vote_average),
+                                vote_count = COALESCE(EXCLUDED.vote_count, series_episodes.vote_count),
+                                episode_type = COALESCE(EXCLUDED.episode_type, series_episodes.episode_type),
+                                title_en = COALESCE(EXCLUDED.title_en, series_episodes.title_en),
+                                overview_en = COALESCE(EXCLUDED.overview_en, series_episodes.overview_en),
+                                tmdb_checked = COALESCE(EXCLUDED.tmdb_checked, series_episodes.tmdb_checked)
                             RETURNING id
                             """,
                             catalog_id,
                             season_num,
                             episode_num,
                             s.get("numero", 0),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
                         )
-                        if not result:
-                            result = await conn.fetchrow(
-                                "SELECT id FROM series_episodes WHERE catalog_id = $1 AND season_number = $2 AND episode_number = $3",
-                                catalog_id,
-                                season_num,
-                                episode_num,
-                            )
                         if result:
                             episode_map[ep_key] = result["id"]
                             episode_id = result["id"]
