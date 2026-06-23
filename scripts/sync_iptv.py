@@ -1166,9 +1166,8 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                             INSERT INTO series_episodes
                                 (catalog_id, season_number, episode_number, numero,
                                  title, overview, air_date, still_path, runtime,
-                                 vote_average, vote_count, episode_type, title_en, overview_en,
-                                 tmdb_checked)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                                 vote_average, vote_count, episode_type, title_en, overview_en)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                             ON CONFLICT (catalog_id, season_number, episode_number) DO UPDATE SET
                                 numero = EXCLUDED.numero,
                                 title = COALESCE(EXCLUDED.title, series_episodes.title),
@@ -1180,8 +1179,7 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                                 vote_count = COALESCE(EXCLUDED.vote_count, series_episodes.vote_count),
                                 episode_type = COALESCE(EXCLUDED.episode_type, series_episodes.episode_type),
                                 title_en = COALESCE(EXCLUDED.title_en, series_episodes.title_en),
-                                overview_en = COALESCE(EXCLUDED.overview_en, series_episodes.overview_en),
-                                tmdb_checked = COALESCE(EXCLUDED.tmdb_checked, series_episodes.tmdb_checked)
+                                overview_en = COALESCE(EXCLUDED.overview_en, series_episodes.overview_en)
                             RETURNING id
                             """,
                             catalog_id,

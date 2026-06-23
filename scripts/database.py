@@ -581,6 +581,7 @@ class DataManagerSupabase:
     @staticmethod
     def guardar_calendario_sync(eventos: dict, fecha_str: str) -> bool:
         import asyncio
+
         return asyncio.run(DataManagerSupabase.guardar_calendario_async(eventos, fecha_str))
 
     @staticmethod

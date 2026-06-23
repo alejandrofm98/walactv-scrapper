@@ -395,23 +395,27 @@ class TMDBScraper:
 
     def _get_tv_season_details(self, tmdb_id: str, season_number: int) -> dict | None:
         """Obtiene detalles de una temporada desde TMDB (español + inglés)."""
-        self._rate_limit()
-        response_es = self.session.get(
-            f"{TMDB_BASE_URL}/tv/{tmdb_id}/season/{season_number}",
-            params={"api_key": TMDB_API_KEY, "language": "es-ES"},
-            timeout=10,
-        )
-        if response_es.status_code != 200:
+        try:
+            self._rate_limit()
+            response_es = self.session.get(
+                f"{TMDB_BASE_URL}/tv/{tmdb_id}/season/{season_number}",
+                params={"api_key": TMDB_API_KEY, "language": "es-ES"},
+                timeout=10,
+            )
+            if response_es.status_code != 200:
+                return None
+            self._rate_limit()
+            response_en = self.session.get(
+                f"{TMDB_BASE_URL}/tv/{tmdb_id}/season/{season_number}",
+                params={"api_key": TMDB_API_KEY, "language": "en-US"},
+                timeout=10,
+            )
+            data_es = response_es.json()
+            data_en = response_en.json() if response_en.status_code == 200 else {}
+            return {"es": data_es, "en": data_en}
+        except Exception as e:
+            logger.warning(f"Error obteniendo temporada {season_number} de TMDB {tmdb_id}: {e}")
             return None
-        self._rate_limit()
-        response_en = self.session.get(
-            f"{TMDB_BASE_URL}/tv/{tmdb_id}/season/{season_number}",
-            params={"api_key": TMDB_API_KEY, "language": "en-US"},
-            timeout=10,
-        )
-        data_es = response_es.json()
-        data_en = response_en.json() if response_en.status_code == 200 else {}
-        return {"es": data_es, "en": data_en}
 
     def _get_movies_without_metadata(self, limit: int = 100) -> list[dict]:
         sql = """
@@ -463,18 +467,34 @@ class TMDBScraper:
         """
         return self.db.execute_query(sql, (limit,))
 
-    def _get_series_with_episodes_without_metadata(self, limit: int = 100) -> list[dict]:
+    def _get_series_with_episodes_without_metadata(
+        self, limit: int = 100, retry_not_found: bool = False
+    ) -> list[dict]:
         """Obtiene series que ya tienen tmdb_id pero con episodios sin datos TMDB."""
-        sql = """
-        SELECT DISTINCT sc.tmdb_id, sc.series_key, sc.title
-        FROM series_catalog sc
-        JOIN series_episodes se ON se.catalog_id = sc.id
-        WHERE sc.tmdb_id IS NOT NULL
-          AND sc.not_found = FALSE
-          AND se.tmdb_checked = FALSE
-        ORDER BY sc.series_key ASC
-        LIMIT %s
-        """
+        if retry_not_found:
+            sql = """
+            SELECT DISTINCT sc.tmdb_id, sc.series_key, sc.title
+            FROM series_catalog sc
+            JOIN series_episodes se ON se.catalog_id = sc.id
+            WHERE sc.tmdb_id IS NOT NULL
+              AND sc.not_found = FALSE
+              AND se.tmdb_not_found IS TRUE
+              AND se.tmdb_checked IS NOT TRUE
+            ORDER BY se.tmdb_retry_count ASC, sc.series_key ASC
+            LIMIT %s
+            """
+        else:
+            sql = """
+            SELECT DISTINCT sc.tmdb_id, sc.series_key, sc.title
+            FROM series_catalog sc
+            JOIN series_episodes se ON se.catalog_id = sc.id
+            WHERE sc.tmdb_id IS NOT NULL
+              AND sc.not_found = FALSE
+              AND se.tmdb_checked IS NOT TRUE
+              AND se.tmdb_not_found IS NOT TRUE
+            ORDER BY sc.series_key ASC
+            LIMIT %s
+            """
         return self.db.execute_query(sql, (limit,))
 
     # _backfill_series_keys eliminado — series_key se genera al insertar directamente en el catálogo
@@ -978,7 +998,7 @@ class TMDBScraper:
             episode_rows = self.db.execute_query(
                 """SELECT id, season_number, episode_number
                 FROM series_episodes
-                WHERE catalog_id = %s AND tmdb_checked = FALSE
+                WHERE catalog_id = %s AND tmdb_checked IS NOT TRUE
                 ORDER BY season_number, episode_number""",
                 (catalog_id,),
             )
@@ -1002,10 +1022,14 @@ class TMDBScraper:
                 season_data = self._get_tv_season_details(tmdb_id, season_number)
                 if not season_data:
                     logger.warning(f"   ⚠️ Temporada {season_number} no encontrada en TMDB")
-                    # Marcar todos los episodios de esta temporada como checked
+                    # Marcar todos los episodios de esta temporada como not_found
                     for ep in season_episodes:
                         self.db.execute_command(
-                            "UPDATE series_episodes SET tmdb_checked = TRUE WHERE id = %s",
+                            """UPDATE series_episodes
+                               SET tmdb_not_found = TRUE,
+                                   tmdb_retry_count = COALESCE(tmdb_retry_count, 0) + 1,
+                                   tmdb_last_error = 'season not found in TMDB'
+                               WHERE id = %s""",
                             (ep["id"],),
                         )
                     continue
@@ -1026,12 +1050,16 @@ class TMDBScraper:
 
                     if ep_es:
                         self._save_episode_metadata(db_ep["id"], ep_es, ep_en)
-
-                    # Marcar como checked (sin importar si TMDB devolvió datos)
-                    self.db.execute_command(
-                        "UPDATE series_episodes SET tmdb_checked = TRUE WHERE id = %s",
-                        (db_ep["id"],),
-                    )
+                    else:
+                        # Episodio no encontrado en TMDB — marcar sin resetear tmdb_checked
+                        self.db.execute_command(
+                            """UPDATE series_episodes
+                               SET tmdb_not_found = TRUE,
+                                   tmdb_retry_count = COALESCE(tmdb_retry_count, 0) + 1,
+                                   tmdb_last_error = 'episode not found in TMDB season'
+                               WHERE id = %s""",
+                            (db_ep["id"],),
+                        )
 
         except Exception as e:
             logger.error(f"Error procesando episodios para serie {series_key}: {e}")
@@ -1063,7 +1091,11 @@ class TMDBScraper:
             runtime = COALESCE(%s, runtime),
             vote_average = COALESCE(%s, vote_average),
             vote_count = COALESCE(%s, vote_count),
-            episode_type = COALESCE(%s, episode_type)
+            episode_type = COALESCE(%s, episode_type),
+            tmdb_checked = TRUE,
+            tmdb_not_found = FALSE,
+            tmdb_retry_count = 0,
+            tmdb_last_error = NULL
         WHERE id = %s
         """
         try:
@@ -1204,11 +1236,16 @@ class TMDBScraper:
             )
 
         # -- Episodios sin metadata TMDB --
-        logger.info("\n📺 PROCESANDO EPISODIOS SIN METADATA TMDB")
+        if retry_not_found:
+            logger.info("\n📺 PROCESANDO EPISODIOS SIN METADATA TMDB (MODO RETRY)")
+        else:
+            logger.info("\n📺 PROCESANDO EPISODIOS SIN METADATA TMDB")
         logger.info("-" * 60)
         episodes_processed = 0
         while True:
-            series_with_missing = self._get_series_with_episodes_without_metadata(batch_size)
+            series_with_missing = self._get_series_with_episodes_without_metadata(
+                batch_size, retry_not_found
+            )
             if not series_with_missing:
                 logger.info("No hay más series con episodios sin metadata")
                 break

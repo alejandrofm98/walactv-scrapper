@@ -673,3 +673,6 @@ ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS vote_average NUMERIC(3,1);
 ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS vote_count INTEGER;
 ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS episode_type VARCHAR(50);
 ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS tmdb_checked BOOLEAN DEFAULT FALSE;
+ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS tmdb_not_found BOOLEAN DEFAULT FALSE;
+ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS tmdb_retry_count INTEGER DEFAULT 0;
+ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS tmdb_last_error TEXT;
