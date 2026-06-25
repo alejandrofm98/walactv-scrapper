@@ -95,6 +95,7 @@ class ScrapeResult:
     tagline: str | None = None
     popularity: float | None = None
     status: str | None = None
+    imdb_id: str | None = None
     tmdb_data: dict | None = None
     not_found: bool = False
     error: str | None = None
@@ -135,6 +136,7 @@ class SeriesScrapeResult:
     tagline: str | None = None
     popularity: float | None = None
     status: str | None = None
+    imdb_id: str | None = None
     tmdb_data: dict | None = None
     not_found: bool = False
     error: str | None = None
@@ -393,6 +395,34 @@ class TMDBScraper:
             "combined": {**data_es, "overview_en": data_en.get("overview")},
         }
 
+    def _get_movie_external_ids(self, tmdb_id: str) -> str | None:
+        self._rate_limit()
+        try:
+            response = self.session.get(
+                f"{TMDB_BASE_URL}/movie/{tmdb_id}/external_ids",
+                params={"api_key": TMDB_API_KEY},
+                timeout=10,
+            )
+            if response.status_code == 200:
+                return response.json().get("imdb_id")
+        except Exception as e:
+            logger.warning(f"Error obteniendo external_ids para movie {tmdb_id}: {e}")
+        return None
+
+    def _get_tv_external_ids(self, tmdb_id: str) -> str | None:
+        self._rate_limit()
+        try:
+            response = self.session.get(
+                f"{TMDB_BASE_URL}/tv/{tmdb_id}/external_ids",
+                params={"api_key": TMDB_API_KEY},
+                timeout=10,
+            )
+            if response.status_code == 200:
+                return response.json().get("imdb_id")
+        except Exception as e:
+            logger.warning(f"Error obteniendo external_ids para tv {tmdb_id}: {e}")
+        return None
+
     def _get_tv_season_details(self, tmdb_id: str, season_number: int) -> dict | None:
         """Obtiene detalles de una temporada desde TMDB (español + inglés)."""
         try:
@@ -506,14 +536,15 @@ class TMDBScraper:
         if result.tmdb_id:
             sql = """
             INSERT INTO movies_metadata (
-                tmdb_id, overview_es, overview_en, vote_average, vote_count,
+                tmdb_id, imdb_id, overview_es, overview_en, vote_average, vote_count,
                 title, original_title, release_date, year, runtime_minutes,
                 genres, poster_path, backdrop_path, tagline, popularity, status,
                 tmdb_data
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             ON CONFLICT (tmdb_id) DO UPDATE SET
+                imdb_id = COALESCE(EXCLUDED.imdb_id, movies_metadata.imdb_id),
                 overview_es = EXCLUDED.overview_es,
                 overview_en = EXCLUDED.overview_en,
                 vote_average = EXCLUDED.vote_average,
@@ -537,6 +568,7 @@ class TMDBScraper:
                     sql,
                     (
                         result.tmdb_id,
+                        result.imdb_id,
                         result.overview_es,
                         result.overview_en,
                         result.vote_average,
@@ -698,9 +730,12 @@ class TMDBScraper:
         release_date = _or_none(data.get("release_date"))
         overview_es = _or_none(data.get("overview")) or _or_none(data.get("overview_en"))
 
+        imdb_id = self._get_movie_external_ids(tmdb_id)
+
         return ScrapeResult(
             provider_id=provider_id,
             tmdb_id=tmdb_id,
+            imdb_id=imdb_id,
             overview_es=overview_es,
             overview_en=_or_none(data.get("overview_en")),
             vote_average=data.get("vote_average"),
@@ -794,9 +829,12 @@ class TMDBScraper:
         first_air_date = _or_none(data.get("first_air_date"))
         overview_es = _or_none(data.get("overview")) or _or_none(data.get("overview_en"))
 
+        imdb_id = self._get_tv_external_ids(tmdb_id)
+
         return SeriesScrapeResult(
             series_key=series_key,
             tmdb_id=tmdb_id,
+            imdb_id=imdb_id,
             overview_es=overview_es,
             overview_en=_or_none(data.get("overview_en")),
             vote_average=data.get("vote_average"),
@@ -821,13 +859,14 @@ class TMDBScraper:
         if result.tmdb_id:
             sql = """
             INSERT INTO series_metadata (
-                tmdb_id, overview_es, overview_en, vote_average, vote_count,
+                tmdb_id, imdb_id, overview_es, overview_en, vote_average, vote_count,
                 title, original_title, release_date, year, genres, poster_path,
                 backdrop_path, tagline, popularity, status, tmdb_data
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             ON CONFLICT (tmdb_id) DO UPDATE SET
+                imdb_id = COALESCE(EXCLUDED.imdb_id, series_metadata.imdb_id),
                 overview_es = COALESCE(EXCLUDED.overview_es, series_metadata.overview_es),
                 overview_en = COALESCE(EXCLUDED.overview_en, series_metadata.overview_en),
                 vote_average = COALESCE(EXCLUDED.vote_average, series_metadata.vote_average),
@@ -850,6 +889,7 @@ class TMDBScraper:
                     sql,
                     (
                         result.tmdb_id,
+                        result.imdb_id,
                         result.overview_es,
                         result.overview_en,
                         result.vote_average,
