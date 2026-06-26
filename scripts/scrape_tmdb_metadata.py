@@ -395,33 +395,47 @@ class TMDBScraper:
             "combined": {**data_es, "overview_en": data_en.get("overview")},
         }
 
-    def _get_movie_external_ids(self, tmdb_id: str) -> str | None:
-        self._rate_limit()
-        try:
-            response = self.session.get(
-                f"{TMDB_BASE_URL}/movie/{tmdb_id}/external_ids",
-                params={"api_key": TMDB_API_KEY},
-                timeout=10,
-            )
-            if response.status_code == 200:
-                return response.json().get("imdb_id")
-        except Exception as e:
-            logger.warning(f"Error obteniendo external_ids para movie {tmdb_id}: {e}")
+    def _fetch_external_ids(
+        self, content_type: str, tmdb_id: str, max_retries: int = 3
+    ) -> str | None:
+        endpoint = f"{TMDB_BASE_URL}/{content_type}/{tmdb_id}/external_ids"
+        for attempt in range(1, max_retries + 1):
+            self._rate_limit()
+            try:
+                response = self.session.get(
+                    endpoint, params={"api_key": TMDB_API_KEY}, timeout=10
+                )
+                if response.status_code == 200:
+                    imdb_id = response.json().get("imdb_id")
+                    return imdb_id if imdb_id else None
+                if response.status_code == 404:
+                    return None
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get("Retry-After", "5"))
+                    logger.warning(
+                        f"HTTP 429 {content_type} {tmdb_id}. "
+                        f"Esperando {retry_after}s (intento {attempt}/{max_retries})"
+                    )
+                    time.sleep(retry_after)
+                    continue
+                logger.warning(
+                    f"HTTP {response.status_code} {content_type} {tmdb_id} "
+                    f"(intento {attempt}/{max_retries})"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Error {content_type} {tmdb_id}: {e} "
+                    f"(intento {attempt}/{max_retries})"
+                )
+            if attempt < max_retries:
+                time.sleep(2 ** (attempt - 1))
         return None
 
+    def _get_movie_external_ids(self, tmdb_id: str) -> str | None:
+        return self._fetch_external_ids("movie", tmdb_id)
+
     def _get_tv_external_ids(self, tmdb_id: str) -> str | None:
-        self._rate_limit()
-        try:
-            response = self.session.get(
-                f"{TMDB_BASE_URL}/tv/{tmdb_id}/external_ids",
-                params={"api_key": TMDB_API_KEY},
-                timeout=10,
-            )
-            if response.status_code == 200:
-                return response.json().get("imdb_id")
-        except Exception as e:
-            logger.warning(f"Error obteniendo external_ids para tv {tmdb_id}: {e}")
-        return None
+        return self._fetch_external_ids("tv", tmdb_id)
 
     def _get_tv_season_details(self, tmdb_id: str, season_number: int) -> dict | None:
         """Obtiene detalles de una temporada desde TMDB (español + inglés)."""
