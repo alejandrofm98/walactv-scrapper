@@ -10,7 +10,6 @@ Environment variables required:
     TMDB_API_KEY
 """
 
-import json
 import logging
 import os
 import sys
@@ -118,9 +117,7 @@ class Backfiller:
         for attempt in range(1, max_retries + 1):
             self._rate_limit()
             try:
-                response = self.session.get(
-                    endpoint, params={"api_key": TMDB_API_KEY}, timeout=10
-                )
+                response = self.session.get(endpoint, params={"api_key": TMDB_API_KEY}, timeout=10)
                 if response.status_code == 200:
                     return response.json().get("imdb_id")
                 if response.status_code == 404:
@@ -139,8 +136,7 @@ class Backfiller:
                 )
             except Exception as e:
                 logger.warning(
-                    f"  Error {content_type} {tmdb_id}: {e} "
-                    f"(intento {attempt}/{max_retries})"
+                    f"  Error {content_type} {tmdb_id}: {e} (intento {attempt}/{max_retries})"
                 )
             if attempt < max_retries:
                 time.sleep(2 ** (attempt - 1))
@@ -230,7 +226,9 @@ class Backfiller:
         logger.info(f"Movies from tmdb_data JSONB : {movies_from_json}")
         logger.info(f"Movies from TMDB API       : {movies_from_api}")
         logger.info(f"Series from TMDB API       : {series_from_api}")
-        logger.info(f"Total                      : {movies_from_json + movies_from_api + series_from_api}")
+        logger.info(
+            f"Total                      : {movies_from_json + movies_from_api + series_from_api}"
+        )
         logger.info("✅ Backfill completo")
 
 

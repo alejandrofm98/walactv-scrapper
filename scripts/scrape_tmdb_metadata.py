@@ -402,9 +402,7 @@ class TMDBScraper:
         for attempt in range(1, max_retries + 1):
             self._rate_limit()
             try:
-                response = self.session.get(
-                    endpoint, params={"api_key": TMDB_API_KEY}, timeout=10
-                )
+                response = self.session.get(endpoint, params={"api_key": TMDB_API_KEY}, timeout=10)
                 if response.status_code == 200:
                     imdb_id = response.json().get("imdb_id")
                     return imdb_id if imdb_id else None
@@ -424,8 +422,7 @@ class TMDBScraper:
                 )
             except Exception as e:
                 logger.warning(
-                    f"Error {content_type} {tmdb_id}: {e} "
-                    f"(intento {attempt}/{max_retries})"
+                    f"Error {content_type} {tmdb_id}: {e} (intento {attempt}/{max_retries})"
                 )
             if attempt < max_retries:
                 time.sleep(2 ** (attempt - 1))
