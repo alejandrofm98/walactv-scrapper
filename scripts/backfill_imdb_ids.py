@@ -111,18 +111,40 @@ class Backfiller:
             self.last_request_time = current_time
         self.request_count += 1
 
-    def _fetch_external_id(self, content_type: str, tmdb_id: str) -> str | None:
+    def _fetch_external_id(
+        self, content_type: str, tmdb_id: str, max_retries: int = 3
+    ) -> str | None:
         endpoint = f"{TMDB_BASE_URL}/{content_type}/{tmdb_id}/external_ids"
-        self._rate_limit()
-        try:
-            response = self.session.get(
-                endpoint, params={"api_key": TMDB_API_KEY}, timeout=10
-            )
-            if response.status_code == 200:
-                return response.json().get("imdb_id")
-            logger.warning(f"  HTTP {response.status_code} para {content_type} {tmdb_id}")
-        except Exception as e:
-            logger.warning(f"  Error fetching {content_type} {tmdb_id}: {e}")
+        for attempt in range(1, max_retries + 1):
+            self._rate_limit()
+            try:
+                response = self.session.get(
+                    endpoint, params={"api_key": TMDB_API_KEY}, timeout=10
+                )
+                if response.status_code == 200:
+                    return response.json().get("imdb_id")
+                if response.status_code == 404:
+                    return None
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get("Retry-After", "5"))
+                    logger.warning(
+                        f"  HTTP 429 {content_type} {tmdb_id}. "
+                        f"Esperando {retry_after}s (intento {attempt}/{max_retries})"
+                    )
+                    time.sleep(retry_after)
+                    continue
+                logger.warning(
+                    f"  HTTP {response.status_code} {content_type} {tmdb_id} "
+                    f"(intento {attempt}/{max_retries})"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"  Error {content_type} {tmdb_id}: {e} "
+                    f"(intento {attempt}/{max_retries})"
+                )
+            if attempt < max_retries:
+                time.sleep(2 ** (attempt - 1))
+        logger.warning(f"  Falló tras {max_retries} intentos: {content_type} {tmdb_id}")
         return None
 
     def _backfill_from_tmdb_data(self) -> int:
@@ -140,25 +162,38 @@ class Backfiller:
         return count
 
     def _backfill_api(self, table: str, content_type: str) -> int:
-        """Backfill imdb_id via TMDB external_ids API for a given table."""
+        """Backfill imdb_id via TMDB external_ids API. Keyset pagination."""
         total = 0
-        offset = 0
+        last_tmdb_id: str | None = None
 
         while True:
-            rows = self.db.execute_query(
-                f"""
-                SELECT tmdb_id FROM {table}
-                WHERE imdb_id IS NULL AND tmdb_id IS NOT NULL
-                ORDER BY tmdb_id
-                LIMIT %s OFFSET %s
-                """,
-                (self.batch_size, offset),
-            )
+            if last_tmdb_id is None:
+                rows = self.db.execute_query(
+                    f"""
+                    SELECT tmdb_id FROM {table}
+                    WHERE imdb_id IS NULL AND tmdb_id IS NOT NULL
+                    ORDER BY tmdb_id
+                    LIMIT %s
+                    """,
+                    (self.batch_size,),
+                )
+            else:
+                rows = self.db.execute_query(
+                    f"""
+                    SELECT tmdb_id FROM {table}
+                    WHERE imdb_id IS NULL AND tmdb_id IS NOT NULL
+                      AND tmdb_id > %s
+                    ORDER BY tmdb_id
+                    LIMIT %s
+                    """,
+                    (last_tmdb_id, self.batch_size),
+                )
             if not rows:
                 break
 
             for row in rows:
                 tmdb_id = row["tmdb_id"]
+                last_tmdb_id = tmdb_id
                 imdb_id = self._fetch_external_id(content_type, tmdb_id)
                 if imdb_id:
                     self.db.execute_command(
@@ -170,9 +205,7 @@ class Backfiller:
                     logger.info(f"  Progress: {total} processed from {table}")
                 time.sleep(self.delay)
 
-            offset += self.batch_size
-
-        logger.info(f"  ✅ {table}: {total} rows processed via API")
+        logger.info(f"  {table}: {total} rows processed via API")
         return total
 
     def run(self):
