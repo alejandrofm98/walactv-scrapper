@@ -1196,7 +1196,6 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                             None,
                             None,
                             None,
-                            None,
                         )
                         if result:
                             episode_map[ep_key] = result["id"]
