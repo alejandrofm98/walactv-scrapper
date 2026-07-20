@@ -21,7 +21,10 @@ from bs4 import BeautifulSoup, Tag
 # Agregar directorio scripts al path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 from database import DatabasePG
+from iptv_db.models import Replay
 
 
 class WatchWrestlingUfcScraper:
@@ -251,6 +254,7 @@ class WatchWrestlingUfcScraper:
 
     @staticmethod
     async def _guardar_replays(replays: list[dict[str, Any]]) -> int:
+        """Guarda o actualiza replays en BD. F3d3: migrado a iptv-db."""
         if not replays:
             return 0
 
@@ -271,57 +275,53 @@ class WatchWrestlingUfcScraper:
             payload.append(replay_copy)
 
         try:
-            pool = await DatabasePG.initialize()
-            async with pool.acquire() as conn:
+            session_factory = DatabasePG.get_session_factory()
+            async with session_factory() as session:
                 inserted = 0
-                async with conn.transaction():
-                    for replay_data in payload:
-                        # Convertir event_date string a date object
-                        event_date_str = replay_data.get("event_date")
-                        event_date = None
-                        if isinstance(event_date_str, str):
-                            try:
-                                event_date = datetime.strptime(
-                                    event_date_str[:10], "%Y-%m-%d"
-                                ).date()
-                            except (ValueError, TypeError):
-                                event_date = None
+                for replay_data in payload:
+                    # Convertir event_date string a date object
+                    event_date_str = replay_data.get("event_date")
+                    event_date = None
+                    if isinstance(event_date_str, str):
+                        try:
+                            event_date = datetime.strptime(event_date_str[:10], "%Y-%m-%d").date()
+                        except (ValueError, TypeError):
+                            event_date = None
 
-                        match_card = replay_data.get("match_card", [])
-                        if isinstance(match_card, list):
-                            match_card = json.dumps(match_card)
-
-                        await conn.execute(
-                            """
-                            INSERT INTO replays (slug, source_site, title, event_name, event_type,
-                                event_date, post_url, featured_image_url, description,
-                                video_sources, match_card)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                            ON CONFLICT (slug) DO UPDATE SET
-                                source_site = EXCLUDED.source_site,
-                                title = EXCLUDED.title,
-                                event_name = EXCLUDED.event_name,
-                                event_type = EXCLUDED.event_type,
-                                event_date = EXCLUDED.event_date,
-                                post_url = EXCLUDED.post_url,
-                                featured_image_url = EXCLUDED.featured_image_url,
-                                description = EXCLUDED.description,
-                                video_sources = EXCLUDED.video_sources,
-                                match_card = EXCLUDED.match_card
-                            """,
-                            replay_data.get("slug"),
-                            replay_data.get("source_site"),
-                            replay_data.get("title"),
-                            replay_data.get("event_name"),
-                            replay_data.get("event_type"),
-                            event_date,
-                            replay_data.get("post_url"),
-                            replay_data.get("featured_image_url"),
-                            replay_data.get("description"),
-                            json.dumps(replay_data.get("video_sources", [])),
-                            match_card,
+                    stmt = (
+                        pg_insert(Replay)
+                        .values(
+                            slug=replay_data.get("slug"),
+                            source_site=replay_data.get("source_site"),
+                            title=replay_data.get("title"),
+                            event_name=replay_data.get("event_name"),
+                            event_type=replay_data.get("event_type"),
+                            event_date=event_date,
+                            post_url=replay_data.get("post_url"),
+                            featured_image_url=replay_data.get("featured_image_url"),
+                            description=replay_data.get("description"),
+                            video_sources=replay_data.get("video_sources", []),
+                            match_card=replay_data.get("match_card", []),
                         )
-                        inserted += 1
+                        .on_conflict_do_update(
+                            index_elements=[Replay.slug],
+                            set_={
+                                "source_site": pg_insert(Replay).excluded.source_site,
+                                "title": pg_insert(Replay).excluded.title,
+                                "event_name": pg_insert(Replay).excluded.event_name,
+                                "event_type": pg_insert(Replay).excluded.event_type,
+                                "event_date": pg_insert(Replay).excluded.event_date,
+                                "post_url": pg_insert(Replay).excluded.post_url,
+                                "featured_image_url": pg_insert(Replay).excluded.featured_image_url,
+                                "description": pg_insert(Replay).excluded.description,
+                                "video_sources": pg_insert(Replay).excluded.video_sources,
+                                "match_card": pg_insert(Replay).excluded.match_card,
+                            },
+                        )
+                    )
+                    await session.execute(stmt)
+                    inserted += 1
+                await session.commit()
                 return inserted
         except Exception as e:
             print(f"❌ Error guardando replays: {e}")
