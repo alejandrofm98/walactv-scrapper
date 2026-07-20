@@ -221,7 +221,7 @@ async def main():
     print()
 
     try:
-        await DatabasePG.initialize()
+        await DatabasePG.initialize()  # Inicializa engines iptv-db
     except Exception as e:
         print(f"❌ Error conectando a PostgreSQL: {e}")
         return

@@ -32,8 +32,8 @@ async def main():
     try:
         print("Iniciando obtencion calendario...")
 
-        # 1. Inicializar pool de conexiones PRIMERO
-        print("Inicializando pool de conexiones...")
+        # 1. Inicializar engines iptv-db PRIMERO
+        print("Inicializando conexión a PostgreSQL...")
         await DatabasePG.initialize()
 
         # 2. Cargar mapeos usando version async (reutiliza el pool)

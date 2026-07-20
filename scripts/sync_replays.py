@@ -21,10 +21,10 @@ from bs4 import BeautifulSoup, Tag
 # Agregar directorio scripts al path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from iptv_db.models import Replay
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from database import DatabasePG
-from iptv_db.models import Replay
 
 
 class WatchWrestlingUfcScraper:
