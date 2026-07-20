@@ -22,10 +22,12 @@ from iptv_db.models import (
     Config,
     MovieCatalog,
     SeriesCatalog,
+    SyncMetadata,
 )
 
 # iptv-db (F3c1): SQLAlchemy async ORM para queries SELECT
 from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 import utils.constants as CONSTANTS
 from config import get_settings
@@ -323,8 +325,8 @@ async def init_postgres() -> asyncpg.Pool:
     return await DatabasePG.initialize()
 
 
-async def obtener_config_desde_postgres(pool: asyncpg.Pool, key: str) -> str:
-    """Obtiene un valor de la tabla config. (F3c1: migrado a iptv-db)"""
+async def obtener_config_desde_postgres(key: str) -> str:
+    """Obtiene un valor de la tabla config. F3c2a: pool param removed."""
     session_factory = DatabasePG.get_session_factory()
     async with session_factory() as session:
         stmt = select(Config.value).where(Config.key == key)
@@ -587,8 +589,8 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
     return data_base
 
 
-async def contar_registros_tabla(pool: asyncpg.Pool, tabla: str) -> int:
-    """Cuenta cuántos registros hay en una tabla de PostgreSQL. (F3c1: migrado a iptv-db)"""
+async def contar_registros_tabla(tabla: str) -> int:
+    """Cuenta registros en una tabla. F3c2a: pool param removed."""
     try:
         session_factory = DatabasePG.get_session_factory()
         async with session_factory() as session:
@@ -849,13 +851,15 @@ def guardar_m3u_local(contenido_m3u: str, m3u_dir: str = None, provider_url: str
         return None
 
 
-async def limpiar_tabla_optimizada(pool: asyncpg.Pool, tabla: str) -> bool:
-    """Limpia una tabla de forma optimizada usando TRUNCATE"""
+async def limpiar_tabla_optimizada(tabla: str) -> bool:
+    """Limpia una tabla con TRUNCATE CASCADE. F3c2a: migrado a iptv-db."""
     print(f"  🗑️  Limpiando tabla '{tabla}'...")
 
     try:
-        async with pool.acquire() as conn:
-            await conn.execute(f"TRUNCATE TABLE {tabla} CASCADE")
+        session_factory = DatabasePG.get_session_factory()
+        async with session_factory() as session:
+            await session.execute(text(f"TRUNCATE TABLE {tabla} CASCADE"))
+            await session.commit()
         print(f"  ✅ Tabla '{tabla}' limpiada con TRUNCATE")
         return True
     except Exception as e:
@@ -920,12 +924,16 @@ async def insert_channels_upsert(pool: asyncpg.Pool, channels: list) -> bool:
                     continue
 
             # Limpiar canales que desaparecieron del M3U
-            result = await conn.execute(
-                "DELETE FROM channels WHERE last_sync_at IS NULL OR last_sync_at < $1",
-                sync_start,
-            )
-            if result and "DELETE" in str(result):
-                n = int(str(result).replace("DELETE ", ""))
+            session_factory = DatabasePG.get_session_factory()
+            async with session_factory() as session:
+                result = await session.execute(
+                    text(
+                        "DELETE FROM channels WHERE last_sync_at IS NULL OR last_sync_at < :cutoff"
+                    ),
+                    {"cutoff": sync_start},
+                )
+                await session.commit()
+                n = result.rowcount
                 if n > 0:
                     print(f"  🗑️  {n:,} canales obsoletos eliminados")
 
@@ -1064,12 +1072,16 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
             """)
 
             # Limpiar entries que desaparecieron del M3U
-            result = await conn.execute(
-                "DELETE FROM movies_catalog WHERE last_sync_at IS NULL OR last_sync_at < $1",
-                sync_start,
-            )
-            if result and "DELETE" in str(result):
-                n = int(str(result).replace("DELETE ", ""))
+            session_factory = DatabasePG.get_session_factory()
+            async with session_factory() as session:
+                result = await session.execute(
+                    text(
+                        "DELETE FROM movies_catalog WHERE last_sync_at IS NULL OR last_sync_at < :cutoff"
+                    ),
+                    {"cutoff": sync_start},
+                )
+                await session.commit()
+                n = result.rowcount
                 if n > 0:
                     print(f"  🗑️  {n:,} entries obsoletos eliminados")
 
@@ -1287,12 +1299,16 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
             """)
 
             # Limpiar entries de catálogo que desaparecieron del M3U (CASCADE elimina episodios y streams)
-            result = await conn.execute(
-                "DELETE FROM series_catalog WHERE last_sync_at IS NULL OR last_sync_at < $1",
-                sync_start,
-            )
-            if result and "DELETE" in str(result):
-                n = int(str(result).replace("DELETE ", ""))
+            session_factory = DatabasePG.get_session_factory()
+            async with session_factory() as session:
+                result = await session.execute(
+                    text(
+                        "DELETE FROM series_catalog WHERE last_sync_at IS NULL OR last_sync_at < :cutoff"
+                    ),
+                    {"cutoff": sync_start},
+                )
+                await session.commit()
+                n = result.rowcount
                 if n > 0:
                     print(f"  🗑️  {n:,} series obsoletas eliminadas")
 
@@ -1373,14 +1389,14 @@ async def sync_to_postgres():
     download_proxies: dict[str, str] | None = None
 
     try:
-        provider_url = await obtener_config_desde_postgres(pool, "IPTV_BASE_URL")
-        provider_username = await obtener_config_desde_postgres(pool, "IPTV_USERNAME")
-        provider_password = await obtener_config_desde_postgres(pool, "IPTV_PASSWORD")
+        provider_url = await obtener_config_desde_postgres("IPTV_BASE_URL")
+        provider_username = await obtener_config_desde_postgres("IPTV_USERNAME")
+        provider_password = await obtener_config_desde_postgres("IPTV_PASSWORD")
 
-        proxy_ip = await obtener_config_desde_postgres(pool, "PROXY_IP")
-        proxy_port = await obtener_config_desde_postgres(pool, "PROXY_PORT")
-        proxy_user = await obtener_config_desde_postgres(pool, "PROXY_USER")
-        proxy_pass = await obtener_config_desde_postgres(pool, "PROXY_PASS")
+        proxy_ip = await obtener_config_desde_postgres("PROXY_IP")
+        proxy_port = await obtener_config_desde_postgres("PROXY_PORT")
+        proxy_user = await obtener_config_desde_postgres("PROXY_USER")
+        proxy_pass = await obtener_config_desde_postgres("PROXY_PASS")
         download_proxies = construir_proxies_requests(
             proxy_ip,
             proxy_port,
@@ -1538,11 +1554,11 @@ async def sync_to_postgres():
     print(f"  📺 Series: {stats['series']['total']:,}")
 
     print("\n🔍 Verificando estado de la base de datos...")
-    count_channels_db = await contar_registros_tabla(pool, CONSTANTS.CHANNELS_TABLE)
-    count_movie_streams_db = await contar_registros_tabla(pool, CONSTANTS.MOVIE_STREAMS_TABLE)
-    count_series_streams_db = await contar_registros_tabla(pool, CONSTANTS.SERIES_STREAMS_TABLE)
-    count_movies_catalog_db = await contar_registros_tabla(pool, CONSTANTS.MOVIES_CATALOG_TABLE)
-    count_series_catalog_db = await contar_registros_tabla(pool, CONSTANTS.SERIES_CATALOG_TABLE)
+    count_channels_db = await contar_registros_tabla(CONSTANTS.CHANNELS_TABLE)
+    count_movie_streams_db = await contar_registros_tabla(CONSTANTS.MOVIE_STREAMS_TABLE)
+    count_series_streams_db = await contar_registros_tabla(CONSTANTS.SERIES_STREAMS_TABLE)
+    count_movies_catalog_db = await contar_registros_tabla(CONSTANTS.MOVIES_CATALOG_TABLE)
+    count_series_catalog_db = await contar_registros_tabla(CONSTANTS.SERIES_CATALOG_TABLE)
 
     print("  📊 Estado actual en BD:")
     print(f"    - Canales: {count_channels_db:,}")
@@ -1632,7 +1648,8 @@ async def sync_to_postgres():
         fin_insercion = time.time()
         duracion_insercion = fin_insercion - inicio_insercion
 
-        async with pool.acquire() as conn:
+        session_factory = DatabasePG.get_session_factory()
+        async with session_factory() as session:
             metadata = {
                 "ultima_actualizacion": datetime.now(),
                 "total_canales": len(channels),
@@ -1648,43 +1665,45 @@ async def sync_to_postgres():
                 "series_con_logo": stats["series"]["con_logo"],
                 "series_sin_logo": stats["series"]["sin_logo"],
             }
-            await conn.execute(
-                """
-                INSERT INTO sync_metadata (id, ultima_actualizacion, total_canales, total_movies, total_series,
-                    m3u_template_path, m3u_template_filename, m3u_size_mb,
-                    channels_con_logo, channels_sin_logo, movies_con_logo, movies_sin_logo,
-                    series_con_logo, series_sin_logo)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-                ON CONFLICT (id) DO UPDATE SET
-                    ultima_actualizacion = EXCLUDED.ultima_actualizacion,
-                    total_canales = EXCLUDED.total_canales,
-                    total_movies = EXCLUDED.total_movies,
-                    total_series = EXCLUDED.total_series,
-                    m3u_template_path = EXCLUDED.m3u_template_path,
-                    m3u_template_filename = EXCLUDED.m3u_template_filename,
-                    m3u_size_mb = EXCLUDED.m3u_size_mb,
-                    channels_con_logo = EXCLUDED.channels_con_logo,
-                    channels_sin_logo = EXCLUDED.channels_sin_logo,
-                    movies_con_logo = EXCLUDED.movies_con_logo,
-                    movies_sin_logo = EXCLUDED.movies_sin_logo,
-                    series_con_logo = EXCLUDED.series_con_logo,
-                    series_sin_logo = EXCLUDED.series_sin_logo
-                """,
-                CONSTANTS.SYNC_METADATA_ID,
-                metadata["ultima_actualizacion"],
-                metadata["total_canales"],
-                metadata["total_movies"],
-                metadata["total_series"],
-                metadata["m3u_template_path"],
-                metadata["m3u_template_filename"],
-                metadata["m3u_size_mb"],
-                metadata["channels_con_logo"],
-                metadata["channels_sin_logo"],
-                metadata["movies_con_logo"],
-                metadata["movies_sin_logo"],
-                metadata["series_con_logo"],
-                metadata["series_sin_logo"],
+            stmt = (
+                pg_insert(SyncMetadata)
+                .values(
+                    id=CONSTANTS.SYNC_METADATA_ID,
+                    ultima_actualizacion=metadata["ultima_actualizacion"],
+                    total_canales=metadata["total_canales"],
+                    total_movies=metadata["total_movies"],
+                    total_series=metadata["total_series"],
+                    m3u_template_path=metadata["m3u_template_path"],
+                    m3u_template_filename=metadata["m3u_template_filename"],
+                    m3u_size_mb=metadata["m3u_size_mb"],
+                    channels_con_logo=metadata["channels_con_logo"],
+                    channels_sin_logo=metadata["channels_sin_logo"],
+                    movies_con_logo=metadata["movies_con_logo"],
+                    movies_sin_logo=metadata["movies_sin_logo"],
+                    series_con_logo=metadata["series_con_logo"],
+                    series_sin_logo=metadata["series_sin_logo"],
+                )
+                .on_conflict_do_update(
+                    index_elements=[SyncMetadata.id],
+                    set_={
+                        "ultima_actualizacion": metadata["ultima_actualizacion"],
+                        "total_canales": metadata["total_canales"],
+                        "total_movies": metadata["total_movies"],
+                        "total_series": metadata["total_series"],
+                        "m3u_template_path": metadata["m3u_template_path"],
+                        "m3u_template_filename": metadata["m3u_template_filename"],
+                        "m3u_size_mb": metadata["m3u_size_mb"],
+                        "channels_con_logo": metadata["channels_con_logo"],
+                        "channels_sin_logo": metadata["channels_sin_logo"],
+                        "movies_con_logo": metadata["movies_con_logo"],
+                        "movies_sin_logo": metadata["movies_sin_logo"],
+                        "series_con_logo": metadata["series_con_logo"],
+                        "series_sin_logo": metadata["series_sin_logo"],
+                    },
+                )
             )
+            await session.execute(stmt)
+            await session.commit()
 
         fin_total = time.time()
         duracion_total = fin_total - inicio_total
