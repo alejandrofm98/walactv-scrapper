@@ -18,6 +18,15 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from iptv_db.models import (
+    Config,
+    MovieCatalog,
+    SeriesCatalog,
+)
+
+# iptv-db (F3c1): SQLAlchemy async ORM para queries SELECT
+from sqlalchemy import select, text
+
 import utils.constants as CONSTANTS
 from config import get_settings
 from database import DatabasePG
@@ -315,11 +324,14 @@ async def init_postgres() -> asyncpg.Pool:
 
 
 async def obtener_config_desde_postgres(pool: asyncpg.Pool, key: str) -> str:
-    """Obtiene un valor de la tabla config."""
-    async with pool.acquire() as conn:
-        result = await conn.fetchrow("SELECT value FROM config WHERE key = $1", key)
-        if result:
-            return str(result["value"] or "")
+    """Obtiene un valor de la tabla config. (F3c1: migrado a iptv-db)"""
+    session_factory = DatabasePG.get_session_factory()
+    async with session_factory() as session:
+        stmt = select(Config.value).where(Config.key == key)
+        result = await session.execute(stmt)
+        value = result.scalar()
+        if value:
+            return str(value)
     return ""
 
 
@@ -576,11 +588,13 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
 
 
 async def contar_registros_tabla(pool: asyncpg.Pool, tabla: str) -> int:
-    """Cuenta cuántos registros hay en una tabla de PostgreSQL"""
+    """Cuenta cuántos registros hay en una tabla de PostgreSQL. (F3c1: migrado a iptv-db)"""
     try:
-        async with pool.acquire() as conn:
-            result = await conn.fetchval(f"SELECT COUNT(*) FROM {tabla}")
-            return result or 0
+        session_factory = DatabasePG.get_session_factory()
+        async with session_factory() as session:
+            stmt = text(f"SELECT COUNT(*) FROM {tabla}")
+            result = await session.execute(stmt)
+            return result.scalar() or 0
     except Exception as e:
         print(f"  ⚠️  Error al contar registros en '{tabla}': {e}")
         return 0
@@ -924,6 +938,27 @@ async def insert_channels_upsert(pool: asyncpg.Pool, channels: list) -> bool:
         return False
 
 
+async def _cargar_tmdb_map_movies() -> dict[str, str]:
+    """Carga mapeo nombre_dedup_key → tmdb_id desde movies_catalog usando iptv-db (F3c1).
+    Helper separado para lecturas; las escrituras siguen con asyncpg."""
+    try:
+        session_factory = DatabasePG.get_session_factory()
+        async with session_factory() as session:
+            stmt = select(MovieCatalog.nombre_dedup_key, MovieCatalog.tmdb_id).where(
+                MovieCatalog.tmdb_id.is_not(None),
+                MovieCatalog.nombre_dedup_key.is_not(None),
+            )
+            result = await session.execute(stmt)
+            tmdb_map: dict[str, str] = {}
+            for row in result.all():
+                if row.nombre_dedup_key and row.tmdb_id:
+                    tmdb_map[row.nombre_dedup_key] = row.tmdb_id
+            return tmdb_map
+    except Exception as e:
+        print(f"  ⚠️  No se pudieron cargar tmdb_id desde movies_catalog: {e}")
+        return {}
+
+
 async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
     if not movies:
         return True
@@ -934,17 +969,10 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
         async with pool.acquire() as conn:
             sync_start = datetime.now()
 
-            # Cargar tmdb_id existentes para formar canonical_key correctamente
-            tmdb_map: dict[str, str] = {}
-            try:
-                rows = await conn.fetch(
-                    "SELECT nombre_dedup_key, tmdb_id FROM movies_catalog "
-                    "WHERE tmdb_id IS NOT NULL AND nombre_dedup_key IS NOT NULL"
-                )
-                tmdb_map = {r["nombre_dedup_key"]: r["tmdb_id"] for r in rows}
+            # Cargar tmdb_id existentes para formar canonical_key correctamente (F3c1: iptv-db)
+            tmdb_map = await _cargar_tmdb_map_movies()
+            if tmdb_map:
                 print(f"  🔗 {len(tmdb_map):,} tmdb_id cargados desde catalog (por dedup_key)")
-            except Exception as e:
-                print(f"  ⚠️  No se pudieron cargar tmdb_id: {e}")
 
             catalog_id_map: dict[str, str] = {}
             stream_count = 0
@@ -1054,6 +1082,26 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
         return False
 
 
+async def _cargar_tmdb_map_series() -> dict[str, str]:
+    """Carga mapeo series_key → tmdb_id desde series_catalog usando iptv-db (F3c1).
+    Helper separado para lecturas; las escrituras siguen con asyncpg."""
+    try:
+        session_factory = DatabasePG.get_session_factory()
+        async with session_factory() as session:
+            stmt = select(SeriesCatalog.series_key, SeriesCatalog.tmdb_id).where(
+                SeriesCatalog.tmdb_id.is_not(None),
+            )
+            result = await session.execute(stmt)
+            tmdb_map: dict[str, str] = {}
+            for row in result.all():
+                if row.series_key and row.tmdb_id:
+                    tmdb_map[row.series_key] = row.tmdb_id
+            return tmdb_map
+    except Exception as e:
+        print(f"  ⚠️  No se pudieron cargar tmdb_id desde series_catalog: {e}")
+        return {}
+
+
 async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
     if not series:
         return True
@@ -1066,16 +1114,10 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
         async with pool.acquire() as conn:
             sync_start = datetime.now()
 
-            # Cargar tmdb_id existentes para formar canonical_key correctamente
-            tmdb_map: dict[str, str] = {}
-            try:
-                rows = await conn.fetch(
-                    "SELECT series_key, tmdb_id FROM series_catalog WHERE tmdb_id IS NOT NULL"
-                )
-                tmdb_map = {r["series_key"]: r["tmdb_id"] for r in rows}
+            # Cargar tmdb_id existentes para formar canonical_key correctamente (F3c1: iptv-db)
+            tmdb_map = await _cargar_tmdb_map_series()
+            if tmdb_map:
                 print(f"  🔗 {len(tmdb_map):,} tmdb_id cargados desde catalog (por series_key)")
-            except Exception as e:
-                print(f"  ⚠️  No se pudieron cargar tmdb_id: {e}")
 
             catalog_id_map: dict[str, str] = {}
             episode_map: dict[tuple, str] = {}
