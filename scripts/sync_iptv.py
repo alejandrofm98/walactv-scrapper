@@ -21,12 +21,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from iptv_db.models import (
     Config,
     MovieCatalog,
+    MovieStream,
     SeriesCatalog,
+    SeriesEpisode,
+    SeriesStream,
     SyncMetadata,
 )
 
 # iptv-db (F3c1): SQLAlchemy async ORM para queries SELECT
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 import utils.constants as CONSTANTS
@@ -867,15 +870,16 @@ async def limpiar_tabla_optimizada(tabla: str) -> bool:
         return False
 
 
-async def insert_channels_upsert(pool: asyncpg.Pool, channels: list) -> bool:
-    """Inserta o actualiza canales usando upsert. Preserva datos operacionales (ultimo_chequeo, estado_stream, tiempo_respuesta_ms)."""
+async def insert_channels_upsert(channels: list) -> bool:
+    """Inserta o actualiza canales usando upsert. F3c2b: migrado a iptv-db."""
     if not channels:
         return True
 
     print(f"\n📺 SINCRONIZANDO CANALES ({len(channels):,})...")
 
     try:
-        async with pool.acquire() as conn:
+        session_factory = DatabasePG.get_session_factory()
+        async with session_factory() as session:
             sync_start = datetime.now()
 
             for c in channels:
@@ -884,58 +888,59 @@ async def insert_channels_upsert(pool: asyncpg.Pool, channels: list) -> bool:
                     continue
 
                 try:
-                    await conn.execute(
-                        """
-                        INSERT INTO channels
-                            (id, numero, nombre, logo, url, grupo, country, tvg_id,
-                             nombre_normalizado, grupo_normalizado, stream_url, provider_id,
-                             last_sync_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-                        ON CONFLICT (id) DO UPDATE SET
-                            numero = EXCLUDED.numero,
-                            nombre = EXCLUDED.nombre,
-                            logo = COALESCE(EXCLUDED.logo, channels.logo),
-                            url = EXCLUDED.url,
-                            grupo = EXCLUDED.grupo,
-                            country = EXCLUDED.country,
-                            tvg_id = EXCLUDED.tvg_id,
-                            nombre_normalizado = EXCLUDED.nombre_normalizado,
-                            grupo_normalizado = EXCLUDED.grupo_normalizado,
-                            stream_url = EXCLUDED.stream_url,
-                            provider_id = EXCLUDED.provider_id,
-                            last_sync_at = EXCLUDED.last_sync_at
-                        """,
-                        channel_id,
-                        c.get("numero", 0),
-                        c.get("nombre", ""),
-                        c.get("logo"),
-                        c.get("url", ""),
-                        c.get("grupo"),
-                        c.get("country"),
-                        c.get("tvg_id", ""),
-                        c.get("nombre_normalizado"),
-                        c.get("grupo_normalizado"),
-                        c.get("stream_url", ""),
-                        c.get("provider_id"),
-                        sync_start,
+                    await session.execute(
+                        text("""
+                            INSERT INTO channels
+                                (id, numero, nombre, logo, url, grupo, country, tvg_id,
+                                 nombre_normalizado, grupo_normalizado, stream_url, provider_id,
+                                 last_sync_at)
+                            VALUES (:id, :numero, :nombre, :logo, :url, :grupo, :country, :tvg_id,
+                                 :nombre_normalizado, :grupo_normalizado, :stream_url, :provider_id,
+                                 :last_sync_at)
+                            ON CONFLICT (id) DO UPDATE SET
+                                numero = EXCLUDED.numero,
+                                nombre = EXCLUDED.nombre,
+                                logo = COALESCE(EXCLUDED.logo, channels.logo),
+                                url = EXCLUDED.url,
+                                grupo = EXCLUDED.grupo,
+                                country = EXCLUDED.country,
+                                tvg_id = EXCLUDED.tvg_id,
+                                nombre_normalizado = EXCLUDED.nombre_normalizado,
+                                grupo_normalizado = EXCLUDED.grupo_normalizado,
+                                stream_url = EXCLUDED.stream_url,
+                                provider_id = EXCLUDED.provider_id,
+                                last_sync_at = EXCLUDED.last_sync_at
+                        """),
+                        {
+                            "id": channel_id,
+                            "numero": c.get("numero", 0),
+                            "nombre": c.get("nombre", ""),
+                            "logo": c.get("logo"),
+                            "url": c.get("url", ""),
+                            "grupo": c.get("grupo"),
+                            "country": c.get("country"),
+                            "tvg_id": c.get("tvg_id", ""),
+                            "nombre_normalizado": c.get("nombre_normalizado"),
+                            "grupo_normalizado": c.get("grupo_normalizado"),
+                            "stream_url": c.get("stream_url", ""),
+                            "provider_id": c.get("provider_id"),
+                            "last_sync_at": sync_start,
+                        },
                     )
                 except Exception as e:
                     print(f"  ⚠️  Error insertando canal '{c.get('nombre')}': {e}")
                     continue
 
             # Limpiar canales que desaparecieron del M3U
-            session_factory = DatabasePG.get_session_factory()
-            async with session_factory() as session:
-                result = await session.execute(
-                    text(
-                        "DELETE FROM channels WHERE last_sync_at IS NULL OR last_sync_at < :cutoff"
-                    ),
-                    {"cutoff": sync_start},
-                )
-                await session.commit()
-                n = result.rowcount
-                if n > 0:
-                    print(f"  🗑️  {n:,} canales obsoletos eliminados")
+            result = await session.execute(
+                text("DELETE FROM channels WHERE last_sync_at IS NULL OR last_sync_at < :cutoff"),
+                {"cutoff": sync_start},
+            )
+            n = result.rowcount
+            if n > 0:
+                print(f"  🗑️  {n:,} canales obsoletos eliminados")
+
+            await session.commit()
 
         print(f"  ✅ Canales sincronizados: {len(channels):,}")
         return True
@@ -967,14 +972,16 @@ async def _cargar_tmdb_map_movies() -> dict[str, str]:
         return {}
 
 
-async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
+async def insert_movies_catalog(movies: list) -> bool:
+    """Inserta peliculas con UPSERT y sus streams. F3c2b: migrado a iptv-db."""
     if not movies:
         return True
 
     print(f"\n📦 SINCRONIZANDO MOVIES_CATALOG + MOVIE_STREAMS ({len(movies):,} streams)...")
 
     try:
-        async with pool.acquire() as conn:
+        session_factory = DatabasePG.get_session_factory()
+        async with session_factory() as session:
             sync_start = datetime.now()
 
             # Cargar tmdb_id existentes para formar canonical_key correctamente (F3c1: iptv-db)
@@ -997,38 +1004,42 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                 catalog_id = catalog_id_map.get(canonical_key)
                 if not catalog_id:
                     try:
-                        result = await conn.fetchrow(
-                            """
-                            INSERT INTO movies_catalog
-                                (title, nombre_dedup_key, canonical_key, year, group_normalizado,
-                                 logo, provider_id, tmdb_id, last_sync_at)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                            ON CONFLICT (canonical_key) DO UPDATE SET
-                                title = EXCLUDED.title,
-                                nombre_dedup_key = EXCLUDED.nombre_dedup_key,
-                                year = COALESCE(EXCLUDED.year, movies_catalog.year),
-                                group_normalizado = EXCLUDED.group_normalizado,
-                                logo = COALESCE(EXCLUDED.logo, movies_catalog.logo),
-                                provider_id = EXCLUDED.provider_id,
-                                tmdb_id = COALESCE(movies_catalog.tmdb_id, EXCLUDED.tmdb_id),
-                                last_sync_at = EXCLUDED.last_sync_at,
-                                not_found = FALSE,
-                                retry_count = 0
-                            RETURNING id
-                            """,
-                            m.get("nombre_normalizado") or m.get("nombre", ""),
-                            dedup_key,
-                            canonical_key,
-                            m.get("year"),
-                            m.get("grupo_normalizado"),
-                            m.get("logo"),
-                            provider_id,
-                            tmdb_id,
-                            sync_start,
+                        result = await session.execute(
+                            text("""
+                                INSERT INTO movies_catalog
+                                    (title, nombre_dedup_key, canonical_key, year, group_normalizado,
+                                     logo, provider_id, tmdb_id, last_sync_at)
+                                VALUES (:title, :nombre_dedup_key, :canonical_key, :year,
+                                     :group_normalizado, :logo, :provider_id, :tmdb_id, :last_sync_at)
+                                ON CONFLICT (canonical_key) DO UPDATE SET
+                                    title = EXCLUDED.title,
+                                    nombre_dedup_key = EXCLUDED.nombre_dedup_key,
+                                    year = COALESCE(EXCLUDED.year, movies_catalog.year),
+                                    group_normalizado = EXCLUDED.group_normalizado,
+                                    logo = COALESCE(EXCLUDED.logo, movies_catalog.logo),
+                                    provider_id = EXCLUDED.provider_id,
+                                    tmdb_id = COALESCE(movies_catalog.tmdb_id, EXCLUDED.tmdb_id),
+                                    last_sync_at = EXCLUDED.last_sync_at,
+                                    not_found = FALSE,
+                                    retry_count = 0
+                                RETURNING id
+                            """),
+                            {
+                                "title": m.get("nombre_normalizado") or m.get("nombre", ""),
+                                "nombre_dedup_key": dedup_key,
+                                "canonical_key": canonical_key,
+                                "year": m.get("year"),
+                                "group_normalizado": m.get("grupo_normalizado"),
+                                "logo": m.get("logo"),
+                                "provider_id": provider_id,
+                                "tmdb_id": tmdb_id,
+                                "last_sync_at": sync_start,
+                            },
                         )
-                        if result:
-                            catalog_id_map[canonical_key] = result["id"]
-                            catalog_id = result["id"]
+                        row_id = result.scalar()
+                        if row_id:
+                            catalog_id_map[canonical_key] = row_id
+                            catalog_id = row_id
                     except Exception as e:
                         print(f"  ⚠️  Error insertando movie_catalog '{m.get('nombre')}': {e}")
                         continue
@@ -1037,29 +1048,32 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                     continue
 
                 try:
-                    await conn.execute(
-                        """
-                        INSERT INTO movie_streams
-                            (movie_id, country, quality, provider_id, stream_url, url, label, numero)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                        ON CONFLICT (movie_id, provider_id) DO NOTHING
-                        """,
-                        catalog_id,
-                        m.get("country"),
-                        m.get("quality"),
-                        m.get("provider_id"),
-                        m.get("stream_url") or m.get("url", ""),
-                        m.get("url", ""),
-                        m.get("country"),
-                        m.get("numero", 0),
+                    stream_vals = {
+                        "movie_id": catalog_id,
+                        "country": m.get("country"),
+                        "quality": m.get("quality"),
+                        "provider_id": m.get("provider_id"),
+                        "stream_url": m.get("stream_url") or m.get("url", ""),
+                        "url": m.get("url", ""),
+                        "label": m.get("country"),
+                        "numero": m.get("numero", 0),
+                    }
+                    stmt = (
+                        pg_insert(MovieStream)
+                        .values(**stream_vals)
+                        .on_conflict_do_nothing(
+                            index_elements=[MovieStream.movie_id, MovieStream.provider_id]
+                        )
                     )
+                    await session.execute(stmt)
                     stream_count += 1
                 except Exception as e:
                     print(f"  ⚠️  Error insertando movie_stream: {e}")
 
             # Refrescar countries array desde los streams para TODOS los entries
             # Es idempotente: si no hay cambios, sobreescribe con los mismos valores
-            await conn.execute("""
+            await session.execute(
+                text("""
                 UPDATE movies_catalog mc SET countries = (
                     SELECT COALESCE(
                         ARRAY_AGG(DISTINCT c ORDER BY c) FILTER (WHERE c IS NOT NULL AND c != ''),
@@ -1070,20 +1084,20 @@ async def insert_movies_catalog(pool: asyncpg.Pool, movies: list) -> bool:
                     ) sub
                 )
             """)
+            )
 
             # Limpiar entries que desaparecieron del M3U
-            session_factory = DatabasePG.get_session_factory()
-            async with session_factory() as session:
-                result = await session.execute(
-                    text(
-                        "DELETE FROM movies_catalog WHERE last_sync_at IS NULL OR last_sync_at < :cutoff"
-                    ),
-                    {"cutoff": sync_start},
-                )
-                await session.commit()
-                n = result.rowcount
-                if n > 0:
-                    print(f"  🗑️  {n:,} entries obsoletos eliminados")
+            result = await session.execute(
+                text(
+                    "DELETE FROM movies_catalog WHERE last_sync_at IS NULL OR last_sync_at < :cutoff"
+                ),
+                {"cutoff": sync_start},
+            )
+            n = result.rowcount
+            if n > 0:
+                print(f"  🗑️  {n:,} entries obsoletos eliminados")
+
+            await session.commit()
 
         print(f"  ✅ Movies: {len(catalog_id_map):,} catálogo + {stream_count:,} streams")
         return True
@@ -1114,7 +1128,8 @@ async def _cargar_tmdb_map_series() -> dict[str, str]:
         return {}
 
 
-async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
+async def insert_series_catalog(series: list) -> bool:
+    """Inserta series con UPSERT, episodios y streams. F3c2b: migrado a iptv-db."""
     if not series:
         return True
 
@@ -1123,7 +1138,8 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
     )
 
     try:
-        async with pool.acquire() as conn:
+        session_factory = DatabasePG.get_session_factory()
+        async with session_factory() as session:
             sync_start = datetime.now()
 
             # Cargar tmdb_id existentes para formar canonical_key correctamente (F3c1: iptv-db)
@@ -1154,39 +1170,43 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                 catalog_id = catalog_id_map.get(dedup_key)
                 if not catalog_id:
                     try:
-                        result = await conn.fetchrow(
-                            """
-                            INSERT INTO series_catalog
-                                (title, series_key, canonical_key, year, group_normalizado,
-                                 logo, provider_id, tmdb_id, last_sync_at)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                            ON CONFLICT (canonical_key) DO UPDATE SET
-                                title = EXCLUDED.title,
-                                series_key = EXCLUDED.series_key,
-                                year = COALESCE(EXCLUDED.year, series_catalog.year),
-                                group_normalizado = EXCLUDED.group_normalizado,
-                                logo = COALESCE(EXCLUDED.logo, series_catalog.logo),
-                                provider_id = EXCLUDED.provider_id,
-                                tmdb_id = COALESCE(series_catalog.tmdb_id, EXCLUDED.tmdb_id),
-                                last_sync_at = EXCLUDED.last_sync_at,
-                                not_found = FALSE,
-                                retry_count = 0
-                            RETURNING id
-                            """,
-                            s.get("serie_name")
-                            or s.get("nombre_normalizado")
-                            or s.get("nombre", ""),
-                            sk,
-                            dedup_key,
-                            s.get("year"),
-                            s.get("grupo_normalizado"),
-                            s.get("logo"),
-                            s.get("provider_id"),
-                            tmdb_id,
-                            sync_start,
+                        result = await session.execute(
+                            text("""
+                                INSERT INTO series_catalog
+                                    (title, series_key, canonical_key, year, group_normalizado,
+                                     logo, provider_id, tmdb_id, last_sync_at)
+                                VALUES (:title, :series_key, :canonical_key, :year,
+                                     :group_normalizado, :logo, :provider_id, :tmdb_id, :last_sync_at)
+                                ON CONFLICT (canonical_key) DO UPDATE SET
+                                    title = EXCLUDED.title,
+                                    series_key = EXCLUDED.series_key,
+                                    year = COALESCE(EXCLUDED.year, series_catalog.year),
+                                    group_normalizado = EXCLUDED.group_normalizado,
+                                    logo = COALESCE(EXCLUDED.logo, series_catalog.logo),
+                                    provider_id = EXCLUDED.provider_id,
+                                    tmdb_id = COALESCE(series_catalog.tmdb_id, EXCLUDED.tmdb_id),
+                                    last_sync_at = EXCLUDED.last_sync_at,
+                                    not_found = FALSE,
+                                    retry_count = 0
+                                RETURNING id
+                            """),
+                            {
+                                "title": s.get("serie_name")
+                                or s.get("nombre_normalizado")
+                                or s.get("nombre", ""),
+                                "series_key": sk,
+                                "canonical_key": dedup_key,
+                                "year": s.get("year"),
+                                "group_normalizado": s.get("grupo_normalizado"),
+                                "logo": s.get("logo"),
+                                "provider_id": s.get("provider_id"),
+                                "tmdb_id": tmdb_id,
+                                "last_sync_at": sync_start,
+                            },
                         )
-                        if result:
-                            catalog_id = result["id"]
+                        row_id = result.scalar()
+                        if row_id:
+                            catalog_id = row_id
                             catalog_id_map[dedup_key] = catalog_id
                     except Exception as e:
                         print(f"  ⚠️  Error insertando series_catalog '{s.get('serie_name')}': {e}")
@@ -1215,45 +1235,85 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                 episode_id = episode_map.get(ep_key)
                 if not episode_id:
                     try:
-                        result = await conn.fetchrow(
-                            """
-                            INSERT INTO series_episodes
-                                (catalog_id, season_number, episode_number, numero,
-                                 title, overview, air_date, still_path, runtime,
-                                 vote_average, vote_count, episode_type, title_en, overview_en)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-                            ON CONFLICT (catalog_id, season_number, episode_number) DO UPDATE SET
-                                numero = EXCLUDED.numero,
-                                title = COALESCE(EXCLUDED.title, series_episodes.title),
-                                overview = COALESCE(EXCLUDED.overview, series_episodes.overview),
-                                air_date = COALESCE(EXCLUDED.air_date, series_episodes.air_date),
-                                still_path = COALESCE(EXCLUDED.still_path, series_episodes.still_path),
-                                runtime = COALESCE(EXCLUDED.runtime, series_episodes.runtime),
-                                vote_average = COALESCE(EXCLUDED.vote_average, series_episodes.vote_average),
-                                vote_count = COALESCE(EXCLUDED.vote_count, series_episodes.vote_count),
-                                episode_type = COALESCE(EXCLUDED.episode_type, series_episodes.episode_type),
-                                title_en = COALESCE(EXCLUDED.title_en, series_episodes.title_en),
-                                overview_en = COALESCE(EXCLUDED.overview_en, series_episodes.overview_en)
-                            RETURNING id
-                            """,
-                            catalog_id,
-                            season_num,
-                            episode_num,
-                            s.get("numero", 0),
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
+                        ep_values = {
+                            "catalog_id": catalog_id,
+                            "season_number": season_num,
+                            "episode_number": episode_num,
+                            "numero": s.get("numero", 0),
+                            "title": None,
+                            "overview": None,
+                            "air_date": None,
+                            "still_path": None,
+                            "runtime": None,
+                            "vote_average": None,
+                            "vote_count": None,
+                            "episode_type": None,
+                            "title_en": None,
+                            "overview_en": None,
+                        }
+                        ep_stmt = (
+                            pg_insert(SeriesEpisode)
+                            .values(**ep_values)
+                            .on_conflict_do_update(
+                                index_elements=[
+                                    SeriesEpisode.catalog_id,
+                                    SeriesEpisode.season_number,
+                                    SeriesEpisode.episode_number,
+                                ],
+                                set_={
+                                    "numero": func.coalesce(
+                                        pg_insert(SeriesEpisode).excluded.numero,
+                                        SeriesEpisode.numero,
+                                    ),
+                                    "title": func.coalesce(
+                                        pg_insert(SeriesEpisode).excluded.title,
+                                        SeriesEpisode.title,
+                                    ),
+                                    "overview": func.coalesce(
+                                        pg_insert(SeriesEpisode).excluded.overview,
+                                        SeriesEpisode.overview,
+                                    ),
+                                    "air_date": func.coalesce(
+                                        pg_insert(SeriesEpisode).excluded.air_date,
+                                        SeriesEpisode.air_date,
+                                    ),
+                                    "still_path": func.coalesce(
+                                        pg_insert(SeriesEpisode).excluded.still_path,
+                                        SeriesEpisode.still_path,
+                                    ),
+                                    "runtime": func.coalesce(
+                                        pg_insert(SeriesEpisode).excluded.runtime,
+                                        SeriesEpisode.runtime,
+                                    ),
+                                    "vote_average": func.coalesce(
+                                        pg_insert(SeriesEpisode).excluded.vote_average,
+                                        SeriesEpisode.vote_average,
+                                    ),
+                                    "vote_count": func.coalesce(
+                                        pg_insert(SeriesEpisode).excluded.vote_count,
+                                        SeriesEpisode.vote_count,
+                                    ),
+                                    "episode_type": func.coalesce(
+                                        pg_insert(SeriesEpisode).excluded.episode_type,
+                                        SeriesEpisode.episode_type,
+                                    ),
+                                    "title_en": func.coalesce(
+                                        pg_insert(SeriesEpisode).excluded.title_en,
+                                        SeriesEpisode.title_en,
+                                    ),
+                                    "overview_en": func.coalesce(
+                                        pg_insert(SeriesEpisode).excluded.overview_en,
+                                        SeriesEpisode.overview_en,
+                                    ),
+                                },
+                            )
+                            .returning(SeriesEpisode.id)
                         )
-                        if result:
-                            episode_map[ep_key] = result["id"]
-                            episode_id = result["id"]
+                        result = await session.execute(ep_stmt)
+                        row_id = result.scalar()
+                        if row_id:
+                            episode_map[ep_key] = row_id
+                            episode_id = row_id
                     except Exception as e:
                         print(f"  ⚠️  Error insertando episode: {e}")
                         continue
@@ -1262,28 +1322,34 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                     continue
 
                 try:
-                    await conn.execute(
-                        """
-                        INSERT INTO series_streams
-                            (episode_id, country, quality, provider_id, stream_url, url, label, numero)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                        ON CONFLICT (episode_id, provider_id) DO NOTHING
-                        """,
-                        episode_id,
-                        s.get("country"),
-                        s.get("quality"),
-                        s.get("provider_id"),
-                        s.get("stream_url") or s.get("url", ""),
-                        s.get("url", ""),
-                        s.get("country"),
-                        s.get("numero", 0),
+                    stream_vals = {
+                        "episode_id": episode_id,
+                        "country": s.get("country"),
+                        "quality": s.get("quality"),
+                        "provider_id": s.get("provider_id"),
+                        "stream_url": s.get("stream_url") or s.get("url", ""),
+                        "url": s.get("url", ""),
+                        "label": s.get("country"),
+                        "numero": s.get("numero", 0),
+                    }
+                    stmt = (
+                        pg_insert(SeriesStream)
+                        .values(**stream_vals)
+                        .on_conflict_do_nothing(
+                            index_elements=[
+                                SeriesStream.episode_id,
+                                SeriesStream.provider_id,
+                            ]
+                        )
                     )
+                    await session.execute(stmt)
                     stream_count += 1
                 except Exception as e:
                     print(f"  ⚠️  Error insertando series_stream: {e}")
 
             # Refrescar countries array desde los streams para TODOS los entries
-            await conn.execute("""
+            await session.execute(
+                text("""
                 UPDATE series_catalog sc SET countries = (
                     SELECT COALESCE(
                         ARRAY_AGG(DISTINCT c ORDER BY c) FILTER (WHERE c IS NOT NULL AND c != ''),
@@ -1297,20 +1363,20 @@ async def insert_series_catalog(pool: asyncpg.Pool, series: list) -> bool:
                     ) sub
                 )
             """)
+            )
 
             # Limpiar entries de catálogo que desaparecieron del M3U (CASCADE elimina episodios y streams)
-            session_factory = DatabasePG.get_session_factory()
-            async with session_factory() as session:
-                result = await session.execute(
-                    text(
-                        "DELETE FROM series_catalog WHERE last_sync_at IS NULL OR last_sync_at < :cutoff"
-                    ),
-                    {"cutoff": sync_start},
-                )
-                await session.commit()
-                n = result.rowcount
-                if n > 0:
-                    print(f"  🗑️  {n:,} series obsoletas eliminadas")
+            result = await session.execute(
+                text(
+                    "DELETE FROM series_catalog WHERE last_sync_at IS NULL OR last_sync_at < :cutoff"
+                ),
+                {"cutoff": sync_start},
+            )
+            n = result.rowcount
+            if n > 0:
+                print(f"  🗑️  {n:,} series obsoletas eliminadas")
+
+            await session.commit()
 
         print(
             f"  ✅ Series: {len(catalog_id_map):,} catálogo + {len(episode_map):,} episodios + {stream_count:,} streams"
@@ -1623,7 +1689,7 @@ async def sync_to_postgres():
 
         if not channels_match and len(channels) > 0:
             inicio_channels = time.time()
-            await insert_channels_upsert(pool, channels)
+            await insert_channels_upsert(channels)
             tiempo_channels = time.time() - inicio_channels
         else:
             print(f"  ⏭️  Canales: sin cambios ({count_channels_db:,} registros)")
@@ -1631,7 +1697,7 @@ async def sync_to_postgres():
         # 5. Poblar tablas de catálogo normalizadas directamente desde datos en memoria
         if not movies_match and len(movies) > 0:
             inicio_movies = time.time()
-            await insert_movies_catalog(pool, movies)
+            await insert_movies_catalog(movies)
             tiempo_movies = time.time() - inicio_movies
         else:
             print(f"  ⏭️  Películas: sin cambios ({count_movies_catalog_db:,} catálogo)")
@@ -1639,7 +1705,7 @@ async def sync_to_postgres():
 
         if not series_match and len(series) > 0:
             inicio_series = time.time()
-            await insert_series_catalog(pool, series)
+            await insert_series_catalog(series)
             tiempo_series = time.time() - inicio_series
         else:
             print(f"  ⏭️  Series: sin cambios ({count_series_catalog_db:,} catálogo)")
