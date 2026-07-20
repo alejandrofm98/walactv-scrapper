@@ -1,6 +1,5 @@
 """
-Módulo optimizado para inserciones masivas en PostgreSQL usando asyncpg
-Implementa múltiples estrategias para acelerar la inserción de grandes volúmenes
+Módulo optimizado para inserciones masivas en PostgreSQL usando iptv-db. F3d4b.
 """
 
 import asyncio
@@ -9,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from asyncpg import Pool
+from sqlalchemy import text
 
 from scripts.utils import constants as CONSTANTS
 
@@ -76,30 +75,38 @@ class BulkInserter:
 
     def __init__(
         self,
-        pool: Pool,
         table_name: str,
         batch_size: int = CONSTANTS.DB_DEFAULT_BATCH_SIZE,
         max_workers: int = CONSTANTS.DB_DEFAULT_MAX_WORKERS,
         max_retries: int = CONSTANTS.DB_DEFAULT_MAX_RETRIES,
         progress_callback: Callable[[InsertStats], None] | None = None,
+        session_factory=None,
     ):
         """
         Args:
-            pool: Pool de conexiones asyncpg
             table_name: Nombre de la tabla
             batch_size: Tamaño del batch
             max_workers: Número de workers paralelos
             max_retries: Intentos máximos por batch fallido
             progress_callback: Función a llamar con stats en cada actualización
+            session_factory: Factory de sesiones iptv-db (default: DatabasePG.get_session_factory())
         """
-        self.pool = pool
         self.table_name = table_name
         self.batch_size = batch_size
         self.max_workers = max_workers
         self.max_retries = max_retries
         self.progress_callback = progress_callback
+        self._session_factory = session_factory
 
         self.stats = InsertStats()
+
+    def _get_factory(self):
+        """Obtiene la session factory desde DatabasePG si no se inyectó."""
+        if self._session_factory is None:
+            from database import DatabasePG
+
+            self._session_factory = DatabasePG.get_session_factory()
+        return self._session_factory
 
     def _create_batches(self, data: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
         """Divide los datos en batches"""
@@ -113,37 +120,38 @@ class BulkInserter:
         self, batch: list[dict[str, Any]], batch_num: int, total_batches: int
     ) -> tuple[bool, int]:
         """
-        Inserta un batch con reintentos
+        Inserta un batch con reintentos. F3d4b: migrado a iptv-db.
 
         Returns:
             (success, records_inserted)
         """
         for attempt in range(self.max_retries):
             try:
-                async with self.pool.acquire() as conn:
-                    async with conn.transaction():
-                        columns = list(batch[0].keys())
-                        placeholders = ", ".join([f"${i + 1}" for i in range(len(columns))])
-                        query = f"INSERT INTO {self.table_name} ({', '.join(columns)}) VALUES ({placeholders})"
+                factory = self._get_factory()
+                async with factory() as session:
+                    columns = list(batch[0].keys())
+                    placeholders = ", ".join([f":{col}" for col in columns])
+                    query = f"INSERT INTO {self.table_name} ({', '.join(columns)}) VALUES ({placeholders})"
 
-                        for row in batch:
-                            values = tuple(row[col] for col in columns)
-                            await conn.execute(query, *values)
+                    for row in batch:
+                        await session.execute(text(query), row)
 
-                        records_inserted = len(batch)
+                    await session.commit()
 
-                        self.stats.inserted_records += records_inserted
-                        self.stats.batches_completed += 1
+                    records_inserted = len(batch)
 
-                        if self.progress_callback:
-                            self.progress_callback(self.stats)
+                    self.stats.inserted_records += records_inserted
+                    self.stats.batches_completed += 1
 
-                        if len(batch) >= 500:
-                            await asyncio.sleep(0.5)
-                        else:
-                            await asyncio.sleep(0.3)
+                    if self.progress_callback:
+                        self.progress_callback(self.stats)
 
-                        return True, records_inserted
+                    if len(batch) >= 500:
+                        await asyncio.sleep(0.5)
+                    else:
+                        await asyncio.sleep(0.3)
+
+                    return True, records_inserted
 
             except Exception as e:
                 if attempt < self.max_retries - 1:
@@ -230,31 +238,31 @@ def default_progress_callback(stats: InsertStats):
 
 
 async def insert_bulk_optimized(
-    pool: Pool,
     table_name: str,
     data: list[dict[str, Any]],
     batch_size: int = 500,
     max_workers: int = 1,
+    session_factory=None,
 ) -> InsertStats:
     """
-    Función de conveniencia para insertar datos en bulk
+    Función de conveniencia para insertar datos en bulk. F3d4b: iptv-db.
 
     Args:
-        pool: Pool de conexiones asyncpg
         table_name: Nombre de la tabla
         data: Lista de datos a insertar
         batch_size: Tamaño del batch (default: 500)
         max_workers: Workers paralelos (default: 1)
+        session_factory: Factory de sesiones iptv-db (default: DatabasePG.get_session_factory())
 
     Returns:
         InsertStats con estadísticas de la operación
     """
     inserter = BulkInserter(
-        pool=pool,
         table_name=table_name,
         batch_size=batch_size,
         max_workers=max_workers,
         progress_callback=default_progress_callback,
+        session_factory=session_factory,
     )
 
     return await inserter.insert_bulk(data)

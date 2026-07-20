@@ -9,9 +9,10 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-import asyncpg
 from dotenv import load_dotenv
 from iptv_db.engine import build_url
+from iptv_db.models import Config
+from sqlalchemy import select
 
 
 def _load_environment() -> None:
@@ -58,7 +59,6 @@ class Settings:
     public_domain: str = os.getenv("PUBLIC_DOMAIN", "http://localhost:8000")
 
     _config_loaded: bool = False
-    _pool_cache: asyncpg.Pool | None = None
 
     @property
     def database_url(self) -> str:
@@ -80,36 +80,19 @@ class Settings:
         """Verifica que la configuración PostgreSQL esté completa"""
         return bool(self.pg_host and self.pg_user and self.pg_password)
 
-    async def _get_pool(self) -> asyncpg.Pool:
-        """Obtiene o crea el pool de conexiones"""
-        if self._pool_cache is not None:
-            return self._pool_cache
-
-        if not self._ensure_pg_config():
-            raise ValueError(
-                "PostgreSQL no está configurado. Revisa PG_HOST, PG_USER y PG_PASSWORD"
-            )
-
-        self._pool_cache = await asyncpg.create_pool(
-            host=self.pg_host,
-            port=self.pg_port,
-            user=self.pg_user,
-            password=self.pg_password,
-            database=self.pg_database,
-            min_size=2,
-            max_size=10,
-        )
-        return self._pool_cache
-
     async def _load_config(self) -> None:
-        """Carga configuración dinámica desde tabla config en PostgreSQL"""
+        """Carga configuración dinámica desde tabla config en PostgreSQL. F3d4b: iptv-db."""
         if not self._ensure_pg_config():
             return
 
         try:
-            pool = await self._get_pool()
-            async with pool.acquire() as conn:
-                rows = await conn.fetch("SELECT key, value FROM config")
+            from database import DatabasePG
+
+            factory = DatabasePG.get_session_factory()
+            async with factory() as session:
+                stmt = select(Config.key, Config.value)
+                result = await session.execute(stmt)
+                rows = result.mappings().all()
 
                 if not rows:
                     return

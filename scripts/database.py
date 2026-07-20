@@ -7,7 +7,6 @@ asyncpg pool legacy preservado para backward compat (callers externos).
 import os
 import pathlib
 from datetime import date, datetime
-from typing import Any
 
 import asyncpg
 from asyncpg import Pool
@@ -18,9 +17,8 @@ from iptv_db.engine import (
     get_sync_engine,
     get_sync_session_factory,
 )
-from sqlalchemy import select, text
-
 from iptv_db.models import Config
+from sqlalchemy import select, text
 
 try:
     from dotenv import load_dotenv
