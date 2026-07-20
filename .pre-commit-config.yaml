@@ -1,0 +1,38 @@
+# .pre-commit-config.yaml
+# Pre-commit hooks for quality gates before commit
+# Install: pre-commit install
+# Run manually: pre-commit run --all-files
+#
+# NOTA: mypy no se incluye en pre-commit porque:
+#   - La config de mypy no es estricta (disallow_untyped_defs=false, strict ausente)
+#   - Varios scripts grandes estan excluidos (proxificaUrl, actualiza_epg)
+#   - mypy escanearia todo el codebase y ralentizaria el hook
+#   - Se ejecuta en CI como parte del workflow opcional
+
+repos:
+  # Standard hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # Ruff (format + lint)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: ['--fix', '--exit-non-zero-on-fix']
+      - id: ruff-format
+
+  # gitleaks (secret detection)
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
