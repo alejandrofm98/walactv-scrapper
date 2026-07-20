@@ -18,6 +18,8 @@ RUN pip install --no-cache-dir -r requirements-tmdb.txt
 
 # Copiar código del scraper
 COPY scripts/scrape_tmdb_metadata.py scripts/
+COPY scripts/import_imdb_ratings.py scripts/
+COPY scripts/populate_episode_imdb_ids.py scripts/
 COPY scripts/utils/ scripts/utils/
 COPY docker/entrypoint-tmdb.sh /app/entrypoint.sh
 

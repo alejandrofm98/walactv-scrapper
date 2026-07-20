@@ -73,6 +73,8 @@ services:
       - walactv-sync-iptv
       - walactv-sync-replays
       - walactv-sync-tmdb-metadata
+      - walactv-imdb-ratings
+      - walactv-imdb-episode-ids
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     command: daemon --config /ofelia.config.ini
@@ -87,6 +89,42 @@ services:
     container_name: walactv-sync-tmdb-metadata
     restart: unless-stopped
     entrypoint: ["/app/entrypoint.sh"]
+    env_file:
+      - .env
+    environment:
+      - DOCKER_CONTAINER=true
+      - PYTHONUNBUFFERED=1
+    networks:
+      - dokploy-network
+      - iptv-ecosystem
+
+  # Importa ratings de IMDb (title.ratings.tsv.gz) a movies_metadata y series_metadata
+  # Se ejecuta diariamente via Ofelia; actualiza solo imdb_rating e imdb_votes.
+  walactv-imdb-ratings:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tmdb
+    container_name: walactv-imdb-ratings
+    restart: unless-stopped
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
+    env_file:
+      - .env
+    environment:
+      - DOCKER_CONTAINER=true
+      - PYTHONUNBUFFERED=1
+    networks:
+      - dokploy-network
+      - iptv-ecosystem
+
+  # Puebla series_episodes.imdb_id desde title.episode.tsv.gz
+  # Se ejecuta diariamente via Ofelia a las 06:30 UTC (despues de imdb-ratings).
+  walactv-imdb-episode-ids:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tmdb
+    container_name: walactv-imdb-episode-ids
+    restart: unless-stopped
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
     env_file:
       - .env
     environment:
