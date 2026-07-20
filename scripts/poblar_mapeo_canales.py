@@ -15,6 +15,8 @@ import re
 import sys
 from pathlib import Path
 
+from sqlalchemy import text
+
 scripts_dir = Path(__file__).parent
 sys.path.insert(0, str(scripts_dir))
 
@@ -55,53 +57,61 @@ def extraer_calidad(nombre_iptv: str) -> str:
     return "HD"
 
 
-async def buscar_channel_id_por_nombre(pool, nombre_iptv: str) -> str | None:
-    """Busca en la tabla channels por nombre exacto y retorna el ID"""
+async def buscar_channel_id_por_nombre(nombre_iptv: str) -> str | None:
+    """Busca en la tabla channels por nombre exacto y retorna el ID. F3d2: iptv-db."""
     try:
-        async with pool.acquire() as conn:
-            result = await conn.fetchrow("SELECT id FROM channels WHERE nombre = $1", nombre_iptv)
-            if result:
-                return result["id"]
+        session_factory = DatabasePG.get_session_factory()
+        async with session_factory() as session:
+            result = await session.execute(
+                text("SELECT id FROM channels WHERE nombre = :nombre"),
+                {"nombre": nombre_iptv},
+            )
+            row = result.mappings().first()
+            if row:
+                return str(row["id"])
             return None
     except Exception as e:
         print(f"   ⚠️  Error buscando channel '{nombre_iptv}': {e}")
         return None
 
 
-async def buscar_channels_por_patron(pool, variante: dict) -> list:
-    """Busca channels por patrón dinámico usando nombre/grupo."""
+async def buscar_channels_por_patron(variante: dict) -> list:
+    """Busca channels por patrón dinámico usando nombre/grupo. F3d2: iptv-db."""
     try:
-        async with pool.acquire() as conn:
+        session_factory = DatabasePG.get_session_factory()
+        async with session_factory() as session:
             grupo_contains = variante.get("grupo_contains")
             nombre_contains = variante.get("nombre_contains")
 
             if grupo_contains and nombre_contains:
-                rows = await conn.fetch(
-                    "SELECT id, nombre, grupo FROM channels WHERE grupo ILIKE $1 AND nombre ILIKE $2",
-                    f"%{grupo_contains}%",
-                    f"%{nombre_contains}%",
+                rows = await session.execute(
+                    text(
+                        "SELECT id, nombre, grupo FROM channels WHERE grupo ILIKE :grupo AND nombre ILIKE :nombre"
+                    ),
+                    {"grupo": f"%{grupo_contains}%", "nombre": f"%{nombre_contains}%"},
                 )
             elif grupo_contains:
-                rows = await conn.fetch(
-                    "SELECT id, nombre, grupo FROM channels WHERE grupo ILIKE $1",
-                    f"%{grupo_contains}%",
+                rows = await session.execute(
+                    text("SELECT id, nombre, grupo FROM channels WHERE grupo ILIKE :grupo"),
+                    {"grupo": f"%{grupo_contains}%"},
                 )
             elif nombre_contains:
-                rows = await conn.fetch(
-                    "SELECT id, nombre, grupo FROM channels WHERE nombre ILIKE $1",
-                    f"%{nombre_contains}%",
+                rows = await session.execute(
+                    text("SELECT id, nombre, grupo FROM channels WHERE nombre ILIKE :nombre"),
+                    {"nombre": f"%{nombre_contains}%"},
                 )
             else:
                 return []
 
-            if not rows:
+            result_rows = rows.mappings().all()
+            if not result_rows:
                 return []
 
             nombre_regex = variante.get("nombre_regex")
             grupo_regex = variante.get("grupo_regex")
 
             channels = []
-            for row in rows:
+            for row in result_rows:
                 nombre = row.get("nombre", "")
                 grupo = row.get("grupo", "")
 
@@ -111,7 +121,7 @@ async def buscar_channels_por_patron(pool, variante: dict) -> list:
                 if grupo_regex and not re.search(grupo_regex, grupo, re.IGNORECASE):
                     continue
 
-                channels.append(row)
+                channels.append(dict(row))
 
             return channels
     except Exception as e:
@@ -119,7 +129,7 @@ async def buscar_channels_por_patron(pool, variante: dict) -> list:
         return []
 
 
-async def procesar_mapping(pool, source_name: str, display_name: str, variantes: list, stats: dict):
+async def procesar_mapping(source_name: str, display_name: str, variantes: list, stats: dict):
     """Procesa un mapping individual y guarda sus variantes."""
     print(f"\n📝 Procesando: {source_name} -> {display_name}")
 
@@ -136,7 +146,7 @@ async def procesar_mapping(pool, source_name: str, display_name: str, variantes:
     for var in variantes:
         if isinstance(var, dict) and "nombre" in var:
             nombre_iptv = var["nombre"]
-            channel_id = await buscar_channel_id_por_nombre(pool, nombre_iptv)
+            channel_id = await buscar_channel_id_por_nombre(nombre_iptv)
 
             if channel_id:
                 channel_ids.append(channel_id)
@@ -148,7 +158,7 @@ async def procesar_mapping(pool, source_name: str, display_name: str, variantes:
                 stats["variantes_omitidas"] += 1
 
         elif isinstance(var, dict) and ("nombre_regex" in var or "grupo_regex" in var):
-            channels = await buscar_channels_por_patron(pool, var)
+            channels = await buscar_channels_por_patron(var)
 
             if channels:
                 for channel in channels:
@@ -211,7 +221,7 @@ async def main():
     print()
 
     try:
-        pool = await DatabasePG.initialize()
+        await DatabasePG.initialize()
     except Exception as e:
         print(f"❌ Error conectando a PostgreSQL: {e}")
         return
@@ -231,7 +241,7 @@ async def main():
 
     for source_name, display_name in mapeo_futbolenlatv.items():
         variantes = canales_data.get(display_name, [])
-        await procesar_mapping(pool, source_name, display_name, variantes, stats)
+        await procesar_mapping(source_name, display_name, variantes, stats)
         display_names_procesados.add(display_name)
 
     extras = [
@@ -246,7 +256,7 @@ async def main():
 
     for display_name in extras:
         variantes = canales_data.get(display_name, [])
-        await procesar_mapping(pool, display_name, display_name, variantes, stats)
+        await procesar_mapping(display_name, display_name, variantes, stats)
 
     print("\n" + "=" * 80)
     print("📊 RESUMEN DE INSERCIONES")

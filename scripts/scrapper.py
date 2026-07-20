@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import requests
 from bs4 import BeautifulSoup
+from sqlalchemy import text
 
 from database import ChannelMappingManager, DatabasePG, DataManagerSupabase
 from services.event_images import borrar_imagenes_eventos_fechas
@@ -69,51 +70,54 @@ class ScrapperFutbolenlatv:
     @staticmethod
     async def guarda_partidos_async(todos_eventos):
         """
-        Guarda todos los eventos de todas las fechas en un solo batch.
-        Esto evita llamar asyncio.run() múltiples veces y cierra el pool correctamente.
+        Guarda todos los eventos de todas las fechas.
+        Cada fecha en su propia transacción. F3d2: migrado a iptv-db.
         """
         try:
-            # Inicializar pool una sola vez
-            pool = await DatabasePG.initialize()
+            session_factory = DatabasePG.get_session_factory()
 
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    ALTER TABLE calendario
-                    ADD COLUMN IF NOT EXISTS imagen_evento TEXT,
-                    ADD COLUMN IF NOT EXISTS subtitulo_competicion TEXT,
-                    DROP COLUMN IF EXISTS imagen_local,
-                    DROP COLUMN IF EXISTS imagen_visitante
-                    """
+            # DDL: se ejecuta en sesión separada por seguridad
+            async with session_factory() as ddl_session:
+                await ddl_session.execute(
+                    text("""
+                        ALTER TABLE calendario
+                        ADD COLUMN IF NOT EXISTS imagen_evento TEXT,
+                        ADD COLUMN IF NOT EXISTS subtitulo_competicion TEXT,
+                        DROP COLUMN IF EXISTS imagen_local,
+                        DROP COLUMN IF EXISTS imagen_visitante
+                    """)
                 )
+                await ddl_session.commit()
 
-                for fecha_str, partidos in todos_eventos.items():
-                    for fecha in fecha_str if isinstance(fecha_str, list) else [fecha_str]:
-                        try:
-                            fecha_date = datetime.strptime(fecha, "%d/%m/%Y").date()
-                        except ValueError:
-                            continue
+            for fecha_str, partidos in todos_eventos.items():
+                for fecha in fecha_str if isinstance(fecha_str, list) else [fecha_str]:
+                    try:
+                        fecha_date = datetime.strptime(fecha, "%d/%m/%Y").date()
+                    except ValueError:
+                        continue
 
-                        partidos_validos = [
-                            partido for partido in partidos.values() if isinstance(partido, dict)
-                        ]
-                        if not partidos_validos:
-                            continue
+                    partidos_validos = [
+                        partido for partido in partidos.values() if isinstance(partido, dict)
+                    ]
+                    if not partidos_validos:
+                        continue
 
-                        async with conn.transaction():
-                            await conn.execute(
-                                "DELETE FROM calendario WHERE fecha = $1", fecha_date
-                            )
+                    async with session_factory() as session:
+                        await session.execute(
+                            text("DELETE FROM calendario WHERE fecha = :fecha"),
+                            {"fecha": fecha_date},
+                        )
 
-                            for partido in partidos_validos:
-                                try:
-                                    await conn.execute(
-                                        """
+                        for partido in partidos_validos:
+                            try:
+                                await session.execute(
+                                    text("""
                                         INSERT INTO calendario (
                                             fecha, hora, equipos, competicion, canales, categoria,
                                             imagen_evento, subtitulo_competicion
                                         )
-                                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                                        VALUES (:fecha, :hora, :equipos, :competicion, :canales, :categoria,
+                                                :imagen_evento, :subtitulo_competicion)
                                         ON CONFLICT (fecha, hora, equipos) DO UPDATE SET
                                             hora = EXCLUDED.hora,
                                             competicion = EXCLUDED.competicion,
@@ -121,20 +125,26 @@ class ScrapperFutbolenlatv:
                                             categoria = EXCLUDED.categoria,
                                             imagen_evento = EXCLUDED.imagen_evento,
                                             subtitulo_competicion = EXCLUDED.subtitulo_competicion
-                                        """,
-                                        fecha_date,
-                                        partido.get("hora", "00:00"),
-                                        partido.get("equipos", ""),
-                                        partido.get("competicion", ""),
-                                        partido.get("canales", []),
-                                        partido.get("categoria", ""),
-                                        partido.get("imagen_evento", ""),
-                                        partido.get("subtitulo_competicion", ""),
-                                    )
-                                except Exception as e:
-                                    print(
-                                        f"❌ Error guardando partido '{partido.get('equipos', '')}': {e}"
-                                    )
+                                    """),
+                                    {
+                                        "fecha": fecha_date,
+                                        "hora": partido.get("hora", "00:00"),
+                                        "equipos": partido.get("equipos", ""),
+                                        "competicion": partido.get("competicion", ""),
+                                        "canales": partido.get("canales", []),
+                                        "categoria": partido.get("categoria", ""),
+                                        "imagen_evento": partido.get("imagen_evento", ""),
+                                        "subtitulo_competicion": partido.get(
+                                            "subtitulo_competicion", ""
+                                        ),
+                                    },
+                                )
+                            except Exception as e:
+                                print(
+                                    f"❌ Error guardando partido '{partido.get('equipos', '')}': {e}"
+                                )
+
+                        await session.commit()
 
         except Exception as e:
             print(f"❌ Error general guardando calendario: {e}")
