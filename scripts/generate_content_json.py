@@ -6,7 +6,7 @@ Usage:
     python generate_channels_json.py
 
 O importado desde sync_iptv.py:
-    await generar_channels_json(pool)
+    await generar_channels_json()
 """
 
 import gzip
@@ -18,6 +18,9 @@ from pathlib import Path
 
 # Añadir el directorio padre al path para imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# iptv-db (F3d1): SQLAlchemy async ORM para queries SELECT
+from sqlalchemy import text
 
 from database import DatabasePG
 from utils.constants import (
@@ -32,13 +35,10 @@ class DateTimeEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-async def generar_channels_json(pool=None, close_pool=True):
+async def generar_channels_json():
     """
     Genera el archivo channels.json.gz con todos los canales.
-
-    Args:
-        pool: Pool de conexiones PostgreSQL existente (opcional)
-        close_pool: Si True, cierra el pool al terminar
+    F3d1: migrado a iptv-db.
 
     Returns:
         dict con informacion del archivo generado o None si hay error
@@ -49,73 +49,74 @@ async def generar_channels_json(pool=None, close_pool=True):
     print("📦 GENERANDO JSON DE CANALES PARA CACHE TV")
     print("=" * 60)
 
-    pool_to_close = None
     try:
-        if pool is None:
-            pool = await DatabasePG.get_pool()
-            pool_to_close = pool
-
-        query = """
-            SELECT
-                id,
-                COALESCE(numero, 0) as numero,
-                COALESCE(provider_id, '') as provider_id,
-                COALESCE(logo, '') as logo,
-                COALESCE(country, '') as country,
-                COALESCE(nombre_normalizado, '') as nombre_normalizado,
-                COALESCE(grupo_normalizado, '') as grupo_normalizado
-            FROM channels
-            ORDER BY numero ASC
-        """
-
-        rows = await pool.fetch(query)
-        canales = []
-
-        for row in rows:
-            canales.append(
-                {
-                    "id": str(row["id"]),
-                    "numero": row["numero"],
-                    "provider_id": row["provider_id"],
-                    "logo": row["logo"],
-                    "country": row["country"],
-                    "nombre_normalizado": row["nombre_normalizado"],
-                    "grupo_normalizado": row["grupo_normalizado"],
-                }
-            )
-
-        total = len(canales)
-        generated_at = datetime.now()
-
-        payload = {"items": canales, "total": total, "generated_at": generated_at}
-
-        json_dir = Path(__file__).parent.parent / "data" / "json"
-        json_dir.mkdir(parents=True, exist_ok=True)
-
-        json_path = json_dir / "channels.json"
-        gz_path = json_dir / "channels.json.gz"
-
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
-
-        with open(gz_path, "wb") as f, gzip.open(f, "wt", encoding="utf-8") as gz:
-            gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
-
-        json_size_mb = json_path.stat().st_size / (1024 * 1024)
-        gz_size_mb = gz_path.stat().st_size / (1024 * 1024)
-
-        await pool.execute(
+        session_factory = DatabasePG.get_session_factory()
+        async with session_factory() as session:
+            query = """
+                SELECT
+                    id,
+                    COALESCE(numero, 0) as numero,
+                    COALESCE(provider_id, '') as provider_id,
+                    COALESCE(logo, '') as logo,
+                    COALESCE(country, '') as country,
+                    COALESCE(nombre_normalizado, '') as nombre_normalizado,
+                    COALESCE(grupo_normalizado, '') as grupo_normalizado
+                FROM channels
+                ORDER BY numero ASC
             """
-            INSERT INTO sync_metadata (id, channels_generated_at, channels_json_size_mb)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (id) DO UPDATE SET
-                channels_generated_at = EXCLUDED.channels_generated_at,
-                channels_json_size_mb = EXCLUDED.channels_json_size_mb
-        """,
-            SYNC_METADATA_ID,
-            generated_at,
-            round(gz_size_mb, 2),
-        )
+
+            result = await session.execute(text(query))
+            rows = result.mappings().all()
+            canales = []
+
+            for row in rows:
+                canales.append(
+                    {
+                        "id": str(row["id"]),
+                        "numero": row["numero"],
+                        "provider_id": row["provider_id"],
+                        "logo": row["logo"],
+                        "country": row["country"],
+                        "nombre_normalizado": row["nombre_normalizado"],
+                        "grupo_normalizado": row["grupo_normalizado"],
+                    }
+                )
+
+            total = len(canales)
+            generated_at = datetime.now()
+
+            payload = {"items": canales, "total": total, "generated_at": generated_at}
+
+            json_dir = Path(__file__).parent.parent / "data" / "json"
+            json_dir.mkdir(parents=True, exist_ok=True)
+
+            json_path = json_dir / "channels.json"
+            gz_path = json_dir / "channels.json.gz"
+
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
+
+            with open(gz_path, "wb") as f, gzip.open(f, "wt", encoding="utf-8") as gz:
+                gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
+
+            json_size_mb = json_path.stat().st_size / (1024 * 1024)
+            gz_size_mb = gz_path.stat().st_size / (1024 * 1024)
+
+            await session.execute(
+                text("""
+                    INSERT INTO sync_metadata (id, channels_generated_at, channels_json_size_mb)
+                    VALUES (:id, :generated_at, :size_mb)
+                    ON CONFLICT (id) DO UPDATE SET
+                        channels_generated_at = EXCLUDED.channels_generated_at,
+                        channels_json_size_mb = EXCLUDED.channels_json_size_mb
+                """),
+                {
+                    "id": SYNC_METADATA_ID,
+                    "generated_at": generated_at,
+                    "size_mb": round(gz_size_mb, 2),
+                },
+            )
+            await session.commit()
 
         duracion = time.time() - inicio
 
@@ -143,18 +144,11 @@ async def generar_channels_json(pool=None, close_pool=True):
         traceback.print_exc()
         return None
 
-    finally:
-        if pool_to_close and close_pool:
-            await DatabasePG.close()
 
-
-async def generar_movies_json(pool=None, close_pool=True):
+async def generar_movies_json():
     """
     Genera el archivo movies.json.gz con todas las peliculas.
-
-    Args:
-        pool: Pool de conexiones PostgreSQL existente (opcional)
-        close_pool: Si True, cierra el pool al terminar
+    F3d1: migrado a iptv-db.
 
     Returns:
         dict con informacion del archivo generado o None si hay error
@@ -165,80 +159,81 @@ async def generar_movies_json(pool=None, close_pool=True):
     print("🎬 GENERANDO JSON DE PELICULAS PARA CACHE TV")
     print("=" * 60)
 
-    pool_to_close = None
     try:
-        if pool is None:
-            pool = await DatabasePG.get_pool()
-            pool_to_close = pool
-
-        query = """
-            SELECT
-                ms.id::text AS id,
-                COALESCE(ms.provider_id, '') as provider_id,
-                COALESCE(mc.title, '') as nombre,
-                COALESCE(mc.logo, '') as logo,
-                COALESCE(ms.country, '') as country,
-                COALESCE(mc.countries, '{}') as countries,
-                COALESCE(mc.title, '') as nombre_normalizado,
-                COALESCE(mc.group_normalizado, '') as grupo_normalizado,
-                COALESCE(mc.nombre_dedup_key, '') as nombre_dedup_key,
-                mc.year
-            FROM movie_streams ms
-            JOIN movies_catalog mc ON mc.id = ms.movie_id
-            ORDER BY mc.year DESC, mc.title ASC
-        """
-
-        rows = await pool.fetch(query)
-        movies = []
-
-        for row in rows:
-            movies.append(
-                {
-                    "id": str(row["id"]),
-                    "provider_id": row["provider_id"],
-                    "nombre": row["nombre"],
-                    "logo": row["logo"],
-                    "country": row["country"],
-                    "countries": list(row["countries"]) if row["countries"] else [],
-                    "nombre_normalizado": row["nombre_normalizado"],
-                    "grupo_normalizado": row["grupo_normalizado"],
-                    "nombre_dedup_key": row["nombre_dedup_key"],
-                    "year": row["year"],
-                }
-            )
-
-        total = len(movies)
-        generated_at = datetime.now()
-
-        payload = {"items": movies, "total": total, "generated_at": generated_at}
-
-        json_dir = Path(__file__).parent.parent / "data" / "json"
-        json_dir.mkdir(parents=True, exist_ok=True)
-
-        json_path = json_dir / "movies.json"
-        gz_path = json_dir / "movies.json.gz"
-
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
-
-        with open(gz_path, "wb") as f, gzip.open(f, "wt", encoding="utf-8") as gz:
-            gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
-
-        json_size_mb = json_path.stat().st_size / (1024 * 1024)
-        gz_size_mb = gz_path.stat().st_size / (1024 * 1024)
-
-        await pool.execute(
+        session_factory = DatabasePG.get_session_factory()
+        async with session_factory() as session:
+            query = """
+                SELECT
+                    ms.id::text AS id,
+                    COALESCE(ms.provider_id, '') as provider_id,
+                    COALESCE(mc.title, '') as nombre,
+                    COALESCE(mc.logo, '') as logo,
+                    COALESCE(ms.country, '') as country,
+                    COALESCE(mc.countries, '{}') as countries,
+                    COALESCE(mc.title, '') as nombre_normalizado,
+                    COALESCE(mc.group_normalizado, '') as grupo_normalizado,
+                    COALESCE(mc.nombre_dedup_key, '') as nombre_dedup_key,
+                    mc.year
+                FROM movie_streams ms
+                JOIN movies_catalog mc ON mc.id = ms.movie_id
+                ORDER BY mc.year DESC, mc.title ASC
             """
-            INSERT INTO sync_metadata (id, movies_generated_at, movies_json_size_mb)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (id) DO UPDATE SET
-                movies_generated_at = EXCLUDED.movies_generated_at,
-                movies_json_size_mb = EXCLUDED.movies_json_size_mb
-        """,
-            SYNC_METADATA_ID,
-            generated_at,
-            round(gz_size_mb, 2),
-        )
+
+            result = await session.execute(text(query))
+            rows = result.mappings().all()
+            movies = []
+
+            for row in rows:
+                movies.append(
+                    {
+                        "id": str(row["id"]),
+                        "provider_id": row["provider_id"],
+                        "nombre": row["nombre"],
+                        "logo": row["logo"],
+                        "country": row["country"],
+                        "countries": list(row["countries"]) if row["countries"] else [],
+                        "nombre_normalizado": row["nombre_normalizado"],
+                        "grupo_normalizado": row["grupo_normalizado"],
+                        "nombre_dedup_key": row["nombre_dedup_key"],
+                        "year": row["year"],
+                    }
+                )
+
+            total = len(movies)
+            generated_at = datetime.now()
+
+            payload = {"items": movies, "total": total, "generated_at": generated_at}
+
+            json_dir = Path(__file__).parent.parent / "data" / "json"
+            json_dir.mkdir(parents=True, exist_ok=True)
+
+            json_path = json_dir / "movies.json"
+            gz_path = json_dir / "movies.json.gz"
+
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
+
+            with open(gz_path, "wb") as f, gzip.open(f, "wt", encoding="utf-8") as gz:
+                gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
+
+            json_size_mb = json_path.stat().st_size / (1024 * 1024)
+            gz_size_mb = gz_path.stat().st_size / (1024 * 1024)
+
+            await session.execute(
+                text("""
+                    INSERT INTO sync_metadata (id, movies_generated_at, movies_json_size_mb)
+                    VALUES (:id, :generated_at, :size_mb)
+                    ON CONFLICT (id) DO UPDATE SET
+                        movies_generated_at = EXCLUDED.movies_generated_at,
+                        movies_json_size_mb = EXCLUDED.movies_json_size_mb
+                """),
+                {
+                    "id": SYNC_METADATA_ID,
+                    "generated_at": generated_at,
+                    "size_mb": round(gz_size_mb, 2),
+                },
+            )
+            await session.commit()
 
         duracion = time.time() - inicio
 
@@ -266,18 +261,11 @@ async def generar_movies_json(pool=None, close_pool=True):
         traceback.print_exc()
         return None
 
-    finally:
-        if pool_to_close and close_pool:
-            await DatabasePG.close()
 
-
-async def generar_series_json(pool=None, close_pool=True):
+async def generar_series_json():
     """
     Genera el archivo series.json.gz con todas las series.
-
-    Args:
-        pool: Pool de conexiones PostgreSQL existente (opcional)
-        close_pool: Si True, cierra el pool al terminar
+    F3d1: migrado a iptv-db.
 
     Returns:
         dict con informacion del archivo generado o None si hay error
@@ -288,83 +276,84 @@ async def generar_series_json(pool=None, close_pool=True):
     print("📺 GENERANDO JSON DE SERIES PARA CACHE TV")
     print("=" * 60)
 
-    pool_to_close = None
     try:
-        if pool is None:
-            pool = await DatabasePG.get_pool()
-            pool_to_close = pool
-
-        query = """
-            SELECT
-                ss.id::text AS id,
-                COALESCE(ss.provider_id, '') as provider_id,
-                COALESCE(sc.logo, '') as logo,
-                COALESCE(ss.country, '') as country,
-                COALESCE(sc.countries, '{}') as countries,
-                LPAD(se.season_number::text, 2, '0') as temporada,
-                LPAD(se.episode_number::text, 2, '0') as episodio,
-                COALESCE(sc.title, '') as serie_name,
-                COALESCE(sc.title, '') as nombre_normalizado,
-                COALESCE(sc.group_normalizado, '') as grupo_normalizado,
-                sc.year
-            FROM series_streams ss
-            JOIN series_episodes se ON se.id = ss.episode_id
-            JOIN series_catalog sc ON sc.id = se.catalog_id
-            ORDER BY sc.title ASC, sc.year DESC, se.season_number ASC, se.episode_number ASC
-        """
-
-        rows = await pool.fetch(query)
-        series = []
-
-        for row in rows:
-            series.append(
-                {
-                    "id": str(row["id"]),
-                    "provider_id": row["provider_id"],
-                    "logo": row["logo"],
-                    "country": row["country"],
-                    "countries": list(row["countries"]) if row["countries"] else [],
-                    "temporada": row["temporada"],
-                    "episodio": row["episodio"],
-                    "serie_name": row["serie_name"],
-                    "nombre_normalizado": row["nombre_normalizado"],
-                    "grupo_normalizado": row["grupo_normalizado"],
-                    "year": row["year"],
-                }
-            )
-
-        total = len(series)
-        generated_at = datetime.now()
-
-        payload = {"items": series, "total": total, "generated_at": generated_at}
-
-        json_dir = Path(__file__).parent.parent / "data" / "json"
-        json_dir.mkdir(parents=True, exist_ok=True)
-
-        json_path = json_dir / "series.json"
-        gz_path = json_dir / "series.json.gz"
-
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
-
-        with open(gz_path, "wb") as f, gzip.open(f, "wt", encoding="utf-8") as gz:
-            gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
-
-        json_size_mb = json_path.stat().st_size / (1024 * 1024)
-        gz_size_mb = gz_path.stat().st_size / (1024 * 1024)
-
-        await pool.execute(
+        session_factory = DatabasePG.get_session_factory()
+        async with session_factory() as session:
+            query = """
+                SELECT
+                    ss.id::text AS id,
+                    COALESCE(ss.provider_id, '') as provider_id,
+                    COALESCE(sc.logo, '') as logo,
+                    COALESCE(ss.country, '') as country,
+                    COALESCE(sc.countries, '{}') as countries,
+                    LPAD(se.season_number::text, 2, '0') as temporada,
+                    LPAD(se.episode_number::text, 2, '0') as episodio,
+                    COALESCE(sc.title, '') as serie_name,
+                    COALESCE(sc.title, '') as nombre_normalizado,
+                    COALESCE(sc.group_normalizado, '') as grupo_normalizado,
+                    sc.year
+                FROM series_streams ss
+                JOIN series_episodes se ON se.id = ss.episode_id
+                JOIN series_catalog sc ON sc.id = se.catalog_id
+                ORDER BY sc.title ASC, sc.year DESC, se.season_number ASC, se.episode_number ASC
             """
-            INSERT INTO sync_metadata (id, series_generated_at, series_json_size_mb)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (id) DO UPDATE SET
-                series_generated_at = EXCLUDED.series_generated_at,
-                series_json_size_mb = EXCLUDED.series_json_size_mb
-        """,
-            SYNC_METADATA_ID,
-            generated_at,
-            round(gz_size_mb, 2),
-        )
+
+            result = await session.execute(text(query))
+            rows = result.mappings().all()
+            series = []
+
+            for row in rows:
+                series.append(
+                    {
+                        "id": str(row["id"]),
+                        "provider_id": row["provider_id"],
+                        "logo": row["logo"],
+                        "country": row["country"],
+                        "countries": list(row["countries"]) if row["countries"] else [],
+                        "temporada": row["temporada"],
+                        "episodio": row["episodio"],
+                        "serie_name": row["serie_name"],
+                        "nombre_normalizado": row["nombre_normalizado"],
+                        "grupo_normalizado": row["grupo_normalizado"],
+                        "year": row["year"],
+                    }
+                )
+
+            total = len(series)
+            generated_at = datetime.now()
+
+            payload = {"items": series, "total": total, "generated_at": generated_at}
+
+            json_dir = Path(__file__).parent.parent / "data" / "json"
+            json_dir.mkdir(parents=True, exist_ok=True)
+
+            json_path = json_dir / "series.json"
+            gz_path = json_dir / "series.json.gz"
+
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
+
+            with open(gz_path, "wb") as f, gzip.open(f, "wt", encoding="utf-8") as gz:
+                gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
+
+            json_size_mb = json_path.stat().st_size / (1024 * 1024)
+            gz_size_mb = gz_path.stat().st_size / (1024 * 1024)
+
+            await session.execute(
+                text("""
+                    INSERT INTO sync_metadata (id, series_generated_at, series_json_size_mb)
+                    VALUES (:id, :generated_at, :size_mb)
+                    ON CONFLICT (id) DO UPDATE SET
+                        series_generated_at = EXCLUDED.series_generated_at,
+                        series_json_size_mb = EXCLUDED.series_json_size_mb
+                """),
+                {
+                    "id": SYNC_METADATA_ID,
+                    "generated_at": generated_at,
+                    "size_mb": round(gz_size_mb, 2),
+                },
+            )
+            await session.commit()
 
         duracion = time.time() - inicio
 
@@ -392,39 +381,26 @@ async def generar_series_json(pool=None, close_pool=True):
         traceback.print_exc()
         return None
 
-    finally:
-        if pool_to_close and close_pool:
-            await DatabasePG.close()
 
-
-async def generar_todos_json(pool=None, close_pool=True):
+async def generar_todos_json():
     """
     Genera los tres archivos JSON (channels, movies, series).
-    Usa un solo pool de conexiones para eficiencia.
-
-    Args:
-        pool: Pool de conexiones existente (opcional)
-        close_pool: Si True, cierra el pool al terminar
+    Cada sub-funcion gestiona su propia sesion iptv-db. F3d1.
     """
     print("\n" + "=" * 60)
     print("📦 GENERANDO TODOS LOS JSONS PARA CACHE TV")
     print("=" * 60)
 
-    pool_to_close = None
     try:
-        if pool is None:
-            pool = await DatabasePG.get_pool()
-            pool_to_close = pool
-
         results = {}
 
-        result_channels = await generar_channels_json(pool, close_pool=False)
+        result_channels = await generar_channels_json()
         results["channels"] = result_channels
 
-        result_movies = await generar_movies_json(pool, close_pool=False)
+        result_movies = await generar_movies_json()
         results["movies"] = result_movies
 
-        result_series = await generar_series_json(pool, close_pool=False)
+        result_series = await generar_series_json()
         results["series"] = result_series
 
         print("\n" + "=" * 60)
@@ -439,10 +415,6 @@ async def generar_todos_json(pool=None, close_pool=True):
 
         traceback.print_exc()
         return None
-
-    finally:
-        if pool_to_close and close_pool:
-            await DatabasePG.close()
 
 
 if __name__ == "__main__":

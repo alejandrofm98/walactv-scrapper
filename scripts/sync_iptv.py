@@ -13,7 +13,6 @@ import unicodedata
 from datetime import datetime
 from pathlib import Path
 
-import asyncpg
 import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -321,11 +320,6 @@ def enriquecer_extinf_con_metadatos(extinf_line: str, content_type: str = None) 
         extra_attrs.append(f' walac-series-name-normalized="{metadata["series_name_normalized"]}"')
 
     return f"{attrs_part}{''.join(extra_attrs)},{display_name}"
-
-
-async def init_postgres() -> asyncpg.Pool:
-    """Inicializa el pool de PostgreSQL"""
-    return await DatabasePG.initialize()
 
 
 async def obtener_config_desde_postgres(key: str) -> str:
@@ -953,7 +947,7 @@ async def insert_channels_upsert(channels: list) -> bool:
 
 async def _cargar_tmdb_map_movies() -> dict[str, str]:
     """Carga mapeo nombre_dedup_key → tmdb_id desde movies_catalog usando iptv-db (F3c1).
-    Helper separado para lecturas; las escrituras siguen con asyncpg."""
+    Helper separado; escrituras migradas a iptv-db (F3c2b)."""
     try:
         session_factory = DatabasePG.get_session_factory()
         async with session_factory() as session:
@@ -1110,7 +1104,7 @@ async def insert_movies_catalog(movies: list) -> bool:
 
 async def _cargar_tmdb_map_series() -> dict[str, str]:
     """Carga mapeo series_key → tmdb_id desde series_catalog usando iptv-db (F3c1).
-    Helper separado para lecturas; las escrituras siguen con asyncpg."""
+    Helper separado; escrituras migradas a iptv-db (F3c2b)."""
     try:
         session_factory = DatabasePG.get_session_factory()
         async with session_factory() as session:
@@ -1441,13 +1435,6 @@ async def sync_to_postgres():
     print(f"📋 Configuración inicial:\n{settings}")
     print("✅ Configuración cargada desde PostgreSQL")
 
-    try:
-        pool = await init_postgres()
-        print("✅ Conectado a PostgreSQL")
-    except Exception as e:
-        print(f"❌ Error al conectar con PostgreSQL: {e}")
-        return 1
-
     provider_url: str = ""
     provider_username: str = ""
     provider_password: str = ""
@@ -1653,7 +1640,7 @@ async def sync_to_postgres():
     if generar_todos_json:
         try:
             print("\n📦 Generando JSONs para cache TV...")
-            json_results = await generar_todos_json(pool=pool, close_pool=False)
+            json_results = await generar_todos_json()
             if json_results:
                 for content_type, result in json_results.items():
                     if result:
