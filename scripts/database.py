@@ -1,6 +1,10 @@
 """
 Módulo de base de datos usando PostgreSQL con asyncpg
 Esquema: channel_mappings y channel_variants (reemplazan 4 tablas antiguas)
+
+F3a: ahora usa iptv_db.engine internamente. API publica preservada
+para backward compat. asyncpg sigue siendo el driver subyacente para
+los consumidores existentes.
 """
 
 import json
@@ -11,6 +15,7 @@ from typing import Any
 
 import asyncpg
 from asyncpg import Pool
+from iptv_db.engine import build_url, get_async_engine, get_async_session_factory
 
 try:
     from dotenv import load_dotenv
@@ -24,10 +29,13 @@ except ImportError:
 
 class DatabasePG:
     """
-    Cliente singleton de PostgreSQL usando asyncpg
+    Cliente singleton de PostgreSQL.
+    F3a: internamente usa iptv_db.engine + asyncpg pool (backward compat).
     """
 
     _pool: Pool | None = None
+    _engine = None  # iptv-db async engine
+    _session_factory = None  # iptv-db async session factory
     _host: str | None = None
     _port: int | None = None
     _user: str | None = None
@@ -36,7 +44,7 @@ class DatabasePG:
 
     @classmethod
     async def initialize(cls) -> Pool:
-        """Inicializa el pool de conexiones PostgreSQL"""
+        """Inicializa el pool asyncpg + el engine iptv-db (F3a)."""
         if cls._pool is not None:
             return cls._pool
 
@@ -57,6 +65,19 @@ class DatabasePG:
             )
 
         try:
+            # --- F3a: iptv-db engine (aun sin consumidores, preparado para F3b-F3d) ---
+            url = build_url(
+                host=cls._host,
+                port=cls._port,
+                database=cls._database,
+                user=cls._user,
+                password=cls._password,
+                async_driver=True,
+            )
+            cls._engine = get_async_engine(url, pool_size=5, max_overflow=15)
+            cls._session_factory = get_async_session_factory(cls._engine)
+
+            # --- asyncpg pool para backward compat con consumidores existentes ---
             cls._pool = await asyncpg.create_pool(
                 host=cls._host,
                 port=cls._port,
@@ -74,22 +95,35 @@ class DatabasePG:
 
     @classmethod
     async def get_pool(cls) -> Pool:
-        """Obtiene el pool de conexiones (inicializa si es necesario)"""
+        """Obtiene el pool de conexiones asyncpg (backward compat)."""
         if cls._pool is None:
             await cls.initialize()
         return cls._pool
 
     @classmethod
+    def get_session_factory(cls):
+        """Devuelve el async session factory de iptv-db. NUEVO en F3a."""
+        if cls._session_factory is None:
+            raise RuntimeError("DatabasePG no inicializado. Llama a initialize() primero.")
+        return cls._session_factory
+
+    @classmethod
     async def close(cls):
-        """Cierra el pool de conexiones"""
+        """Cierra el pool asyncpg y libera el engine iptv-db."""
         if cls._pool is not None:
             await cls._pool.close()
             cls._pool = None
+        if cls._engine is not None:
+            await cls._engine.dispose()
+            cls._engine = None
+            cls._session_factory = None
 
     @classmethod
     def reset(cls):
-        """Resetea la instancia (útil para testing)"""
+        """Resetea la instancia (útil para testing)."""
         cls._pool = None
+        cls._engine = None
+        cls._session_factory = None
 
 
 class ConfigManager:

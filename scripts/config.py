@@ -1,6 +1,8 @@
 """
 Configuración centralizada para IPTV
 Carga configuración IPTV desde PostgreSQL y variables de entorno locales
+
+F3a: usa iptv_db.engine.build_url() para construir la URL de base de datos.
 """
 
 import os
@@ -9,6 +11,7 @@ from pathlib import Path
 
 import asyncpg
 from dotenv import load_dotenv
+from iptv_db.engine import build_url
 
 
 def _load_environment() -> None:
@@ -56,6 +59,18 @@ class Settings:
 
     _config_loaded: bool = False
     _pool_cache: asyncpg.Pool | None = None
+
+    @property
+    def database_url(self) -> str:
+        """URL de conexion a PostgreSQL construida con iptv-db (F3a)."""
+        return build_url(
+            host=self.pg_host,
+            port=self.pg_port,
+            database=self.pg_database,
+            user=self.pg_user,
+            password=self.pg_password,
+            async_driver=False,
+        )
 
     def __init__(self):
         """Inicializa configuración (sin carga async)"""

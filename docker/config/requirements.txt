@@ -1,5 +1,6 @@
 asyncpg==0.30.0
 beautifulsoup4==4.13.4
+iptv-db @ file:///home/alejandro/PycharmProjects/iptv-db
 Pillow==11.3.0
 python-dotenv==1.1.1
 requests==2.32.4
