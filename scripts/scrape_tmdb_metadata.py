@@ -20,7 +20,6 @@ import os
 import re
 import sys
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -33,12 +32,11 @@ try:
     if env_path.exists():
         load_dotenv(env_path)
 except ImportError:
-    logger = logging.getLogger(__name__)
-    logger.warning("python-dotenv no instalado, usando solo variables de entorno del sistema")
+    pass
 
-import psycopg2
 import requests
-from psycopg2.extras import RealDictCursor
+from iptv_db.engine import build_url, get_sync_engine, get_sync_session_factory
+from sqlalchemy import text
 
 from utils.series_keys import clean_series_name
 
@@ -64,7 +62,7 @@ YEAR_MATCH_TOLERANCE = 1
 # Prefijos de idioma/calidad: EN, ES, LAT, CAST, MULTI, SD/CAM, EN/CAM, etc.
 # Soporta 2-5 letras mayúsculas separadas por / o ,
 PREFIX_PATTERN = re.compile(
-    r"^(?:LATAM|LAT|MULTI|ES|EN|FR|DE|IT|PT)(?:/(?:LATAM|LAT|MULTI|ES|EN|FR|DE|IT|PT))?\s*[.…\-–]?\s+",
+    r"^(?:LATAM|LAT|MULTI|ES|EN|FR|DE|IT|PT)(?:/(?:LATAM|LAT|MULTI|ES|EN|FR|DE|IT|PT))?\s*[.…\-–]?\s+",  # noqa: RUF001
     re.IGNORECASE,
 )
 
@@ -156,44 +154,6 @@ class SeriesScrapeResult:
             "original_title",
         ):
             setattr(self, field, _or_none(getattr(self, field)))
-
-
-class DatabaseService:
-    def __init__(self):
-        self.connection_string = self._build_connection_string()
-
-    def _build_connection_string(self) -> str:
-        host = os.getenv("PG_HOST", "localhost")
-        port = os.getenv("PG_PORT", "5432")
-        database = os.getenv("PG_DATABASE", "postgres")
-        user = os.getenv("PG_USER", "postgres")
-        password = os.getenv("PG_PASSWORD", "")
-        return f"postgresql://{user}:{password}@{host}:{port}/{database}"
-
-    @contextmanager
-    def get_connection(self):
-        conn = None
-        try:
-            conn = psycopg2.connect(self.connection_string)
-            yield conn
-        except Exception as e:
-            logger.error(f"Error conectando a BD: {e}")
-            raise
-        finally:
-            if conn:
-                conn.close()
-
-    def execute_query(self, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(sql, params)
-                return [dict(row) for row in cur.fetchall()]
-
-    def execute_command(self, sql: str, params: tuple = ()) -> int:
-        with self.get_connection() as conn, conn.cursor() as cur:
-            cur.execute(sql, params)
-            conn.commit()
-            return cur.rowcount
 
 
 def extract_search_title(nombre: str) -> tuple[str, int | None]:
@@ -299,7 +259,15 @@ def _pick_best_result(results: list[dict], year: int | None, date_key: str) -> d
 
 class TMDBScraper:
     def __init__(self, dry_run: bool = False):
-        self.db = DatabaseService()
+        host = os.getenv("PG_HOST", "localhost")
+        port = int(os.getenv("PG_PORT", "5432"))
+        database = os.getenv("PG_DATABASE", "postgres")
+        user = os.getenv("PG_USER", "postgres")
+        password = os.getenv("PG_PASSWORD", "")
+        url = build_url(host, port, database, user, password, async_driver=False)
+        engine = get_sync_engine(url)
+        self._Session = get_sync_session_factory(engine)
+        self._session = None
         self.session = requests.Session()
         self.session.headers.update(
             {"Authorization": f"Bearer {TMDB_READ_TOKEN}", "Content-Type": "application/json"}
@@ -307,6 +275,17 @@ class TMDBScraper:
         self.last_request_time = time.time()
         self.request_count = 0
         self.dry_run = dry_run
+
+    def _query(self, sql: str, params: dict | tuple = ()) -> list[dict[str, Any]]:
+        """Execute SELECT via session. Returns list[dict]."""
+        result = self._session.execute(text(sql), params)
+        return [dict(row._mapping) for row in result]
+
+    def _command(self, sql: str, params: dict | tuple = ()) -> int:
+        """Execute write command and commit. Returns rowcount."""
+        result = self._session.execute(text(sql), params)
+        self._session.commit()
+        return result.rowcount
 
     def _rate_limit(self):
         current_time = time.time()
@@ -467,9 +446,9 @@ class TMDBScraper:
           AND not_found = FALSE
           AND COALESCE(provider_id, '') <> ''
         ORDER BY year DESC NULLS LAST, provider_id ASC
-        LIMIT %s
+        LIMIT :limit
         """
-        return self.db.execute_query(sql, (limit,))
+        return self._query(sql, {"limit": limit})
 
     def _get_series_without_metadata(self, limit: int = 100) -> list[dict]:
         sql = """
@@ -480,9 +459,9 @@ class TMDBScraper:
           AND not_found = FALSE
           AND COALESCE(series_key, '') <> ''
         ORDER BY year DESC NULLS LAST, series_key ASC
-        LIMIT %s
+        LIMIT :limit
         """
-        return self.db.execute_query(sql, (limit,))
+        return self._query(sql, {"limit": limit})
 
     def _get_movies_not_found(self, limit: int = 100) -> list[dict]:
         sql = """
@@ -492,9 +471,9 @@ class TMDBScraper:
         WHERE not_found = TRUE
           AND COALESCE(provider_id, '') <> ''
         ORDER BY retry_count ASC, year DESC NULLS LAST, provider_id ASC
-        LIMIT %s
+        LIMIT :limit
         """
-        return self.db.execute_query(sql, (limit,))
+        return self._query(sql, {"limit": limit})
 
     def _get_series_not_found(self, limit: int = 100) -> list[dict]:
         sql = """
@@ -504,9 +483,9 @@ class TMDBScraper:
         WHERE not_found = TRUE
           AND COALESCE(series_key, '') <> ''
         ORDER BY retry_count ASC, year DESC NULLS LAST, series_key ASC
-        LIMIT %s
+        LIMIT :limit
         """
-        return self.db.execute_query(sql, (limit,))
+        return self._query(sql, {"limit": limit})
 
     def _get_series_with_episodes_without_metadata(
         self, limit: int = 100, retry_not_found: bool = False
@@ -522,7 +501,7 @@ class TMDBScraper:
               AND se.tmdb_not_found IS TRUE
               AND se.tmdb_checked IS NOT TRUE
             ORDER BY se.tmdb_retry_count ASC, sc.series_key ASC
-            LIMIT %s
+            LIMIT :limit
             """
         else:
             sql = """
@@ -534,9 +513,9 @@ class TMDBScraper:
               AND se.tmdb_checked IS NOT TRUE
               AND se.tmdb_not_found IS NOT TRUE
             ORDER BY sc.series_key ASC
-            LIMIT %s
+            LIMIT :limit
             """
-        return self.db.execute_query(sql, (limit,))
+        return self._query(sql, {"limit": limit})
 
     # _backfill_series_keys eliminado — series_key se genera al insertar directamente en el catálogo
 
@@ -552,7 +531,10 @@ class TMDBScraper:
                 genres, poster_path, backdrop_path, tagline, popularity, status,
                 tmdb_data
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                :tmdb_id, :imdb_id, :overview_es, :overview_en, :vote_average, :vote_count,
+                :title, :original_title, :release_date, :year, :runtime_minutes,
+                :genres, :poster_path, :backdrop_path, :tagline, :popularity, :status,
+                :tmdb_data
             )
             ON CONFLICT (tmdb_id) DO UPDATE SET
                 imdb_id = COALESCE(EXCLUDED.imdb_id, movies_metadata.imdb_id),
@@ -575,71 +557,76 @@ class TMDBScraper:
                 updated_at = NOW()
             """
             try:
-                self.db.execute_command(
+                self._command(
                     sql,
-                    (
-                        result.tmdb_id,
-                        result.imdb_id,
-                        result.overview_es,
-                        result.overview_en,
-                        result.vote_average,
-                        result.vote_count,
-                        result.title,
-                        result.original_title,
-                        result.release_date,
-                        result.year,
-                        result.runtime_minutes,
-                        result.genres,
-                        result.poster_path,
-                        result.backdrop_path,
-                        result.tagline,
-                        result.popularity,
-                        result.status,
-                        json.dumps(result.tmdb_data) if result.tmdb_data else None,
-                    ),
+                    {
+                        "tmdb_id": result.tmdb_id,
+                        "imdb_id": result.imdb_id,
+                        "overview_es": result.overview_es,
+                        "overview_en": result.overview_en,
+                        "vote_average": result.vote_average,
+                        "vote_count": result.vote_count,
+                        "title": result.title,
+                        "original_title": result.original_title,
+                        "release_date": result.release_date,
+                        "year": result.year,
+                        "runtime_minutes": result.runtime_minutes,
+                        "genres": result.genres,
+                        "poster_path": result.poster_path,
+                        "backdrop_path": result.backdrop_path,
+                        "tagline": result.tagline,
+                        "popularity": result.popularity,
+                        "status": result.status,
+                        "tmdb_data": json.dumps(result.tmdb_data) if result.tmdb_data else None,
+                    },
                 )
                 # Check if this tmdb_id is already assigned to ANOTHER catalog entry.
                 # If so, merge streams into existing entry and delete duplicate.
-                existing = self.db.execute_query(
-                    "SELECT id FROM movies_catalog WHERE tmdb_id = %s AND provider_id != %s LIMIT 1",
-                    (result.tmdb_id, result.provider_id),
+                existing = self._query(
+                    "SELECT id FROM movies_catalog WHERE tmdb_id = :tmdb_id AND provider_id != :provider_id LIMIT 1",
+                    {"tmdb_id": result.tmdb_id, "provider_id": result.provider_id},
                 )
                 if existing:
                     keep_id = existing[0]["id"]
-                    current = self.db.execute_query(
-                        "SELECT id FROM movies_catalog WHERE provider_id = %s LIMIT 1",
-                        (result.provider_id,),
+                    current = self._query(
+                        "SELECT id FROM movies_catalog WHERE provider_id = :provider_id LIMIT 1",
+                        {"provider_id": result.provider_id},
                     )
                     if current and current[0]["id"] != keep_id:
                         current_id = current[0]["id"]
-                        self.db.execute_command(
-                            "DELETE FROM movie_streams WHERE movie_id = %s AND provider_id IN (SELECT provider_id FROM movie_streams WHERE movie_id = %s)",
-                            (current_id, keep_id),
+                        self._command(
+                            "DELETE FROM movie_streams WHERE movie_id = :current_id AND provider_id IN (SELECT provider_id FROM movie_streams WHERE movie_id = :keep_id)",
+                            {"current_id": current_id, "keep_id": keep_id},
                         )
-                        self.db.execute_command(
-                            "UPDATE movie_streams SET movie_id = %s WHERE movie_id = %s",
-                            (keep_id, current_id),
+                        self._command(
+                            "UPDATE movie_streams SET movie_id = :keep_id WHERE movie_id = :current_id",
+                            {"keep_id": keep_id, "current_id": current_id},
                         )
-                        self.db.execute_command(
-                            "DELETE FROM movies_catalog WHERE id = %s",
-                            (current_id,),
+                        self._command(
+                            "DELETE FROM movies_catalog WHERE id = :current_id",
+                            {"current_id": current_id},
                         )
                         logger.info(
                             f"   🔀 Mergeado: streams movidos a catalog {keep_id}, "
                             f"provider {result.provider_id} eliminado"
                         )
                         # Actualizar canonical_key del entry sobreviviente
-                        self.db.execute_command(
-                            "UPDATE movies_catalog SET canonical_key = %s WHERE tmdb_id = %s AND canonical_key != %s",
-                            (f"tmdb_{result.tmdb_id}", result.tmdb_id, f"tmdb_{result.tmdb_id}"),
+                        self._command(
+                            "UPDATE movies_catalog SET canonical_key = :key WHERE tmdb_id = :tmdb_id AND canonical_key != :key",
+                            {"key": f"tmdb_{result.tmdb_id}", "tmdb_id": result.tmdb_id},
                         )
                 else:
-                    self.db.execute_command(
-                        "UPDATE movies_catalog SET tmdb_id = %s, canonical_key = %s, not_found = FALSE WHERE provider_id = %s",
-                        (result.tmdb_id, f"tmdb_{result.tmdb_id}", result.provider_id),
+                    self._command(
+                        "UPDATE movies_catalog SET tmdb_id = :tmdb_id, canonical_key = :key, not_found = FALSE WHERE provider_id = :provider_id",
+                        {
+                            "tmdb_id": result.tmdb_id,
+                            "key": f"tmdb_{result.tmdb_id}",
+                            "provider_id": result.provider_id,
+                        },
                     )
-                self.db.execute_command(
-                    "DELETE FROM scraper_failures WHERE provider_id = %s", (result.provider_id,)
+                self._command(
+                    "DELETE FROM scraper_failures WHERE provider_id = :provider_id",
+                    {"provider_id": result.provider_id},
                 )
                 logger.info(f"   💾 Guardado TMDB {result.tmdb_id} + catalog actualizado")
             except Exception as e:
@@ -649,21 +636,26 @@ class TMDBScraper:
             UPDATE movies_catalog
             SET not_found = TRUE,
                 retry_count = retry_count + 1,
-                last_error = %s
-            WHERE provider_id = %s
+                last_error = :error
+            WHERE provider_id = :provider_id
             """
             try:
-                self.db.execute_command(sql, (result.error, result.provider_id))
-                self.db.execute_command(
+                self._command(sql, {"error": result.error, "provider_id": result.provider_id})
+                self._command(
                     """
                     INSERT INTO scraper_failures (provider_id, title, year, error_message)
-                    VALUES (%s, %s, %s, %s)
+                    VALUES (:provider_id, :title, :year, :error_message)
                     ON CONFLICT (provider_id) WHERE provider_id IS NOT NULL DO UPDATE SET
                         retry_count = scraper_failures.retry_count + 1,
                         error_message = EXCLUDED.error_message,
                         last_retry_at = NOW()
                     """,
-                    (result.provider_id, result.title or "", result.year, result.error),
+                    {
+                        "provider_id": result.provider_id,
+                        "title": result.title or "",
+                        "year": result.year,
+                        "error_message": result.error,
+                    },
                 )
                 logger.info("   💾 Guardado como no encontrado")
             except Exception as e:
@@ -681,8 +673,9 @@ class TMDBScraper:
         if nombre_dedup_key and nombre_dedup_key in self._movie_tmdb_by_dedup:
             tmdb_id = self._movie_tmdb_by_dedup[nombre_dedup_key]
             try:
-                rows = self.db.execute_query(
-                    "SELECT * FROM movies_metadata WHERE tmdb_id = %s", (tmdb_id,)
+                rows = self._query(
+                    "SELECT * FROM movies_metadata WHERE tmdb_id = :tmdb_id",
+                    {"tmdb_id": tmdb_id},
                 )
                 if rows:
                     m = rows[0]
@@ -787,8 +780,9 @@ class TMDBScraper:
         if clean_search in self._series_tmdb_by_title:
             tmdb_id = self._series_tmdb_by_title[clean_search]
             try:
-                rows = self.db.execute_query(
-                    "SELECT * FROM series_metadata WHERE tmdb_id = %s", (tmdb_id,)
+                rows = self._query(
+                    "SELECT * FROM series_metadata WHERE tmdb_id = :tmdb_id",
+                    {"tmdb_id": tmdb_id},
                 )
                 if rows:
                     m = rows[0]
@@ -874,7 +868,9 @@ class TMDBScraper:
                 title, original_title, release_date, year, genres, poster_path,
                 backdrop_path, tagline, popularity, status, tmdb_data
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                :tmdb_id, :imdb_id, :overview_es, :overview_en, :vote_average, :vote_count,
+                :title, :original_title, :release_date, :year, :genres, :poster_path,
+                :backdrop_path, :tagline, :popularity, :status, :tmdb_data
             )
             ON CONFLICT (tmdb_id) DO UPDATE SET
                 imdb_id = COALESCE(EXCLUDED.imdb_id, series_metadata.imdb_id),
@@ -896,109 +892,114 @@ class TMDBScraper:
                 updated_at = NOW()
             """
             try:
-                self.db.execute_command(
+                self._command(
                     sql,
-                    (
-                        result.tmdb_id,
-                        result.imdb_id,
-                        result.overview_es,
-                        result.overview_en,
-                        result.vote_average,
-                        result.vote_count,
-                        result.title,
-                        result.original_title,
-                        result.release_date,
-                        result.year,
-                        result.genres,
-                        result.poster_path,
-                        result.backdrop_path,
-                        result.tagline,
-                        result.popularity,
-                        result.status,
-                        json.dumps(result.tmdb_data) if result.tmdb_data else None,
-                    ),
+                    {
+                        "tmdb_id": result.tmdb_id,
+                        "imdb_id": result.imdb_id,
+                        "overview_es": result.overview_es,
+                        "overview_en": result.overview_en,
+                        "vote_average": result.vote_average,
+                        "vote_count": result.vote_count,
+                        "title": result.title,
+                        "original_title": result.original_title,
+                        "release_date": result.release_date,
+                        "year": result.year,
+                        "genres": result.genres,
+                        "poster_path": result.poster_path,
+                        "backdrop_path": result.backdrop_path,
+                        "tagline": result.tagline,
+                        "popularity": result.popularity,
+                        "status": result.status,
+                        "tmdb_data": json.dumps(result.tmdb_data) if result.tmdb_data else None,
+                    },
                 )
                 # Check if this tmdb_id is already assigned to ANOTHER catalog entry.
                 # If so, merge episodes/streams into existing entry and delete duplicate.
-                existing = self.db.execute_query(
-                    "SELECT id FROM series_catalog WHERE tmdb_id = %s AND series_key != %s LIMIT 1",
-                    (result.tmdb_id, result.series_key),
+                existing = self._query(
+                    "SELECT id FROM series_catalog WHERE tmdb_id = :tmdb_id AND series_key != :series_key LIMIT 1",
+                    {"tmdb_id": result.tmdb_id, "series_key": result.series_key},
                 )
                 if existing:
                     keep_id = existing[0]["id"]
-                    current = self.db.execute_query(
-                        "SELECT id FROM series_catalog WHERE series_key = %s LIMIT 1",
-                        (result.series_key,),
+                    current = self._query(
+                        "SELECT id FROM series_catalog WHERE series_key = :series_key LIMIT 1",
+                        {"series_key": result.series_key},
                     )
                     if current and current[0]["id"] != keep_id:
                         current_id = current[0]["id"]
-                        self.db.execute_command(
+                        self._command(
                             """
                             DELETE FROM series_streams WHERE id IN (
                                 SELECT ss_cur.id
                                 FROM series_streams ss_cur
                                 JOIN series_episodes se_cur ON ss_cur.episode_id = se_cur.id
                                 JOIN series_episodes se_keep
-                                    ON se_keep.catalog_id = %s
+                                    ON se_keep.catalog_id = :keep_id
                                     AND se_keep.season_number = se_cur.season_number
                                     AND se_keep.episode_number = se_cur.episode_number
                                 JOIN series_streams ss_keep
                                     ON ss_keep.episode_id = se_keep.id
                                     AND ss_keep.provider_id = ss_cur.provider_id
-                                WHERE se_cur.catalog_id = %s
+                                WHERE se_cur.catalog_id = :current_id
                             )
                             """,
-                            (keep_id, current_id),
+                            {"keep_id": keep_id, "current_id": current_id},
                         )
-                        self.db.execute_command(
+                        self._command(
                             """
                             UPDATE series_streams ss
                             SET episode_id = target_ep.id
                             FROM series_episodes src_ep
                             JOIN series_episodes target_ep
-                                ON target_ep.catalog_id = %s
+                                ON target_ep.catalog_id = :keep_id
                                 AND target_ep.season_number = src_ep.season_number
                                 AND target_ep.episode_number = src_ep.episode_number
                             WHERE ss.episode_id = src_ep.id
-                            AND src_ep.catalog_id = %s
+                            AND src_ep.catalog_id = :current_id
                             """,
-                            (keep_id, current_id),
+                            {"keep_id": keep_id, "current_id": current_id},
                         )
                         # Move non-conflicting episodes to the kept catalog
-                        self.db.execute_command(
+                        self._command(
                             """
-                            UPDATE series_episodes SET catalog_id = %s
-                            WHERE catalog_id = %s
+                            UPDATE series_episodes SET catalog_id = :keep_id
+                            WHERE catalog_id = :current_id
                             AND NOT EXISTS (
                                 SELECT 1 FROM series_episodes target
-                                WHERE target.catalog_id = %s
+                                WHERE target.catalog_id = :keep_id
                                 AND target.season_number = series_episodes.season_number
                                 AND target.episode_number = series_episodes.episode_number
                             )
                             """,
-                            (keep_id, current_id, keep_id),
+                            {"keep_id": keep_id, "current_id": current_id},
                         )
                         # Delete duplicate catalog entry (CASCADE removes remaining orphans)
-                        self.db.execute_command(
-                            "DELETE FROM series_catalog WHERE id = %s",
-                            (current_id,),
+                        self._command(
+                            "DELETE FROM series_catalog WHERE id = :current_id",
+                            {"current_id": current_id},
                         )
                         logger.info(
                             f"   🔀 Mergeado: episodios → catalog {keep_id}, "
                             f"series_key {result.series_key} eliminado"
                         )
                         # Actualizar canonical_key del entry sobreviviente
-                        self.db.execute_command(
-                            "UPDATE series_catalog SET canonical_key = %s WHERE tmdb_id = %s AND canonical_key != %s",
-                            (f"tmdb_{result.tmdb_id}", result.tmdb_id, f"tmdb_{result.tmdb_id}"),
+                        self._command(
+                            "UPDATE series_catalog SET canonical_key = :key WHERE tmdb_id = :tmdb_id AND canonical_key != :key",
+                            {"key": f"tmdb_{result.tmdb_id}", "tmdb_id": result.tmdb_id},
                         )
                 else:
-                    self.db.execute_command(
-                        "UPDATE series_catalog SET tmdb_id = %s, canonical_key = %s, not_found = FALSE WHERE series_key = %s",
-                        (result.tmdb_id, f"tmdb_{result.tmdb_id}", result.series_key),
+                    self._command(
+                        "UPDATE series_catalog SET tmdb_id = :tmdb_id, canonical_key = :key, not_found = FALSE WHERE series_key = :series_key",
+                        {
+                            "tmdb_id": result.tmdb_id,
+                            "key": f"tmdb_{result.tmdb_id}",
+                            "series_key": result.series_key,
+                        },
                     )
-                self.db.execute_command(
-                    "DELETE FROM scraper_failures WHERE series_key = %s", (result.series_key,)
+                self._command(
+                    "DELETE FROM scraper_failures WHERE series_key = :series_key",
+                    {"series_key": result.series_key},
                 )
                 logger.info(f"   💾 Guardado TMDB {result.tmdb_id} + catalog actualizado")
                 # Procesar episodios de la serie
@@ -1010,21 +1011,26 @@ class TMDBScraper:
             UPDATE series_catalog
             SET not_found = TRUE,
                 retry_count = retry_count + 1,
-                last_error = %s
-            WHERE series_key = %s
+                last_error = :error
+            WHERE series_key = :series_key
             """
             try:
-                self.db.execute_command(sql, (result.error, result.series_key))
-                self.db.execute_command(
+                self._command(sql, {"error": result.error, "series_key": result.series_key})
+                self._command(
                     """
                     INSERT INTO scraper_failures (series_key, title, year, error_message)
-                    VALUES (%s, %s, %s, %s)
+                    VALUES (:series_key, :title, :year, :error_message)
                     ON CONFLICT (series_key) WHERE series_key IS NOT NULL DO UPDATE SET
                         retry_count = scraper_failures.retry_count + 1,
                         error_message = EXCLUDED.error_message,
                         last_retry_at = NOW()
                     """,
-                    (result.series_key, result.title or "", result.year, result.error),
+                    {
+                        "series_key": result.series_key,
+                        "title": result.title or "",
+                        "year": result.year,
+                        "error_message": result.error,
+                    },
                 )
                 logger.info("   💾 Guardado como no encontrado")
             except Exception as e:
@@ -1037,21 +1043,21 @@ class TMDBScraper:
 
         try:
             # Obtener catalog_id de la serie
-            catalog_rows = self.db.execute_query(
-                "SELECT id FROM series_catalog WHERE tmdb_id = %s AND series_key = %s LIMIT 1",
-                (tmdb_id, series_key),
+            catalog_rows = self._query(
+                "SELECT id FROM series_catalog WHERE tmdb_id = :tmdb_id AND series_key = :series_key LIMIT 1",
+                {"tmdb_id": tmdb_id, "series_key": series_key},
             )
             if not catalog_rows:
                 return
             catalog_id = catalog_rows[0]["id"]
 
             # Obtener episodios pendientes de esta serie (tmdb_checked = FALSE)
-            episode_rows = self.db.execute_query(
+            episode_rows = self._query(
                 """SELECT id, season_number, episode_number
                 FROM series_episodes
-                WHERE catalog_id = %s AND tmdb_checked IS NOT TRUE
+                WHERE catalog_id = :catalog_id AND tmdb_checked IS NOT TRUE
                 ORDER BY season_number, episode_number""",
-                (catalog_id,),
+                {"catalog_id": catalog_id},
             )
             if not episode_rows:
                 return
@@ -1075,13 +1081,13 @@ class TMDBScraper:
                     logger.warning(f"   ⚠️ Temporada {season_number} no encontrada en TMDB")
                     # Marcar todos los episodios de esta temporada como not_found
                     for ep in season_episodes:
-                        self.db.execute_command(
+                        self._command(
                             """UPDATE series_episodes
                                SET tmdb_not_found = TRUE,
                                    tmdb_retry_count = COALESCE(tmdb_retry_count, 0) + 1,
                                    tmdb_last_error = 'season not found in TMDB'
-                               WHERE id = %s""",
-                            (ep["id"],),
+                               WHERE id = :ep_id""",
+                            {"ep_id": ep["id"]},
                         )
                     continue
 
@@ -1103,13 +1109,13 @@ class TMDBScraper:
                         self._save_episode_metadata(db_ep["id"], ep_es, ep_en)
                     else:
                         # Episodio no encontrado en TMDB — marcar sin resetear tmdb_checked
-                        self.db.execute_command(
+                        self._command(
                             """UPDATE series_episodes
                                SET tmdb_not_found = TRUE,
                                    tmdb_retry_count = COALESCE(tmdb_retry_count, 0) + 1,
                                    tmdb_last_error = 'episode not found in TMDB season'
-                               WHERE id = %s""",
-                            (db_ep["id"],),
+                               WHERE id = :ep_id""",
+                            {"ep_id": db_ep["id"]},
                         )
 
         except Exception as e:
@@ -1133,38 +1139,38 @@ class TMDBScraper:
 
         sql = """
         UPDATE series_episodes
-        SET title = COALESCE(%s, title),
-            title_en = COALESCE(%s, title_en),
-            overview = COALESCE(%s, overview),
-            overview_en = COALESCE(%s, overview_en),
-            air_date = COALESCE(%s, air_date),
-            still_path = COALESCE(%s, still_path),
-            runtime = COALESCE(%s, runtime),
-            vote_average = COALESCE(%s, vote_average),
-            vote_count = COALESCE(%s, vote_count),
-            episode_type = COALESCE(%s, episode_type),
+        SET title = COALESCE(:title_es, title),
+            title_en = COALESCE(:title_en, title_en),
+            overview = COALESCE(:overview_es, overview),
+            overview_en = COALESCE(:overview_en, overview_en),
+            air_date = COALESCE(:air_date, air_date),
+            still_path = COALESCE(:still_path, still_path),
+            runtime = COALESCE(:runtime, runtime),
+            vote_average = COALESCE(:vote_average, vote_average),
+            vote_count = COALESCE(:vote_count, vote_count),
+            episode_type = COALESCE(:episode_type, episode_type),
             tmdb_checked = TRUE,
             tmdb_not_found = FALSE,
             tmdb_retry_count = 0,
             tmdb_last_error = NULL
-        WHERE id = %s
+        WHERE id = :episode_id
         """
         try:
-            self.db.execute_command(
+            self._command(
                 sql,
-                (
-                    title_es,
-                    title_en,
-                    overview_es,
-                    overview_en,
-                    air_date,
-                    still_path,
-                    runtime,
-                    vote_average,
-                    vote_count,
-                    episode_type,
-                    episode_id,
-                ),
+                {
+                    "title_es": title_es,
+                    "title_en": title_en,
+                    "overview_es": overview_es,
+                    "overview_en": overview_en,
+                    "air_date": air_date,
+                    "still_path": still_path,
+                    "runtime": runtime,
+                    "vote_average": vote_average,
+                    "vote_count": vote_count,
+                    "episode_type": episode_type,
+                    "episode_id": episode_id,
+                },
             )
         except Exception as e:
             logger.error(f"Error guardando episodio {episode_id}: {e}")
@@ -1217,95 +1223,104 @@ class TMDBScraper:
             get_movies_fn = self._get_movies_without_metadata
             get_series_fn = self._get_series_without_metadata
 
-        # -- Cross-reference: mapear tmdb_id existentes antes de llamar API --
-        logger.info("🔗 Construyendo mapas de cross-reference...")
-        self._movie_tmdb_by_dedup = {}
-        try:
-            rows = self.db.execute_query(
-                "SELECT nombre_dedup_key, tmdb_id FROM movies_catalog WHERE tmdb_id IS NOT NULL AND nombre_dedup_key IS NOT NULL"
-            )
-            self._movie_tmdb_by_dedup = {r["nombre_dedup_key"]: r["tmdb_id"] for r in rows}
-            logger.info(f"   {len(self._movie_tmdb_by_dedup)} películas con tmdb_id por dedup_key")
-        except Exception as e:
-            logger.warning(f"⚠️  Error cargando cross-reference de películas: {e}")
+        with self._Session() as session:
+            self._session = session
 
-        self._series_tmdb_by_title = {}
-        try:
-            rows = self.db.execute_query(
-                "SELECT tmdb_id, title, original_title FROM series_metadata WHERE tmdb_id IS NOT NULL"
-            )
-            for r in rows:
-                for t in (r["title"], r["original_title"]):
-                    if t:
-                        key = re.sub(r"[^\w\s]", " ", t.lower()).strip()
-                        if key not in self._series_tmdb_by_title:
-                            self._series_tmdb_by_title[key] = r["tmdb_id"]
-            logger.info(f"   {len(self._series_tmdb_by_title)} series con tmdb_id por título")
-        except Exception as e:
-            logger.warning(f"⚠️  Error cargando cross-reference de series: {e}")
+            # -- Cross-reference: mapear tmdb_id existentes antes de llamar API --
+            logger.info("🔗 Construyendo mapas de cross-reference...")
+            self._movie_tmdb_by_dedup = {}
+            try:
+                rows = self._query(
+                    "SELECT nombre_dedup_key, tmdb_id FROM movies_catalog WHERE tmdb_id IS NOT NULL AND nombre_dedup_key IS NOT NULL"
+                )
+                self._movie_tmdb_by_dedup = {r["nombre_dedup_key"]: r["tmdb_id"] for r in rows}
+                logger.info(
+                    f"   {len(self._movie_tmdb_by_dedup)} películas con tmdb_id por dedup_key"
+                )
+            except Exception as e:
+                logger.warning(f"⚠️  Error cargando cross-reference de películas: {e}")
 
-        # -- Películas --
-        logger.info("\n🎬 PROCESANDO PELÍCULAS")
-        logger.info("-" * 60)
-        while True:
-            if max_items and total_processed >= max_items:
-                break
-            movies = get_movies_fn(batch_size)
-            if not movies:
-                logger.info("No hay más películas")
-                break
-            logger.info(f"Lote de {len(movies)} películas")
-            total_processed, total_found, total_not_found = self._process_batch(
-                movies,
-                self._process_movie,
-                self._save_metadata,
-                total_processed,
-                total_found,
-                total_not_found,
-                max_items,
-            )
+            self._series_tmdb_by_title = {}
+            try:
+                rows = self._query(
+                    "SELECT tmdb_id, title, original_title FROM series_metadata WHERE tmdb_id IS NOT NULL"
+                )
+                for r in rows:
+                    for t in (r["title"], r["original_title"]):
+                        if t:
+                            key = re.sub(r"[^\w\s]", " ", t.lower()).strip()
+                            if key not in self._series_tmdb_by_title:
+                                self._series_tmdb_by_title[key] = r["tmdb_id"]
+                logger.info(f"   {len(self._series_tmdb_by_title)} series con tmdb_id por título")
+            except Exception as e:
+                logger.warning(f"⚠️  Error cargando cross-reference de series: {e}")
 
-        # -- Series --
-        logger.info("\n📺 PROCESANDO SERIES")
-        logger.info("-" * 60)
-        while True:
-            if max_items and total_processed >= max_items:
-                break
-            series = get_series_fn(batch_size)
-            if not series:
-                logger.info("No hay más series")
-                break
-            logger.info(f"Lote de {len(series)} series")
-            total_processed, total_found, total_not_found = self._process_batch(
-                series,
-                self._process_series,
-                self._save_series_metadata,
-                total_processed,
-                total_found,
-                total_not_found,
-                max_items,
-            )
+            # -- Películas --
+            logger.info("\n🎬 PROCESANDO PELÍCULAS")
+            logger.info("-" * 60)
+            while True:
+                if max_items and total_processed >= max_items:
+                    break
+                movies = get_movies_fn(batch_size)
+                if not movies:
+                    logger.info("No hay más películas")
+                    break
+                logger.info(f"Lote de {len(movies)} películas")
+                total_processed, total_found, total_not_found = self._process_batch(
+                    movies,
+                    self._process_movie,
+                    self._save_metadata,
+                    total_processed,
+                    total_found,
+                    total_not_found,
+                    max_items,
+                )
 
-        # -- Episodios sin metadata TMDB --
-        if retry_not_found:
-            logger.info("\n📺 PROCESANDO EPISODIOS SIN METADATA TMDB (MODO RETRY)")
-        else:
-            logger.info("\n📺 PROCESANDO EPISODIOS SIN METADATA TMDB")
-        logger.info("-" * 60)
-        episodes_processed = 0
-        while True:
-            series_with_missing = self._get_series_with_episodes_without_metadata(
-                batch_size, retry_not_found
-            )
-            if not series_with_missing:
-                logger.info("No hay más series con episodios sin metadata")
-                break
-            logger.info(f"Lote de {len(series_with_missing)} series con episodios sin metadata")
-            for s in series_with_missing:
-                self._process_episodes_for_series(s["tmdb_id"], s["series_key"], s["title"] or "")
-                episodes_processed += 1
-                time.sleep(0.05)
-        logger.info(f"   Total series procesadas: {episodes_processed}")
+            # -- Series --
+            logger.info("\n📺 PROCESANDO SERIES")
+            logger.info("-" * 60)
+            while True:
+                if max_items and total_processed >= max_items:
+                    break
+                series = get_series_fn(batch_size)
+                if not series:
+                    logger.info("No hay más series")
+                    break
+                logger.info(f"Lote de {len(series)} series")
+                total_processed, total_found, total_not_found = self._process_batch(
+                    series,
+                    self._process_series,
+                    self._save_series_metadata,
+                    total_processed,
+                    total_found,
+                    total_not_found,
+                    max_items,
+                )
+
+            # -- Episodios sin metadata TMDB --
+            if retry_not_found:
+                logger.info("\n📺 PROCESANDO EPISODIOS SIN METADATA TMDB (MODO RETRY)")
+            else:
+                logger.info("\n📺 PROCESANDO EPISODIOS SIN METADATA TMDB")
+            logger.info("-" * 60)
+            episodes_processed = 0
+            while True:
+                series_with_missing = self._get_series_with_episodes_without_metadata(
+                    batch_size, retry_not_found
+                )
+                if not series_with_missing:
+                    logger.info("No hay más series con episodios sin metadata")
+                    break
+                logger.info(f"Lote de {len(series_with_missing)} series con episodios sin metadata")
+                for s in series_with_missing:
+                    self._process_episodes_for_series(
+                        s["tmdb_id"], s["series_key"], s["title"] or ""
+                    )
+                    episodes_processed += 1
+                    time.sleep(0.05)
+            logger.info(f"   Total series procesadas: {episodes_processed}")
+
+            self._session = None
 
         # -- Resumen --
         logger.info("\n" + "=" * 60)

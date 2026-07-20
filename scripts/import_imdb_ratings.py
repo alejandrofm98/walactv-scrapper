@@ -29,7 +29,9 @@ try:
 except ImportError:
     pass
 
-import psycopg2
+from iptv_db.engine import build_url, get_sync_engine, get_sync_session_factory
+from iptv_db.models import MovieMetadata, SeriesMetadata
+from sqlalchemy import select, text
 
 logger = logging.getLogger("imdb-ratings")
 logger.setLevel(logging.INFO)
@@ -40,43 +42,49 @@ _handler.setFormatter(
 logger.addHandler(_handler)
 
 
-def _build_dsn(env_var: str | None) -> str:
-    """Build a PostgreSQL DSN from environment or env_var name."""
-    if env_var:
-        url = os.getenv(env_var)
-        if url:
-            return url
-    # Try DATABASE_URL first
+def _build_session():
+    """Build a sync SQLAlchemy session from PG_* or DATABASE_URL env vars."""
     url = os.getenv("DATABASE_URL")
     if url:
-        return url
-    # Fall back to PG_* env vars
-    host = os.getenv("PG_HOST", "localhost")
-    port = os.getenv("PG_PORT", "5432")
-    database = os.getenv("PG_DATABASE", "postgres")
-    user = os.getenv("PG_USER", "postgres")
-    password = os.getenv("PG_PASSWORD", "")
-    return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+        engine = get_sync_engine(url)
+    else:
+        host = os.getenv("PG_HOST", "localhost")
+        port = int(os.getenv("PG_PORT", "5432"))
+        database = os.getenv("PG_DATABASE", "postgres")
+        user = os.getenv("PG_USER", "postgres")
+        password = os.getenv("PG_PASSWORD", "")
+        url = build_url(host, port, database, user, password, async_driver=False)
+        engine = get_sync_engine(url)
+    Session = get_sync_session_factory(engine)
+    return Session()
 
 
-def _load_imdb_ids(conn) -> tuple[set[str], set[str], set[str]]:
+def _load_imdb_ids(session) -> tuple[set[str], set[str], set[str]]:
     """Load all non-null imdb_id values from movies_metadata, series_metadata, and series_episodes."""
     movies: set[str] = set()
     series: set[str] = set()
     episodes: set[str] = set()
-    with conn.cursor() as cur:
-        cur.execute("SELECT imdb_id FROM movies_metadata WHERE imdb_id IS NOT NULL")
-        for (imdb_id,) in cur.fetchall():
-            movies.add(imdb_id)
-        cur.execute("SELECT imdb_id FROM series_metadata WHERE imdb_id IS NOT NULL")
-        for (imdb_id,) in cur.fetchall():
-            series.add(imdb_id)
-        cur.execute("SELECT imdb_id FROM series_episodes WHERE imdb_id IS NOT NULL")
-        for (imdb_id,) in cur.fetchall():
-            episodes.add(imdb_id)
+
+    for (imdb_id,) in session.execute(
+        select(MovieMetadata.imdb_id).where(MovieMetadata.imdb_id.isnot(None))
+    ).all():
+        movies.add(imdb_id)
+
+    for (imdb_id,) in session.execute(
+        select(SeriesMetadata.imdb_id).where(SeriesMetadata.imdb_id.isnot(None))
+    ).all():
+        series.add(imdb_id)
+
+    for (imdb_id,) in session.execute(
+        text("SELECT imdb_id FROM series_episodes WHERE imdb_id IS NOT NULL")
+    ).all():
+        episodes.add(imdb_id)
+
     logger.info(
         "Loaded %d movie imdb_ids, %d series imdb_ids, %d episode imdb_ids",
-        len(movies), len(series), len(episodes),
+        len(movies),
+        len(series),
+        len(episodes),
     )
     return movies, series, episodes
 
@@ -92,19 +100,22 @@ def _open_source(source_url: str | None, from_file: str | None):
     return gzip.open(resp, "rt", encoding="utf-8")
 
 
-def _update_batch(conn, table: str, rows: list[tuple[str, float | None, int | None]]) -> int:
+def _update_batch(session, table: str, rows: list[tuple[str, float | None, int | None]]) -> int:
     """Execute an UPDATE batch for one table using executemany. Returns rowcount."""
     if not rows:
         return 0
-    with conn.cursor() as cur:
-        params = [(rating, votes, imdb_id) for imdb_id, rating, votes in rows]
-        cur.executemany(
-            f"UPDATE {table} "
-            "SET imdb_rating = %s, imdb_votes = %s, updated_at = NOW() "
-            "WHERE imdb_id = %s",
-            params,
-        )
-        return cur.rowcount
+    params = [
+        {"rating": rating, "votes": votes, "imdb_id": imdb_id} for imdb_id, rating, votes in rows
+    ]
+    result = session.execute(
+        text(f"""
+            UPDATE {table}
+            SET imdb_rating = :rating, imdb_votes = :votes, updated_at = NOW()
+            WHERE imdb_id = :imdb_id
+        """),
+        params,
+    )
+    return result.rowcount
 
 
 def run_import(
@@ -128,10 +139,15 @@ def run_import(
     }
     start_time = time.time()
 
-    conn = psycopg2.connect(_build_dsn(db_url))
+    if db_url:
+        engine = get_sync_engine(os.getenv(db_url, ""))
+        Session = get_sync_session_factory(engine)
+        session = Session()
+    else:
+        session = _build_session()
 
     try:
-        movies_set, series_set, episodes_set = _load_imdb_ids(conn)
+        movies_set, series_set, episodes_set = _load_imdb_ids(session)
         if not movies_set and not series_set and not episodes_set:
             logger.warning("No imdb_ids found in database. Nothing to do.")
             stats["duration_seconds"] = time.time() - start_time
@@ -191,7 +207,7 @@ def run_import(
                     or len(batch_series) >= batch_size
                     or len(batch_episodes) >= batch_size
                 ):
-                    _flush_batches(conn, batch_movies, batch_series, batch_episodes, stats)
+                    _flush_batches(session, batch_movies, batch_series, batch_episodes, stats)
                     batch_movies.clear()
                     batch_series.clear()
                     batch_episodes.clear()
@@ -211,10 +227,10 @@ def run_import(
         finally:
             # Flush remaining
             if not dry_run and (batch_movies or batch_series or batch_episodes):
-                _flush_batches(conn, batch_movies, batch_series, batch_episodes, stats)
+                _flush_batches(session, batch_movies, batch_series, batch_episodes, stats)
             fh.close()
     finally:
-        conn.close()
+        session.close()
 
     stats["duration_seconds"] = time.time() - start_time
 
@@ -238,7 +254,7 @@ def run_import(
 
 
 def _flush_batches(
-    conn,
+    session,
     batch_movies: list[tuple[str, float | None, int | None]],
     batch_series: list[tuple[str, float | None, int | None]],
     batch_episodes: list[tuple[str, float | None, int | None]],
@@ -247,17 +263,17 @@ def _flush_batches(
     """Flush pending batches to DB in a single transaction each."""
     try:
         if batch_movies:
-            rc = _update_batch(conn, "movies_metadata", batch_movies)
+            rc = _update_batch(session, "movies_metadata", batch_movies)
             stats["updated_movies"] += rc or len(batch_movies)
         if batch_series:
-            rc = _update_batch(conn, "series_metadata", batch_series)
+            rc = _update_batch(session, "series_metadata", batch_series)
             stats["updated_series"] += rc or len(batch_series)
         if batch_episodes:
-            rc = _update_batch(conn, "series_episodes", batch_episodes)
+            rc = _update_batch(session, "series_episodes", batch_episodes)
             stats["updated_episodes"] += rc or len(batch_episodes)
-        conn.commit()
+        session.commit()
     except Exception:
-        conn.rollback()
+        session.rollback()
         raise
 
 

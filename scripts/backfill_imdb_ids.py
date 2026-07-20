@@ -14,7 +14,6 @@ import logging
 import os
 import sys
 import time
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -27,9 +26,10 @@ try:
 except ImportError:
     pass
 
-import psycopg2
 import requests
-from psycopg2.extras import RealDictCursor
+from iptv_db.engine import build_url, get_sync_engine, get_sync_session_factory
+from iptv_db.models import MovieMetadata, SeriesMetadata
+from sqlalchemy import select, text, update
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,47 +47,16 @@ RATE_LIMIT_REQUESTS = 40
 RATE_LIMIT_WINDOW = 10
 
 
-class DatabaseService:
-    def __init__(self):
-        self.connection_string = self._build_connection_string()
-
-    def _build_connection_string(self) -> str:
+class Backfiller:
+    def __init__(self, batch_size: int = 100, delay: float = 0.05):
         host = os.getenv("PG_HOST", "localhost")
-        port = os.getenv("PG_PORT", "5432")
+        port = int(os.getenv("PG_PORT", "5432"))
         database = os.getenv("PG_DATABASE", "postgres")
         user = os.getenv("PG_USER", "postgres")
         password = os.getenv("PG_PASSWORD", "")
-        return f"postgresql://{user}:{password}@{host}:{port}/{database}"
-
-    @contextmanager
-    def get_connection(self):
-        conn = None
-        try:
-            conn = psycopg2.connect(self.connection_string)
-            yield conn
-        except Exception as e:
-            logger.error(f"Error conectando a BD: {e}")
-            raise
-        finally:
-            if conn:
-                conn.close()
-
-    def execute_query(self, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(sql, params)
-                return [dict(row) for row in cur.fetchall()]
-
-    def execute_command(self, sql: str, params: tuple = ()) -> int:
-        with self.get_connection() as conn, conn.cursor() as cur:
-            cur.execute(sql, params)
-            conn.commit()
-            return cur.rowcount
-
-
-class Backfiller:
-    def __init__(self, batch_size: int = 100, delay: float = 0.05):
-        self.db = DatabaseService()
+        url = build_url(host, port, database, user, password, async_driver=False)
+        engine = get_sync_engine(url)
+        self._Session = get_sync_session_factory(engine)
         self.session = requests.Session()
         self.session.headers.update({"Content-Type": "application/json"})
         self.batch_size = batch_size
@@ -145,61 +114,54 @@ class Backfiller:
 
     def _backfill_from_tmdb_data(self) -> int:
         """Backfill movies imdb_id from existing tmdb_data JSONB column (no HTTP needed)."""
-        sql = """
-            UPDATE movies_metadata
-            SET imdb_id = tmdb_data->>'imdb_id'
-            WHERE imdb_id IS NULL
-              AND tmdb_data IS NOT NULL
-              AND tmdb_data->>'imdb_id' IS NOT NULL
-        """
-        count = self.db.execute_command(sql)
+        with self._Session() as session:
+            result = session.execute(
+                text("""
+                    UPDATE movies_metadata
+                    SET imdb_id = tmdb_data->>'imdb_id'
+                    WHERE imdb_id IS NULL
+                      AND tmdb_data IS NOT NULL
+                      AND tmdb_data->>'imdb_id' IS NOT NULL
+                """)
+            )
+            session.commit()
+            count = result.rowcount
         if count > 0:
             logger.info(f"📦 Backfilled {count} movies from tmdb_data JSONB")
         return count
 
     def _backfill_api(self, table: str, content_type: str) -> int:
         """Backfill imdb_id via TMDB external_ids API. Keyset pagination."""
+        Model: Any = MovieMetadata if table == "movies_metadata" else SeriesMetadata
         total = 0
-        last_tmdb_id: str | None = None
+        last_tmdb_id: Any = None
 
-        while True:
-            if last_tmdb_id is None:
-                rows = self.db.execute_query(
-                    f"""
-                    SELECT tmdb_id FROM {table}
-                    WHERE imdb_id IS NULL AND tmdb_id IS NOT NULL
-                    ORDER BY tmdb_id
-                    LIMIT %s
-                    """,
-                    (self.batch_size,),
+        with self._Session() as session:
+            while True:
+                stmt = (
+                    select(Model.tmdb_id)
+                    .where(Model.imdb_id.is_(None), Model.tmdb_id.isnot(None))
+                    .order_by(Model.tmdb_id)
+                    .limit(self.batch_size)
                 )
-            else:
-                rows = self.db.execute_query(
-                    f"""
-                    SELECT tmdb_id FROM {table}
-                    WHERE imdb_id IS NULL AND tmdb_id IS NOT NULL
-                      AND tmdb_id > %s
-                    ORDER BY tmdb_id
-                    LIMIT %s
-                    """,
-                    (last_tmdb_id, self.batch_size),
-                )
-            if not rows:
-                break
+                if last_tmdb_id is not None:
+                    stmt = stmt.where(Model.tmdb_id > last_tmdb_id)
+                rows = session.execute(stmt).scalars().all()
+                if not rows:
+                    break
 
-            for row in rows:
-                tmdb_id = row["tmdb_id"]
-                last_tmdb_id = tmdb_id
-                imdb_id = self._fetch_external_id(content_type, tmdb_id)
-                if imdb_id:
-                    self.db.execute_command(
-                        f"UPDATE {table} SET imdb_id = %s WHERE tmdb_id = %s",
-                        (imdb_id, tmdb_id),
-                    )
-                total += 1
-                if total % 100 == 0:
-                    logger.info(f"  Progress: {total} processed from {table}")
-                time.sleep(self.delay)
+                for tmdb_id in rows:
+                    last_tmdb_id = tmdb_id
+                    imdb_id = self._fetch_external_id(content_type, str(tmdb_id))
+                    if imdb_id:
+                        session.execute(
+                            update(Model).where(Model.tmdb_id == tmdb_id).values(imdb_id=imdb_id)
+                        )
+                    total += 1
+                    if total % 100 == 0:
+                        logger.info(f"  Progress: {total} processed from {table}")
+                    time.sleep(self.delay)
+                session.commit()
 
         logger.info(f"  {table}: {total} rows processed via API")
         return total

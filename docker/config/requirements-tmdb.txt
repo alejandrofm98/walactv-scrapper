@@ -1,3 +1,2 @@
 # Requirements para el servicio de metadata TMDB
-psycopg2-binary==2.9.10
 requests==2.32.3

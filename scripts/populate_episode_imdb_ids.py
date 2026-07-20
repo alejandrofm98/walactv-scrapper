@@ -33,7 +33,8 @@ try:
 except ImportError:
     pass
 
-import psycopg2
+from iptv_db.engine import build_url, get_sync_engine, get_sync_session_factory
+from sqlalchemy import text
 
 logger = logging.getLogger("imdb-episode-ids")
 logger.setLevel(logging.INFO)
@@ -44,37 +45,36 @@ _handler.setFormatter(
 logger.addHandler(_handler)
 
 
-def _build_dsn(env_var: str | None) -> str:
-    """Build a PostgreSQL DSN from environment or env_var name."""
-    if env_var:
-        url = os.getenv(env_var)
-        if url:
-            return url
-    # Try DATABASE_URL first
+def _build_session():
+    """Build a sync SQLAlchemy session from PG_* or DATABASE_URL env vars."""
     url = os.getenv("DATABASE_URL")
     if url:
-        return url
-    # Fall back to PG_* env vars
-    host = os.getenv("PG_HOST", "localhost")
-    port = os.getenv("PG_PORT", "5432")
-    database = os.getenv("PG_DATABASE", "postgres")
-    user = os.getenv("PG_USER", "postgres")
-    password = os.getenv("PG_PASSWORD", "")
-    return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+        engine = get_sync_engine(url)
+    else:
+        host = os.getenv("PG_HOST", "localhost")
+        port = int(os.getenv("PG_PORT", "5432"))
+        database = os.getenv("PG_DATABASE", "postgres")
+        user = os.getenv("PG_USER", "postgres")
+        password = os.getenv("PG_PASSWORD", "")
+        url = build_url(host, port, database, user, password, async_driver=False)
+        engine = get_sync_engine(url)
+    Session = get_sync_session_factory(engine)
+    return Session()
 
 
-def _load_parent_to_catalog(conn) -> dict[str, str]:
+def _load_parent_to_catalog(session) -> dict[str, str]:
     """Load mapping of series_metadata.imdb_id (parentTconst) to series_catalog.id."""
     mapping: dict[str, str] = {}
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT sm.imdb_id, sc.id "
-            "FROM series_metadata sm "
-            "JOIN series_catalog sc ON sc.id = sm.catalog_id "
-            "WHERE sm.imdb_id IS NOT NULL"
-        )
-        for imdb_id, catalog_id in cur.fetchall():
-            mapping[imdb_id] = catalog_id
+    rows = session.execute(
+        text("""
+            SELECT sm.imdb_id, sc.id
+            FROM series_metadata sm
+            JOIN series_catalog sc ON sc.id = sm.catalog_id
+            WHERE sm.imdb_id IS NOT NULL
+        """)
+    ).all()
+    for imdb_id, catalog_id in rows:
+        mapping[imdb_id] = catalog_id
     logger.info("Loaded %d parent imdb_id -> catalog_id mappings", len(mapping))
     return mapping
 
@@ -90,20 +90,27 @@ def _open_source(source_url: str | None, from_file: str | None):
     return gzip.open(resp, "rt", encoding="utf-8")
 
 
-def _update_batch(
-    conn, rows: list[tuple[str, str, int, int]]
-) -> int:
+def _update_batch(session, rows: list[tuple[str, str, int, int]]) -> int:
     """Execute an UPDATE batch for series_episodes using executemany. Returns rowcount."""
     if not rows:
         return 0
-    with conn.cursor() as cur:
-        cur.executemany(
-            "UPDATE series_episodes "
-            "SET imdb_id = %s "
-            "WHERE catalog_id = %s AND season_number = %s AND episode_number = %s",
-            rows,
-        )
-        return cur.rowcount
+    result = session.execute(
+        text("""
+            UPDATE series_episodes
+            SET imdb_id = :imdb_id
+            WHERE catalog_id = :catalog_id AND season_number = :season_number AND episode_number = :episode_number
+        """),
+        [
+            {
+                "imdb_id": tconst,
+                "catalog_id": catalog_id,
+                "season_number": season,
+                "episode_number": episode,
+            }
+            for (tconst, catalog_id, season, episode) in rows
+        ],
+    )
+    return result.rowcount
 
 
 def run_import(
@@ -123,10 +130,15 @@ def run_import(
     }
     start_time = time.time()
 
-    conn = psycopg2.connect(_build_dsn(db_url))
+    if db_url:
+        engine = get_sync_engine(os.getenv(db_url, ""))
+        Session = get_sync_session_factory(engine)
+        session = Session()
+    else:
+        session = _build_session()
 
     try:
-        parent_to_catalog = _load_parent_to_catalog(conn)
+        parent_to_catalog = _load_parent_to_catalog(session)
         if not parent_to_catalog:
             logger.warning("No parent imdb_ids found in series_metadata. Nothing to do.")
             stats["duration_seconds"] = time.time() - start_time
@@ -176,7 +188,7 @@ def run_import(
 
                     # Flush batch
                     if not dry_run and len(batch) >= batch_size:
-                        _flush_batch(conn, batch, stats)
+                        _flush_batch(session, batch, stats)
                         batch.clear()
 
                     if total_matched > 0 and total_matched % log_interval == 0:
@@ -191,10 +203,10 @@ def run_import(
         finally:
             # Flush remaining
             if not dry_run and batch:
-                _flush_batch(conn, batch, stats)
+                _flush_batch(session, batch, stats)
             fh.close()
     finally:
-        conn.close()
+        session.close()
 
     stats["duration_seconds"] = time.time() - start_time
 
@@ -214,17 +226,17 @@ def run_import(
 
 
 def _flush_batch(
-    conn,
+    session,
     batch: list[tuple[str, str, int, int]],
     stats: dict[str, Any],
 ) -> None:
     """Flush pending batch to DB in a single transaction."""
     try:
-        rc = _update_batch(conn, batch)
+        rc = _update_batch(session, batch)
         stats["updated"] += rc or len(batch)
-        conn.commit()
+        session.commit()
     except Exception:
-        conn.rollback()
+        session.rollback()
         raise
 
 
