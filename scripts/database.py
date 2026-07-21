@@ -1,15 +1,13 @@
 """
 Módulo de base de datos PostgreSQL.
 F3a: iptv_db.engine interno. F3d4a: todas las clases migradas a iptv-db.
-asyncpg pool legacy preservado para backward compat (callers externos).
+asyncpg pool eliminado en F3d4b (0 callers externos).
 """
 
 import os
 import pathlib
 from datetime import date, datetime
 
-import asyncpg
-from asyncpg import Pool
 from iptv_db.engine import (
     build_url,
     get_async_engine,
@@ -33,10 +31,9 @@ except ImportError:
 class DatabasePG:
     """
     Cliente singleton de PostgreSQL.
-    F3d4a: iptv-db engines (async + sync) + asyncpg pool (backward compat).
+    F3d4a: iptv-db engines (async + sync).
     """
 
-    _pool: Pool | None = None
     _engine = None  # iptv-db async engine
     _session_factory = None  # iptv-db async session factory
     _sync_engine = None  # iptv-db sync engine
@@ -48,11 +45,8 @@ class DatabasePG:
     _database: str | None = None
 
     @classmethod
-    async def initialize(cls) -> Pool:
-        """Inicializa los engines iptv-db + asyncpg pool (backward compat)."""
-        if cls._pool is not None:
-            return cls._pool
-
+    async def initialize(cls) -> None:
+        """Inicializa los engines iptv-db."""
         cls._host = os.getenv("PG_HOST")
         cls._port = int(os.getenv("PG_PORT", "5432"))
         cls._user = os.getenv("PG_USER")
@@ -92,28 +86,10 @@ class DatabasePG:
             cls._sync_engine = get_sync_engine(url_sync, pool_size=5, max_overflow=15)
             cls._sync_session_factory = get_sync_session_factory(cls._sync_engine)
 
-            # --- asyncpg pool para backward compat (callers externos legacy) ---
-            cls._pool = await asyncpg.create_pool(
-                host=cls._host,
-                port=cls._port,
-                user=cls._user,
-                password=cls._password,
-                database=cls._database,
-                min_size=5,
-                max_size=20,
-            )
             print("🔥 PostgreSQL inicializado correctamente")
-            return cls._pool
         except Exception as e:
             print(f"❌ Error al conectar con PostgreSQL: {e}")
             raise
-
-    @classmethod
-    async def get_pool(cls) -> Pool:
-        """Obtiene el pool de conexiones asyncpg (backward compat)."""
-        if cls._pool is None:
-            await cls.initialize()
-        return cls._pool
 
     @classmethod
     def get_session_factory(cls):
@@ -131,10 +107,7 @@ class DatabasePG:
 
     @classmethod
     async def close(cls):
-        """Cierra pool asyncpg y engines iptv-db."""
-        if cls._pool is not None:
-            await cls._pool.close()
-            cls._pool = None
+        """Dispose los engines iptv-db."""
         if cls._engine is not None:
             await cls._engine.dispose()
             cls._engine = None
@@ -147,7 +120,6 @@ class DatabasePG:
     @classmethod
     def reset(cls):
         """Resetea la instancia (útil para testing)."""
-        cls._pool = None
         cls._engine = None
         cls._session_factory = None
         cls._sync_engine = None
