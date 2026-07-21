@@ -227,7 +227,7 @@ despliega automaticamente el nuevo codigo en produccion.
 - F1.5: schema.sql renombrado a .legacy (Alembic unificado en iptv-db)
 
 ### Pendiente
-1. Migrar los 4 modulos de `services/` legacy a `app/services/`... [este era iptv-api]
+1. ~~Migrar los 4 modulos de `services/` legacy a `src/iptv_api/services/`~~ (hecho en F5c) [este era iptv-api]
 2. ~~Eliminar dead code: Firebase shim (database.py:568-799)~~ (hecho en F3, ReplayManager eliminado)
 3. Migrar `print()` con emojis a `logging` framework.
 4. Agregar mas tests (target: 80% coverage en sync_iptv y scrapper).
