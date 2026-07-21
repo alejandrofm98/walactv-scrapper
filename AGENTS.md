@@ -3,7 +3,7 @@
 > Guia para agentes de codigo que trabajen en walactv-scrapper y en su
 > ecosistema de proyectos hermanos (iptv-api, WalacTV, walactvWeb).
 > Secciones 0-3 son contexto obligatorio antes de tocar nada.
-> Secciones 4-10 son referencia operativa.
+> Secciones 4-11 son referencia operativa.
 
 ## 0. Ecosistema y posicion del proyecto
 
@@ -37,16 +37,17 @@ Produce los catalogos de contenido que iptv-api consume.
 | Proyecto           | Rol                  | Repo                                                 | Relacion con walactv-scrapper                        |
 | ------------------ | -------------------- | ---------------------------------------------------- | ---------------------------------------------------- |
 | iptv-api           | Backend central      | `github.com/alejandrofm98/iptv-api`                  | Lee los JSONs que produce este scrapper              |
+| iptv-db            | ORM compartido       | `github.com/alejandrofm98/iptv-db`                   | Este scrapper importa modelos de ahi                 |
 | WalacTV (Android)  | Cliente TV           | `github.com/alejandrofm98/WalacTV`                   | Consume endpoints de iptv-api                        |
 | walactvWeb         | Cliente web          | `github.com/alejandrofm98/walactvWeb`                | Consume endpoints de iptv-api                        |
 
 ## 1. Contexto rapido
 
-- **Stack**: Python 3.12, asyncpg, BeautifulSoup4, requests, Pillow, python-dotenv.
+- **Stack**: Python 3.12, SQLAlchemy 2.0 + psycopg3 (via iptv-db), BeautifulSoup4, requests, Pillow, python-dotenv.
 - **Entry points**: `scripts/main.py` (scraper principal), `scripts/sync_iptv.py` (sync IPTV),
   `scripts/sync_replays.py` (replays), `scripts/scrape_tmdb_metadata.py` (TMDB),
   `scripts/generate_content_json.py` (cache JSON), `scripts/poblar_mapeo_canales.py` (mapeo).
-- **BD**: PostgreSQL directo via asyncpg (el nombre `DataManagerSupabase` es legacy — NO usa Supabase).
+- **BD**: PostgreSQL via SQLAlchemy 2.0 (paquete `iptv-db`). El `DatabasePG` mantiene un pool asyncpg legacy para backward compat.
 - **Docker**: 5 Dockerfiles + docker-compose.yaml. Despliegue via Ansible + Ofelia (cron).
 - **Horarios**: main.py (08:00 diario), sync_iptv.py (cada 6h), sync_replays.py (12:00 diario), tmdb (03:00 diario).
 
@@ -56,7 +57,7 @@ Produce los catalogos de contenido que iptv-api consume.
 
 | Archivo | Proposito |
 |---|---|
-| `main.py` | Entry point principal: init DB pool, corre scrapper, guarda calendario |
+| `main.py` | Entry point: init DatabasePG (engine iptv-db), corre scrapper, guarda calendario |
 | `scrapper.py` | Scraper de futbolenlatv.es: parsea HTML, mapea canales, genera imagenes |
 | `sync_iptv.py` | Sync de playlists M3U del proveedor IPTV a tablas normalizadas |
 | `sync_replays.py` | Scraper de replays UFC/wrestling |
@@ -65,8 +66,8 @@ Produce los catalogos de contenido que iptv-api consume.
 | `poblar_mapeo_canales.py` | Poblacion de mapeo de canales |
 | `actualiza_epg.py` | Actualizador EPG (credenciales via env vars) |
 | `proxificaUrl.py` | HLS proxy (DESHABILITADO en docker-compose) |
-| `config.py` | Settings + singleton via @lru_cache |
-| `database.py` | 8 clases de BD: DatabasePG, ConfigManager, ChannelMappingManager, etc. |
+| `config.py` | Settings + singleton via @lru_cache (usa iptv_db.engine.build_url) |
+| `database.py` | DatabasePG con iptv-db engine + pool asyncpg legacy (backward compat). 6 clases migradas: ConfigManager, ChannelMappingManager, CalendarioAcestreamManager, DataManagerSupabase, etc. |
 
 ### 2.2 Servicios (`scripts/services/`)
 
@@ -90,7 +91,7 @@ Produce los catalogos de contenido que iptv-api consume.
 - Docstrings en espanol, breves.
 - Imports: stdlib -> terceros -> locales.
 - Tipo hints: parcial (mejor en archivos nuevos).
-- Errores: try/except con prints con emojis (no logging framework en la mayoria).
+- Errores: try/except con `print()` para scripts cron, `logging` para scripts nuevos.
 
 ## 3. Patrones obligatorios
 
@@ -133,13 +134,27 @@ Produce los catalogos de contenido que iptv-api consume.
 | `TMDB_READ_TOKEN` | Read token de TMDB | Este scrapper |
 | `JWT_SECRET` | Secret para JWT | Ambos |
 
+### 4.4 Dependencia de iptv-db
+
+Este scrapper importa modelos ORM de `iptv-db`:
+- `from iptv_db.models import Channel, MovieCatalog, ...`
+- `from iptv_db.engine import get_session_factory, get_sync_session_factory`
+
+iptv-db se instala via pip desde el requirements file:
+```
+iptv-db @ git+https://github.com/alejandrofm98/iptv-db.git@<commit_hash>
+```
+
+Cuando se actualiza iptv-db (nuevos modelos, columnas), hay que actualizar el hash
+en todos los requirements files (ver seccion 5).
+
 ## 5. Configuracion y secretos
 
 `scripts/config.py` carga `.env` via python-dotenv. Las variables de BD vienen de env vars o del docker/.env.
 
 **Reglas:**
 - Nunca commitear `.env` ni credenciales.
-- `docker/.env` tiene PG real (CUIDADO: actualmente commiteado — considerar gitignore).
+- `docker/.env` tiene PG real (ya en `.gitignore`, no se commitea — FALSO POSITIVO resuelto en F0).
 - `actualiza_epg.py` usa `EPG_USER` y `EPG_PASS` via env vars.
 - `docker/.env-example` es la referencia commiteable.
 
@@ -164,7 +179,11 @@ pytest tests/
 - Selectors ruff: E, F, W, I, UP, B, SIM, RUF.
 - vulture: umbral 80%.
 
-### 6.3 Como correr TODO
+### 6.3 Pre-commit y CI
+
+Configurados en F4a. Instalar local: `pre-commit install`. CI: ver `.github/workflows/ci.yml`.
+
+### 6.4 Como correr TODO
 
 ```bash
 ruff format scripts/ && ruff check scripts/ --fix && mypy scripts/ --config-file pyproject.toml && vulture scripts/ --min-confidence 80 && pytest tests/
@@ -194,19 +213,28 @@ despliega automaticamente el nuevo codigo en produccion.
 ## 9. Criterios para cambios
 
 1. No romper el pipeline de Ofelia (cron). Cada cambio debe preserving el `if __name__ == "__main__"` guard.
-2. Si modificas tablas o esquemas, actualizar `database/schema.sql`.
+2. Si modificas tablas o esquemas, actualizar `iptv-db/` (Alembic migration). `database/schema.sql.legacy` es solo referencia historica.
 3. Si agregas un script nuevo, registrarlo en docker-compose.yaml y en este archivo.
 4. Evitar cambios de estilo en archivos no tocados.
 
 ## 10. Roadmap (no en esta iteracion)
 
-1. Activar pre-commit con ruff + mypy + vulture.
-2. CI en GitHub Actions.
-3. Eliminar dead code: Firebase shim (database.py:568-799), proxificaUrl.py, acestream_proxy.py/.
-4. Migrar DataManagerSupabase a un nombre que refleje que usa PostgreSQL.
-5. Migrar `print()` con emojis a `logging` framework.
-6. Agregar mas tests (target: 80% coverage en sync_iptv y scrapper).
-7. Mover `actualiza_epg.py` a Ofelia schedule.
+### Completado
+- ~~Activar pre-commit~~ (F4a)
+- ~~CI en GitHub Actions~~ (F4a)
+- ~~Migrar DataManagerSupabase a un nombre que refleje que usa PostgreSQL~~ (decidido mantener)
+- F3: scrapper migrado de asyncpg/psycopg2 a iptv-db
+- F1.5: schema.sql renombrado a .legacy (Alembic unificado en iptv-db)
+
+### Pendiente
+1. Migrar los 4 modulos de `services/` legacy a `app/services/`... [este era iptv-api]
+2. ~~Eliminar dead code: Firebase shim (database.py:568-799)~~ (hecho en F3, ReplayManager eliminado)
+3. Migrar `print()` con emojis a `logging` framework.
+4. Agregar mas tests (target: 80% coverage en sync_iptv y scrapper).
+5. Mover `actualiza_epg.py` a Ofelia schedule.
+
+### Cancelado
+- F4b: tests con testcontainers
 
 ## 11. Checklist antes de cerrar una tarea
 
@@ -216,4 +244,4 @@ despliega automaticamente el nuevo codigo en produccion.
 4. Tests: `pytest tests/` pasa.
 5. Sin credenciales hardcodeadas (verificar con `grep -rn "password\|secret\|key\|token" scripts/ --include="*.py" | grep -v "env\|config\|ENV"`).
 6. Sin emojis en codigo ni comentarios nuevos.
-7. Si tocaste tablas o esquemas: actualizar schema.sql.
+7. Si tocaste tablas o esquemas: generar migration en iptv-db (Alembic) y actualizar hash en requirements.
