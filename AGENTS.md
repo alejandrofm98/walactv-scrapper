@@ -245,3 +245,69 @@ despliega automaticamente el nuevo codigo en produccion.
 5. Sin credenciales hardcodeadas (verificar con `grep -rn "password\|secret\|key\|token" scripts/ --include="*.py" | grep -v "env\|config\|ENV"`).
 6. Sin emojis en codigo ni comentarios nuevos.
 7. Si tocaste tablas o esquemas: generar migration en iptv-db (Alembic) y actualizar hash en requirements.
+8. Verificar deploy post-push (ver seccion 12).
+
+## 12. Verificacion de deploy post-push
+
+Dokploy detecta pushes y redesplega automaticamente. Despues de cada push a la branch
+principal, verificar que el deploy fue exitoso.
+
+### Acceso al server de Dokploy
+
+El server de Dokploy es accesible via SSH usando un alias configurado en `~/.ssh/config`
+(alias: `pro`). El orquestador puede acceder cuando se lo pidas explicitamente.
+
+**No commitees** informacion sensible sobre el server (IPs, paths de claves, etc.) en este
+AGENTS.md. Si necesitas ver que comandos usar, consulta la config SSH local o pregunta al
+orquestador.
+
+### Checklist post-push
+
+Despues de hacer push a la branch principal (`master` en este repo):
+
+- [ ] Esperar 1-2 minutos para que Dokploy detecte el push
+- [ ] Verificar que el deploy fue exitoso (ver "Comandos utiles" abajo)
+- [ ] Si hay errores, pedirle al orquestador que investigue via SSH y proponga un fix
+- [ ] Si el fix es trivial, aplicarlo, commitear, pushear
+- [ ] Verificar que el siguiente deploy (triggered por el push del fix) ahora funcione
+
+### Comandos utiles (via SSH como `pro`)
+
+```bash
+# Ver el ultimo log de deploy de una app
+ssh pro "ls -t /etc/dokploy/logs/<app-name>/ | head -1 | xargs -I {} cat /etc/dokploy/logs/<app-name>/{}"
+
+# Ver el estado actual de los containers
+ssh pro "docker ps -a --format 'table {{.Names}}\t{{.Status}}' | grep walactv"
+
+# Ver logs en vivo de un container
+ssh pro "docker logs --tail 50 <container-name>"
+
+# Ver logs de un cron especifico (Ofelia)
+ssh pro "journalctl -u ofelia-scheduler --since '10 minutes ago'"
+```
+
+Reemplazar `<app-name>` y `<container-name>` segun corresponda:
+- **App name en Dokploy**: `walactv-scrapper-gbhx9q`
+- **Containers**: `walactv-sync-iptv`, `walactv-sync-replays`, `walactv-futboltv`, `walactv-imdb-*`, `walactv-sync-tmdb-metadata`
+
+### Errores comunes en deploys
+
+| Error | Causa | Fix |
+|-------|-------|-----|
+| `ModuleNotFoundError: No module named 'iptv_db'` | Falta `iptv-db` en requirements | Agregar `iptv-db @ git+https://...` al requirements file del cron que fallo |
+| `fatal: remote error: upload-pack: not our ref <hash>` | Hash de iptv-db incorrecto | Verificar hash via `git ls-remote origin main` en iptv-db y corregir |
+| `Cannot find command 'git'` en Docker | Falta `git` en el Dockerfile | Agregar `git` al `apk add --no-cache` (Alpine) |
+| Container `Up` pero crons fallan | Variable de entorno faltante o BD no accesible | Verificar `docker logs` del container y env vars en Dokploy |
+
+### Auto-correccion via orquestador
+
+Si queres que el orquestador verifique el deploy por vos:
+1. Decile "verifica el deploy de walactv-scrapper"
+2. El orquestador se conecta via SSH y lee los logs
+3. Si hay errores, los analiza y propone un fix
+4. Vos decis si aplicar el fix o no
+5. El orquestador commitearia y pushearia solo si vos lo autorizas
+
+NO dar acceso automatico al orquestador sin autorizacion explicita. El orquestador solo
+actua cuando se le pide.
