@@ -636,7 +636,7 @@ _VIDEO_CONTENT_TYPES = [
 ]
 
 
-def _check_single_channel(url: str, timeout: int, bytes_to_check: int) -> tuple:
+def _check_single_channel(url: str, timeout: int, bytes_to_check: int, proxies: dict[str, str] | None = None) -> tuple:
     """
     Verifica un stream HTTP. Retorna (is_alive, response_time_ms, info).
     """
@@ -646,6 +646,7 @@ def _check_single_channel(url: str, timeout: int, bytes_to_check: int) -> tuple:
             url,
             headers={"Range": f"bytes=0-{bytes_to_check - 1}"},
             timeout=timeout,
+            proxies=proxies,
         )
         elapsed_ms = int((time.time() - start) * 1000)
 
@@ -672,6 +673,9 @@ async def verificar_salud_canales_evento(
     source_names: set[str],
     provider_username: str,
     provider_password: str,
+    provider_base_url: str = "",
+    public_domain: str = "",
+    proxies: dict[str, str] | None = None,
 ):
     """
     Verifica salud de streams para source_names obtenidos de eventos.
@@ -703,11 +707,21 @@ async def verificar_salud_canales_evento(
             test_url = stream_url.replace("{{USERNAME}}", provider_username).replace(
                 "{{PASSWORD}}", provider_password
             )
+
+            # Swap iptv-api public domain with the IPTV provider's base URL.
+            # The health check must hit the provider directly: iptv-api's /live endpoint
+            # validates the IPTV provider's credentials against its own user table and
+            # always returns 401. Hitting the provider directly tests the real stream.
+            if public_domain and provider_base_url:
+                public_clean = public_domain.rstrip("/")
+                provider_clean = provider_base_url.rstrip("/")
+                test_url = test_url.replace(public_clean, provider_clean)
+
             if test_url == stream_url:
                 return
 
             is_alive, ms, info = await asyncio.get_event_loop().run_in_executor(
-                None, _check_single_channel, test_url, HEALTH_CHECK_TIMEOUT, HEALTH_CHECK_BYTES
+                None, _check_single_channel, test_url, HEALTH_CHECK_TIMEOUT, HEALTH_CHECK_BYTES, proxies
             )
 
             estado = "ok" if is_alive else "error"

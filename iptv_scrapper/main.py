@@ -1,4 +1,5 @@
 import asyncio
+import os
 import traceback
 from urllib.parse import quote
 
@@ -95,11 +96,22 @@ async def main():
                 )
                 provider_username = await ConfigManager.get_config("IPTV_USERNAME") or ""
                 provider_password = await ConfigManager.get_config("IPTV_PASSWORD") or ""
+                provider_base_url = await ConfigManager.get_config("IPTV_BASE_URL") or ""
+                public_domain = os.getenv("PUBLIC_DOMAIN", "")
+                proxies = None
+                if football_logos_proxy:
+                    proxies = {"http": football_logos_proxy, "https": football_logos_proxy}
+
                 if provider_username and provider_password:
                     try:
                         await asyncio.wait_for(
                             verificar_salud_canales_evento(
-                                source_names_evento, provider_username, provider_password
+                                source_names_evento,
+                                provider_username,
+                                provider_password,
+                                provider_base_url=provider_base_url,
+                                public_domain=public_domain,
+                                proxies=proxies,
                             ),
                             timeout=HEALTH_CHECK_TOTAL_TIMEOUT,
                         )
