@@ -18,10 +18,10 @@ COPY docker/config/requirements-tmdb.txt .
 RUN pip install --no-cache-dir -r requirements-tmdb.txt
 
 # Copiar código del scraper
-COPY scripts/scrape_tmdb_metadata.py scripts/
-COPY scripts/import_imdb_ratings.py scripts/
-COPY scripts/populate_episode_imdb_ids.py scripts/
-COPY scripts/utils/ scripts/utils/
+COPY iptv_scrapper/scrape_tmdb_metadata.py iptv_scrapper/
+COPY iptv_scrapper/import_imdb_ratings.py iptv_scrapper/
+COPY iptv_scrapper/populate_episode_imdb_ids.py iptv_scrapper/
+COPY iptv_scrapper/utils/ iptv_scrapper/utils/
 COPY docker/entrypoint-tmdb.sh /app/entrypoint.sh
 
 # Hacer ejecutables
@@ -30,7 +30,7 @@ RUN chmod +x /app/entrypoint.sh
 # Variables de entorno
 ENV DOCKER_CONTAINER=true \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/scripts:$PYTHONPATH
+    PYTHONPATH=/app/iptv_scrapper:$PYTHONPATH
 
 # Comando por defecto
 CMD ["/app/entrypoint.sh"]

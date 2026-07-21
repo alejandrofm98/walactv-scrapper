@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from database import DatabasePG
+from iptv_scrapper.database import DatabasePG
 
 
 def _mock_engines():
     """Mockea los engines iptv-db para evitar conexiones reales."""
     return patch.multiple(
-        "database",
+        "iptv_scrapper.database",
         get_async_engine=MagicMock(return_value=AsyncMock()),
         get_async_session_factory=MagicMock(return_value=MagicMock()),
         get_sync_engine=MagicMock(return_value=MagicMock()),
@@ -45,7 +45,7 @@ class TestDatabasePGIptvDb:
         mock_factory = MagicMock()
         with (
             _mock_engines(),
-            patch("database.get_async_session_factory", return_value=mock_factory),
+            patch("iptv_scrapper.database.get_async_session_factory", return_value=mock_factory),
         ):
             await DatabasePG.initialize()
             factory = DatabasePG.get_session_factory()
@@ -61,7 +61,7 @@ class TestDatabasePGIptvDb:
         mock_factory = MagicMock()
         with (
             _mock_engines(),
-            patch("database.get_sync_session_factory", return_value=mock_factory),
+            patch("iptv_scrapper.database.get_sync_session_factory", return_value=mock_factory),
         ):
             await DatabasePG.initialize()
             factory = DatabasePG.get_sync_session_factory()

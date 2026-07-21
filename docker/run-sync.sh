@@ -1,2 +1,2 @@
 #!/bin/sh
-python scripts/sync_iptv.py && python scripts/poblar_mapeo_canales.py
+python iptv_scrapper/sync_iptv.py && python iptv_scrapper/poblar_mapeo_canales.py

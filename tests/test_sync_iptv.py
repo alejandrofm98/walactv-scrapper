@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sync_iptv import (
+from iptv_scrapper.sync_iptv import (
     contains_language,
     extraer_año,
     extraer_idioma_desde_grupo,

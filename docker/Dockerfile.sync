@@ -19,13 +19,13 @@ RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt || 
     pip install --no-cache-dir --timeout 600 --retries 10 -r requirements.txt
 
 # Copiar código necesario
-COPY scripts/config.py scripts/
-COPY scripts/database.py scripts/
-COPY scripts/sync_iptv.py scripts/
-COPY scripts/poblar_mapeo_canales.py scripts/
-COPY scripts/generate_content_json.py scripts/
-COPY scripts/utils/ scripts/utils/
-COPY scripts/services/ scripts/services/
+COPY iptv_scrapper/config.py iptv_scrapper/
+COPY iptv_scrapper/database.py iptv_scrapper/
+COPY iptv_scrapper/sync_iptv.py iptv_scrapper/
+COPY iptv_scrapper/poblar_mapeo_canales.py iptv_scrapper/
+COPY iptv_scrapper/generate_content_json.py iptv_scrapper/
+COPY iptv_scrapper/utils/ iptv_scrapper/utils/
+COPY iptv_scrapper/services/ iptv_scrapper/services/
 COPY resources/ resources/
 COPY docker/entrypoint-sync.sh /app/entrypoint.sh
 COPY docker/run-sync.sh /app/run-sync.sh
@@ -36,7 +36,7 @@ RUN chmod +x /app/entrypoint.sh /app/run-sync.sh
 # Variables de entorno
 ENV DOCKER_CONTAINER=true \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/scripts:$PYTHONPATH
+    PYTHONPATH=/app/iptv_scrapper:$PYTHONPATH
 
 # Comando por defecto
 CMD ["/app/entrypoint.sh"]

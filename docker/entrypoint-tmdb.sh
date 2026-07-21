@@ -30,7 +30,7 @@ echo ""
 
 # Ejecutar scrape inicial al iniciar
 echo "⏳ Ejecutando scrape inicial..."
-python scripts/scrape_tmdb_metadata.py --batch-size 50
+python iptv_scrapper/scrape_tmdb_metadata.py --batch-size 50
 SCRAPE_STATUS=$?
 
 if [ $SCRAPE_STATUS -eq 0 ]; then
@@ -45,9 +45,9 @@ echo "   - Ofelia ejecutará scrape 4 veces al día (3:30, 9:30, 15:30, 21:30)"
 echo "   - Contenedor se mantiene activo para recibir comandos"
 echo ""
 echo "💡 Comandos manuales:"
-echo "   - Scrape completo: docker exec walactv-sync-tmdb-metadata python scripts/scrape_tmdb_metadata.py"
-echo "   - Scrape dry-run: docker exec walactv-sync-tmdb-metadata python scripts/scrape_tmdb_metadata.py --dry-run"
-echo "   - Scrape limitado: docker exec walactv-sync-tmdb-metadata python scripts/scrape_tmdb_metadata.py --max-items 10"
+echo "   - Scrape completo: docker exec walactv-sync-tmdb-metadata python iptv_scrapper/scrape_tmdb_metadata.py"
+echo "   - Scrape dry-run: docker exec walactv-sync-tmdb-metadata python iptv_scrapper/scrape_tmdb_metadata.py --dry-run"
+echo "   - Scrape limitado: docker exec walactv-sync-tmdb-metadata python iptv_scrapper/scrape_tmdb_metadata.py --max-items 10"
 echo ""
 
 # Mantener contenedor vivo para Ofelia

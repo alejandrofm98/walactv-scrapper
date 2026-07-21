@@ -7,8 +7,8 @@ requires-python = ">=3.12"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["scripts"]
-extend-exclude = [".venv", "node_modules", "scripts/.playwright-google-profile"]
+src = ["iptv_scrapper"]
+extend-exclude = [".venv", "node_modules", "iptv_scrapper/.playwright-google-profile"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
@@ -23,11 +23,11 @@ ignore = [
 unfixable = ["B"]
 
 [tool.ruff.lint.per-file-ignores]
-"scripts/proxificaUrl.py" = ["ALL"]
-"scripts/actualiza_epg.py" = ["E402"]
+"iptv_scrapper/proxificaUrl.py" = ["ALL"]
+"iptv_scrapper/actualiza_epg.py" = ["E402"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["scripts", "database", "utils"]
+known-first-party = ["iptv_scrapper"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -43,12 +43,12 @@ show_error_codes = true
 exclude = [".venv", "node_modules"]
 
 [[tool.mypy.overrides]]
-module = ["scripts.proxificaUrl", "scripts.actualiza_epg"]
+module = ["iptv_scrapper.proxificaUrl", "iptv_scrapper.actualiza_epg"]
 ignore_errors = true
 
 [tool.vulture]
 min_confidence = 80
-paths = ["scripts"]
+paths = ["iptv_scrapper"]
 sort_by_size = true
 
 [tool.pytest.ini_options]
@@ -60,8 +60,8 @@ asyncio_mode = "auto"
 addopts = ["-ra", "--strict-markers", "--tb=short"]
 
 [tool.coverage.run]
-source = ["scripts"]
-omit = ["*/__pycache__/*", "*/.venv/*", "scripts/proxificaUrl.py"]
+source = ["iptv_scrapper"]
+omit = ["*/__pycache__/*", "*/.venv/*", "iptv_scrapper/proxificaUrl.py"]
 
 [tool.coverage.report]
 show_missing = true
