@@ -19,13 +19,13 @@ RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt || 
     pip install --no-cache-dir --timeout 600 --retries 10 -r requirements.txt
 
 # Copiar código necesario
-COPY iptv_scrapper/config.py iptv_scrapper/
-COPY iptv_scrapper/database.py iptv_scrapper/
-COPY iptv_scrapper/sync_iptv.py iptv_scrapper/
-COPY iptv_scrapper/poblar_mapeo_canales.py iptv_scrapper/
-COPY iptv_scrapper/generate_content_json.py iptv_scrapper/
-COPY iptv_scrapper/utils/ iptv_scrapper/utils/
-COPY iptv_scrapper/services/ iptv_scrapper/services/
+COPY src/iptv_scrapper/config.py iptv_scrapper/
+COPY src/iptv_scrapper/database.py iptv_scrapper/
+COPY src/iptv_scrapper/sync_iptv.py iptv_scrapper/
+COPY src/iptv_scrapper/poblar_mapeo_canales.py iptv_scrapper/
+COPY src/iptv_scrapper/generate_content_json.py iptv_scrapper/
+COPY src/iptv_scrapper/utils/ iptv_scrapper/utils/
+COPY src/iptv_scrapper/services/ iptv_scrapper/services/
 COPY resources/ resources/
 COPY docker/entrypoint-sync.sh /app/entrypoint.sh
 COPY docker/run-sync.sh /app/run-sync.sh

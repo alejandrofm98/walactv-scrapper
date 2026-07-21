@@ -18,10 +18,10 @@ RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt || 
     pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt || \
     pip install --no-cache-dir --timeout 600 --retries 10 -r requirements.txt
 
-COPY iptv_scrapper/config.py iptv_scrapper/
-COPY iptv_scrapper/database.py iptv_scrapper/
-COPY iptv_scrapper/sync_replays.py iptv_scrapper/
-COPY iptv_scrapper/utils/ iptv_scrapper/utils/
+COPY src/iptv_scrapper/config.py iptv_scrapper/
+COPY src/iptv_scrapper/database.py iptv_scrapper/
+COPY src/iptv_scrapper/sync_replays.py iptv_scrapper/
+COPY src/iptv_scrapper/utils/ iptv_scrapper/utils/
 
 ENV DOCKER_CONTAINER=true \
     PYTHONUNBUFFERED=1 \
