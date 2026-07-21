@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPTS_DIR = Path(__file__).parent.parent / "src" / "iptv_scrapper"
+SCRIPTS_DIR = Path(__file__).parent.parent / "iptv_scrapper"
 
 # Ensure iptv_scrapper/ is in sys.path so that bare module imports
 # (e.g. "from database import ...") resolve correctly.

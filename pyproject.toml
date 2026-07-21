@@ -5,14 +5,13 @@ description = "Sports event scraper and IPTV sync engine for WalacTV ecosystem"
 requires-python = ">=3.12"
 
 [tool.setuptools.packages.find]
-where = ["src"]
 include = ["iptv_scrapper*"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src"]
-extend-exclude = [".venv", "node_modules", "src/iptv_scrapper/.playwright-google-profile"]
+src = ["iptv_scrapper", "tests"]
+extend-exclude = [".venv", "node_modules", "iptv_scrapper/.playwright-google-profile"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
@@ -27,8 +26,8 @@ ignore = [
 unfixable = ["B"]
 
 [tool.ruff.lint.per-file-ignores]
-"src/iptv_scrapper/proxificaUrl.py" = ["ALL"]
-"src/iptv_scrapper/actualiza_epg.py" = ["E402"]
+"iptv_scrapper/proxificaUrl.py" = ["ALL"]
+"iptv_scrapper/actualiza_epg.py" = ["E402"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["iptv_scrapper"]
@@ -52,7 +51,7 @@ ignore_errors = true
 
 [tool.vulture]
 min_confidence = 80
-paths = ["src/iptv_scrapper"]
+paths = ["iptv_scrapper"]
 sort_by_size = true
 
 [tool.pytest.ini_options]
@@ -64,8 +63,8 @@ asyncio_mode = "auto"
 addopts = ["-ra", "--strict-markers", "--tb=short"]
 
 [tool.coverage.run]
-source = ["src"]
-omit = ["*/__pycache__/*", "*/.venv/*", "src/iptv_scrapper/proxificaUrl.py"]
+source = ["iptv_scrapper"]
+omit = ["*/__pycache__/*", "*/.venv/*", "iptv_scrapper/proxificaUrl.py"]
 
 [tool.coverage.report]
 show_missing = true
