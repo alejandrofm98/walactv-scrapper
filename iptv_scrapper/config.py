@@ -99,8 +99,8 @@ class Settings:
 
                 config = {row["key"]: row["value"] for row in rows}
 
-                self.iptv_user = config.get("IPTV_USER")
-                self.iptv_pass = config.get("IPTV_PASS")
+                self.iptv_user = config.get("IPTV_USERNAME")
+                self.iptv_pass = config.get("IPTV_PASSWORD")
                 self.iptv_base_url = config.get("IPTV_BASE_URL")
 
                 if "SESSION_TIMEOUT_MINUTES" in config:
@@ -157,9 +157,9 @@ class Settings:
             errors.append("PG_PASSWORD no configurada")
 
         if not self.iptv_user:
-            errors.append("IPTV_USER no encontrado en tabla config")
+            errors.append("IPTV_USERNAME no encontrado en tabla config")
         if not self.iptv_pass:
-            errors.append("IPTV_PASS no encontrado en tabla config")
+            errors.append("IPTV_PASSWORD no encontrado en tabla config")
         if not self.iptv_base_url:
             warnings_list.append("IPTV_BASE_URL no configurado")
 

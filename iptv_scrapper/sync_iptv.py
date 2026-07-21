@@ -1421,6 +1421,7 @@ def parsear_m3u(m3u_content: str) -> list:
 
 async def sync_to_postgres():
     """Sincroniza canales, películas y series a PostgreSQL"""
+    await DatabasePG.initialize()
     inicio_total = time.time()
     hora_inicio = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
