@@ -75,6 +75,7 @@ services:
       - walactv-sync-tmdb-metadata
       - walactv-imdb-ratings
       - walactv-imdb-episode-ids
+      - walactv-tmdb-trending
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     command: daemon --config /ofelia.config.ini
@@ -123,6 +124,23 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.tmdb
     container_name: walactv-imdb-episode-ids
+    restart: unless-stopped
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
+    env_file:
+      - .env
+    environment:
+      - DOCKER_CONTAINER=true
+      - PYTHONUNBUFFERED=1
+    networks:
+      - dokploy-network
+      - iptv-ecosystem
+
+  # Scrapea tendencias TMDB (movie/tv) en trending_rankings dos veces al dia via Ofelia.
+  walactv-tmdb-trending:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tmdb
+    container_name: walactv-tmdb-trending
     restart: unless-stopped
     command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
     env_file:
