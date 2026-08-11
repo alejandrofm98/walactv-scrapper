@@ -636,7 +636,9 @@ _VIDEO_CONTENT_TYPES = [
 ]
 
 
-def _check_single_channel(url: str, timeout: int, bytes_to_check: int, proxies: dict[str, str] | None = None) -> tuple:
+def _check_single_channel(
+    url: str, timeout: int, bytes_to_check: int, proxies: dict[str, str] | None = None
+) -> tuple:
     """
     Verifica un stream HTTP. Retorna (is_alive, response_time_ms, info).
     """
@@ -721,7 +723,12 @@ async def verificar_salud_canales_evento(
                 return
 
             is_alive, ms, info = await asyncio.get_event_loop().run_in_executor(
-                None, _check_single_channel, test_url, HEALTH_CHECK_TIMEOUT, HEALTH_CHECK_BYTES, proxies
+                None,
+                _check_single_channel,
+                test_url,
+                HEALTH_CHECK_TIMEOUT,
+                HEALTH_CHECK_BYTES,
+                proxies,
             )
 
             estado = "ok" if is_alive else "error"

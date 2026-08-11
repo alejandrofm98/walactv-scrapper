@@ -3,6 +3,9 @@ name = "walactv-scrapper"
 version = "1.0.0"
 description = "Sports event scraper and IPTV sync engine for WalacTV ecosystem"
 requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.32.3,<3.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["iptv_scrapper*"]

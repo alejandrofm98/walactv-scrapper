@@ -152,9 +152,7 @@ def scrape_trending():
                 )
             session.commit()
 
-            logger.info(
-                "  Total para %s: %d items guardados", media_type, len(rankings)
-            )
+            logger.info("  Total para %s: %d items guardados", media_type, len(rankings))
 
         logger.info("Scraping de tendencias TMDB completado exitosamente")
 
