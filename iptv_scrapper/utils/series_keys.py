@@ -43,7 +43,7 @@ NOISE_SUFFIXES = [
 ]
 
 PREFIX_PATTERN = re.compile(
-    r"^(?:LATAM|LAT|MULTI|ES|EN|FR|DE|IT|PT)(?:/(?:LATAM|LAT|MULTI|ES|EN|FR|DE|IT|PT))?\s*[.…\-–]?\s+",
+    r"^(?:LATAM|LAT|MULTI|ES|EN|FR|DE|IT|PT)(?:/(?:LATAM|LAT|MULTI|ES|EN|FR|DE|IT|PT))?\s*[.…\-\u2013]?\s+",
     re.IGNORECASE,
 )
 

@@ -8,9 +8,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import text
-
 from scripts.utils import constants as CONSTANTS
+from sqlalchemy import text
 
 
 @dataclass

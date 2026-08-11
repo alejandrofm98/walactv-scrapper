@@ -2,6 +2,7 @@ import asyncio
 import re
 import time
 from datetime import datetime, timedelta
+from typing import cast
 
 import requests
 from bs4 import BeautifulSoup
@@ -158,13 +159,14 @@ class ScrapperFutbolenlatv:
 
     def __init__(self, mapeos=None, football_logos_proxy=""):
         self.url = "https://www.futbolenlatv.es/deporte"
+        self.soup: BeautifulSoup | None = None
+        self._ufc_imagen_cache: str | None = None
         try:
             response = requests.get(self.url, headers=self.REQUEST_HEADERS, timeout=30)
             response.raise_for_status()
             self.soup = BeautifulSoup(response.text, "html.parser")
         except Exception as e:
             print(f"Error accediendo a {self.url}: {e}")
-            self.soup = None
 
         self.canales = []
         self._mapeos_cache = mapeos if mapeos is not None else {}
@@ -365,7 +367,7 @@ class ScrapperFutbolenlatv:
         return imagen_default
 
     def _obtener_imagen_evento_ufc(self):
-        if hasattr(self, "_ufc_imagen_cache"):
+        if self._ufc_imagen_cache is not None:
             return self._ufc_imagen_cache
         self._ufc_imagen_cache = ""
 
@@ -385,9 +387,9 @@ class ScrapperFutbolenlatv:
             if picture:
                 source = picture.find("source")
                 if source:
-                    srcset = source.get("srcset", "")
-                    url = srcset.split(" ")[0]
-                    self._ufc_imagen_cache = url
+                    srcset = source.get("srcset")
+                    if isinstance(srcset, str):
+                        self._ufc_imagen_cache = srcset.split(" ")[0]
         except Exception as e:
             print(f"⚠️ Error obteniendo imagen UFC: {e}")
 
@@ -464,7 +466,7 @@ class ScrapperFutbolenlatv:
 
                 # Verificar si es una fila de evento válido
                 # En BS4, attrs['class'] devuelve una lista
-                clases = tds[0].get("class", [])
+                clases = cast(list[str], tds[0].get("class") or [])
 
                 if "hora" in clases:
                     hora = tds[0].text.strip()
@@ -478,8 +480,9 @@ class ScrapperFutbolenlatv:
                     categoria = "Otros"
                     if detalles_td:
                         img_tag = detalles_td.find("img")
-                        if img_tag and img_tag.get("alt"):
-                            categoria = img_tag.get("alt").strip()
+                        alt = img_tag.get("alt") if img_tag else None
+                        if isinstance(alt, str) and alt:
+                            categoria = alt.strip()
 
                     if len(tds) > 2:
                         equipos = tds[2].text.strip()
@@ -595,7 +598,7 @@ class ScrapperFutbolenlatv:
             canal_lower = canal_title.lower()
             encontrado = False
 
-            for source_name in self._get_mapeos().keys():
+            for source_name in self._get_mapeos():
                 if source_name.lower() == canal_lower:
                     encontrado = True
                     if source_name not in self.canales:
@@ -689,7 +692,7 @@ async def verificar_salud_canales_evento(
 
     total = sum(len(v) for v in variants_map.values())
     if total == 0:
-        print("ℹ️ Health check: sin variantes con stream_url")
+        print("INFO: Health check: sin variantes con stream_url")
         return
 
     print(f"\n🔍 Verificando salud de {total} streams...")

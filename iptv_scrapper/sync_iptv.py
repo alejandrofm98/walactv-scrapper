@@ -293,7 +293,7 @@ def extraer_metadatos_normalizados_m3u(extinf_line: str) -> dict:
     return construir_metadatos_normalizados(source_name, group_title, CONSTANTS.CONTENT_TYPE_MOVIE)
 
 
-def enriquecer_extinf_con_metadatos(extinf_line: str, content_type: str = None) -> str:
+def enriquecer_extinf_con_metadatos(extinf_line: str, content_type: str | None = None) -> str:
     attrs_part, display_name = split_extinf_line(extinf_line)
 
     # Para canales, usar extraer_country; para movies/series usar idioma normalizado
@@ -496,15 +496,10 @@ def extraer_provider_id(url: str) -> str:
         - http://PROVIDER_URL/series/USER/PASS/1306345.mkv → "1306345"
         - http://PROVIDER_URL/movie/USER/PASS/2001330.mkv → "2001330"
     """
-    try:
-        # Obtener la última parte de la URL (después del último /)
-        last_part = url.rstrip("/").split("/")[-1]
-        # Quitar extensión si existe (.mkv, .mp4, .ts, etc.)
-        provider_id = last_part.split(".")[0]
-        # Truncar a máximo 50 caracteres (límite de la base de datos)
-        return provider_id[:50]
-    except Exception:
-        return ""
+    # Obtener la última parte de la URL y quitar la extensión si existe.
+    last_part = url.rstrip("/").split("/")[-1]
+    provider_id = last_part.split(".")[0]
+    return provider_id[:50]
 
 
 def construir_stream_url(url: str, provider_username: str, provider_password: str) -> str:
@@ -599,7 +594,7 @@ async def contar_registros_tabla(tabla: str) -> int:
         return 0
 
 
-def limpiar_m3u_antiguos(m3u_dir: str, copias_mantener: int = None):
+def limpiar_m3u_antiguos(m3u_dir: str):
     """
     Elimina TODOS los archivos M3U anteriores antes de generar nuevos.
     Esto incluye playlist.m3u, playlist_template.m3u y todos los backups.
@@ -730,13 +725,10 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
 
         if content_type and current_extinf:
             should_include = True
-            include_in_full = True
 
-            if content_type in ["movie", "series"]:
-                if not contains_language(current_extinf):
-                    should_include = False
-                    filtered[content_type] += 1
-                    include_in_full = False
+            if content_type in ["movie", "series"] and not contains_language(current_extinf):
+                should_include = False
+                filtered[content_type] += 1
 
             if should_include:
                 counts[content_type] += 1
@@ -764,7 +756,9 @@ def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
     }
 
 
-def guardar_m3u_local(contenido_m3u: str, m3u_dir: str = None, provider_url: str = None):
+def guardar_m3u_local(
+    contenido_m3u: str, m3u_dir: str | None = None, provider_url: str | None = None
+):
     """
     Guarda archivos M3U templates separados por tipo de contenido.
     Genera:
@@ -787,12 +781,16 @@ def guardar_m3u_local(contenido_m3u: str, m3u_dir: str = None, provider_url: str
                 CONSTANTS.M3U_DIR_ENV, str(project_root / CONSTANTS.M3U_DIR_LOCAL_DEFAULT)
             )
 
+    target_dir = m3u_dir
+    if target_dir is None:
+        raise ValueError("No se pudo determinar el directorio M3U")
+
     try:
-        print(f"📁 Preparando directorio: {m3u_dir}")
-        os.makedirs(m3u_dir, exist_ok=True)
+        print(f"📁 Preparando directorio: {target_dir}")
+        os.makedirs(target_dir, exist_ok=True)
 
         print("  🧹 Limpiando archivos M3U anteriores...")
-        limpiar_m3u_antiguos(m3u_dir)
+        limpiar_m3u_antiguos(target_dir)
 
         print("💾 Generando templates M3U...")
         if not provider_url:
@@ -803,7 +801,7 @@ def guardar_m3u_local(contenido_m3u: str, m3u_dir: str = None, provider_url: str
         templates = crear_template_m3u(contenido_m3u, provider_url)
 
         def write_atomic(content: str, filename: str):
-            path = os.path.join(m3u_dir, filename)
+            path = os.path.join(target_dir, filename)
             path_tmp = f"{path}.tmp"
             with open(path_tmp, "w", encoding="utf-8") as f:
                 f.write(content)
@@ -1485,7 +1483,8 @@ async def sync_to_postgres():
     url = playlist_url
     MAX_RETRIES = 3
     retry_count = 0
-    m3u_content = None
+    m3u_content: str | None = None
+    duracion_descarga = 0.0
 
     print("\n📥 FASE 1: Descargando playlist M3U...")
 
@@ -1527,6 +1526,10 @@ async def sync_to_postgres():
             else:
                 print(f"❌ Error de conexión después de {MAX_RETRIES} intentos: {e}")
                 return 1
+
+    if m3u_content is None:
+        print("❌ No se pudo descargar la playlist M3U")
+        return 1
 
     print("\n" + "=" * 60)
     m3u_info = guardar_m3u_local(m3u_content, provider_url=provider_url)
@@ -1632,16 +1635,18 @@ async def sync_to_postgres():
     series_match = count_series_streams_db == len(series)
 
     # Generar JSONs para cache del cliente TV (siempre, antes del chequeo)
-    generar_todos_json = None
+    generar_json_cache = None
     try:
         from generate_content_json import generar_todos_json
+
+        generar_json_cache = generar_todos_json
     except ImportError as import_err:
         print(f"⚠️  Módulo generate_content_json no disponible: {import_err}")
 
-    if generar_todos_json:
+    if generar_json_cache:
         try:
             print("\n📦 Generando JSONs para cache TV...")
-            json_results = await generar_todos_json()
+            json_results = await generar_json_cache()
             if json_results:
                 for content_type, result in json_results.items():
                     if result:
@@ -1671,14 +1676,10 @@ async def sync_to_postgres():
             print("❌ No hay contenido para insertar.")
             return 1
 
-        tiempo_channels = 0
-        tiempo_movies = 0
-        tiempo_series = 0
-
         if not channels_match and len(channels) > 0:
             inicio_channels = time.time()
             await insert_channels_upsert(channels)
-            tiempo_channels = time.time() - inicio_channels
+            time.time() - inicio_channels
         else:
             print(f"  ⏭️  Canales: sin cambios ({count_channels_db:,} registros)")
 
@@ -1686,18 +1687,16 @@ async def sync_to_postgres():
         if not movies_match and len(movies) > 0:
             inicio_movies = time.time()
             await insert_movies_catalog(movies)
-            tiempo_movies = time.time() - inicio_movies
+            time.time() - inicio_movies
         else:
             print(f"  ⏭️  Películas: sin cambios ({count_movies_catalog_db:,} catálogo)")
-            tiempo_movies = 0
 
         if not series_match and len(series) > 0:
             inicio_series = time.time()
             await insert_series_catalog(series)
-            tiempo_series = time.time() - inicio_series
+            time.time() - inicio_series
         else:
             print(f"  ⏭️  Series: sin cambios ({count_series_catalog_db:,} catálogo)")
-            tiempo_series = 0
 
         fin_insercion = time.time()
         duracion_insercion = fin_insercion - inicio_insercion

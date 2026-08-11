@@ -15,6 +15,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 # Añadir el directorio padre al path para imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -29,10 +30,10 @@ from utils.constants import (
 
 
 class DateTimeEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        return super().default(obj)
+    def default(self, o: Any) -> Any:
+        if isinstance(o, datetime):
+            return o.isoformat()
+        return super().default(o)
 
 
 async def generar_channels_json():
@@ -96,7 +97,7 @@ async def generar_channels_json():
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
 
-            with open(gz_path, "wb") as f, gzip.open(f, "wt", encoding="utf-8") as gz:
+            with gzip.open(gz_path, "wt", encoding="utf-8") as gz:
                 gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
 
             json_size_mb = json_path.stat().st_size / (1024 * 1024)
@@ -213,7 +214,7 @@ async def generar_movies_json():
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
 
-            with open(gz_path, "wb") as f, gzip.open(f, "wt", encoding="utf-8") as gz:
+            with gzip.open(gz_path, "wt", encoding="utf-8") as gz:
                 gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
 
             json_size_mb = json_path.stat().st_size / (1024 * 1024)
@@ -335,7 +336,7 @@ async def generar_series_json():
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2, cls=DateTimeEncoder)
 
-            with open(gz_path, "wb") as f, gzip.open(f, "wt", encoding="utf-8") as gz:
+            with gzip.open(gz_path, "wt", encoding="utf-8") as gz:
                 gz.write(json.dumps(payload, ensure_ascii=False, cls=DateTimeEncoder))
 
             json_size_mb = json_path.stat().st_size / (1024 * 1024)

@@ -157,7 +157,7 @@ class WatchWrestlingUfcScraper:
 
     @staticmethod
     def _log_info(message: str) -> None:
-        print(f"ℹ️  {message}")
+        print(f"INFO: {message}")
 
     @staticmethod
     def _log_warning(message: str) -> None:
@@ -884,20 +884,24 @@ class WatchWrestlingUfcScraper:
             return stream_data
 
         parsed_url = urlparse(provider_url)
-        if parsed_url.netloc and parsed_url.netloc not in {
-            "dailywrestling.cc",
-            "watch-wrestling.eu",
-        }:
-            if "/embed/" in parsed_url.path or parsed_url.path.startswith("/e/"):
-                stream_data.update(
-                    {
-                        "provider": self._detectar_provider_desde_url(provider_url),
-                        "stream_url": None,
-                        "stream_format": "embed",
-                        "resolution_mode": "embed",
-                    }
-                )
-                return stream_data
+        if (
+            parsed_url.netloc
+            and parsed_url.netloc
+            not in {
+                "dailywrestling.cc",
+                "watch-wrestling.eu",
+            }
+            and ("/embed/" in parsed_url.path or parsed_url.path.startswith("/e/"))
+        ):
+            stream_data.update(
+                {
+                    "provider": self._detectar_provider_desde_url(provider_url),
+                    "stream_url": None,
+                    "stream_format": "embed",
+                    "resolution_mode": "embed",
+                }
+            )
+            return stream_data
 
         return stream_data
 
@@ -1030,10 +1034,7 @@ class WatchWrestlingUfcScraper:
             "do not exist",
             "not available",
         )
-        if any(marker in body for marker in invalid_markers):
-            return False
-
-        return True
+        return not any(marker in body for marker in invalid_markers)
 
     def _normalizar_provider_url(self, provider_url: str) -> str:
         """Sigue shorteners conocidos para quedarnos con la URL mas util."""
@@ -1254,7 +1255,7 @@ class WatchWrestlingUfcScraper:
             return data
 
         quality_sources = metadata.get("qualities") or {}
-        selected_quality, source = self._seleccionar_mejor_stream_dailymotion(quality_sources)
+        _selected_quality, source = self._seleccionar_mejor_stream_dailymotion(quality_sources)
         if source:
             data["stream_url"] = source.get("url")
             data["stream_format"] = source.get("type")
@@ -1264,7 +1265,7 @@ class WatchWrestlingUfcScraper:
             data["stream_format"] = "embed"
             data["resolution_mode"] = "embed"
 
-        available_qualities = [key for key, value in quality_sources.items() if value]
+        [key for key, value in quality_sources.items() if value]
 
         return data
 

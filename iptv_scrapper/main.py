@@ -54,7 +54,7 @@ async def main():
         if football_logos_proxy:
             print(f"✅ Proxy football-logos configurado desde config: {proxy_ip}:{proxy_port}")
         else:
-            print("ℹ️ Proxy football-logos no configurado; descarga directa")
+            print("INFO: Proxy football-logos no configurado; descarga directa")
 
         # 3. Obtener fechas y calendario
         fechas = ScrapperFutbolenlatv.obtener_fechas()
@@ -85,7 +85,7 @@ async def main():
             # 4.5 Health check solo para canales de eventos
             await ChannelMappingManager.ensure_health_columns()
             source_names_evento: set[str] = set()
-            for fecha, partidos in todos_eventos.items():
+            for _fecha, partidos in todos_eventos.items():
                 for partido in partidos.values():
                     if isinstance(partido, dict):
                         source_names_evento.update(partido.get("canales", []))
@@ -118,7 +118,7 @@ async def main():
                     except TimeoutError:
                         print("⏱️ Health check cancelado por timeout")
                 else:
-                    print("ℹ️ Sin credenciales IPTV configuradas, saltando health check")
+                    print("INFO: Sin credenciales IPTV configuradas, saltando health check")
 
         try:
             borradas = limpiar_imagenes_eventos()

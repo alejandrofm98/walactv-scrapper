@@ -248,7 +248,7 @@ def cargar_aliases() -> dict[str, dict[str, str]]:
     try:
         with ALIASES_PATH.open("r", encoding="utf-8") as archivo:
             aliases = json.load(archivo)
-        print(f"ℹ️ Aliases de logos fútbol cargados: {len(aliases)}")
+        print(f"INFO: Aliases de logos fútbol cargados: {len(aliases)}")
         return {
             normalizar_texto(clave): valor
             for clave, valor in aliases.items()
@@ -284,7 +284,7 @@ class FootballLogosResolver:
         self.logos_dir = logos_dir
         self.proxy_url = proxy_url
         self.aliases = cargar_aliases()
-        self._candidatos = None
+        self._candidatos: list[CandidatoLogo] | None = None
         self._remote_disabled = False
 
     def _obtener_candidatos(self) -> list[CandidatoLogo]:

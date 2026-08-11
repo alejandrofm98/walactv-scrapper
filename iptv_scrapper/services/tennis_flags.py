@@ -153,7 +153,7 @@ def cargar_aliases() -> dict[str, str]:
     try:
         with ALIASES_PATH.open("r", encoding="utf-8") as archivo:
             aliases = json.load(archivo)
-            print(f"ℹ️ Aliases de banderas tenis cargados: {len(aliases)}")
+            print(f"INFO: Aliases de banderas tenis cargados: {len(aliases)}")
             return aliases
     except Exception as e:
         print(f"⚠️ Error leyendo aliases de banderas tenis: {e}")

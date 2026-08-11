@@ -4,6 +4,7 @@ F3a: iptv_db.engine interno. F3d4a: todas las clases migradas a iptv-db.
 asyncpg pool eliminado en F3d4b (0 callers externos).
 """
 
+import logging
 import os
 import pathlib
 from datetime import date, datetime
@@ -17,6 +18,8 @@ from iptv_db.engine import (
 )
 from iptv_db.models import Config
 from sqlalchemy import select, text
+
+logger = logging.getLogger(__name__)
 
 try:
     from dotenv import load_dotenv
@@ -158,8 +161,8 @@ class ChannelMappingManager:
     async def upsert_mapping(
         source_name: str,
         display_name: str,
-        channel_ids: list[str] = None,
-        qualities: list[str] = None,
+        channel_ids: list[str] | None = None,
+        qualities: list[str] | None = None,
     ) -> int | None:
         """Inserta o actualiza un mapeo completo con sus variantes"""
         try:
@@ -416,8 +419,8 @@ class ChannelMappingManager:
                     {"estado": estado, "ms": tiempo_ms, "cid": channel_id},
                 )
                 await session.commit()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("No se pudo actualizar la salud del canal %s: %s", channel_id, exc)
 
     @staticmethod
     async def get_variants_for_source_names(source_names: list[str]) -> dict[str, list[dict]]:
@@ -477,11 +480,11 @@ class CalendarioAcestreamManager:
         fecha: date,
         hora: str,
         equipos: str,
-        competicion: str = None,
-        canales: list[str] = None,
-        categoria: str = None,
-        imagen_evento: str = None,
-        subtitulo_competicion: str = None,
+        competicion: str | None = None,
+        canales: list[str] | None = None,
+        categoria: str | None = None,
+        imagen_evento: str | None = None,
+        subtitulo_competicion: str | None = None,
     ) -> bool:
         """Inserta o actualiza un partido del calendario"""
         try:
@@ -607,7 +610,7 @@ class DataManagerSupabase:
         try:
             try:
                 fecha = datetime.strptime(fecha_str, "%d/%m/%Y").date()
-            except Exception:
+            except ValueError:
                 fecha = date.today()
 
             partidos_validos = [p for p in eventos.values() if isinstance(p, dict)]

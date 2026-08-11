@@ -112,7 +112,7 @@ class Settings:
                 if "PUBLIC_DOMAIN" in config:
                     self.public_domain = config["PUBLIC_DOMAIN"]
                 elif os.getenv("PUBLIC_DOMAIN"):
-                    self.public_domain = os.getenv("PUBLIC_DOMAIN")
+                    self.public_domain = os.getenv("PUBLIC_DOMAIN") or self.public_domain
 
                 if self.iptv_user and self.iptv_pass and self.iptv_base_url:
                     self.iptv_source_url = (

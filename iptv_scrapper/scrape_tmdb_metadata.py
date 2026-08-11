@@ -20,7 +20,7 @@ import os
 import re
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -87,7 +87,7 @@ class ScrapeResult:
     release_date: str | None = None
     year: int | None = None
     runtime_minutes: int | None = None
-    genres: list[str] = None
+    genres: list[str] = field(default_factory=list)
     poster_path: str | None = None
     backdrop_path: str | None = None
     tagline: str | None = None
@@ -102,7 +102,7 @@ class ScrapeResult:
         if self.genres is None:
             self.genres = []
         # Sanear strings vacíos en campos que podrían causar error en BD
-        for field in (
+        for field_name in (
             "release_date",
             "overview_es",
             "overview_en",
@@ -113,7 +113,7 @@ class ScrapeResult:
             "title",
             "original_title",
         ):
-            setattr(self, field, _or_none(getattr(self, field)))
+            setattr(self, field_name, _or_none(getattr(self, field_name)))
 
 
 @dataclass
@@ -128,7 +128,7 @@ class SeriesScrapeResult:
     original_title: str | None = None
     release_date: str | None = None
     year: int | None = None
-    genres: list[str] = None
+    genres: list[str] = field(default_factory=list)
     poster_path: str | None = None
     backdrop_path: str | None = None
     tagline: str | None = None
@@ -142,7 +142,7 @@ class SeriesScrapeResult:
     def __post_init__(self):
         if self.genres is None:
             self.genres = []
-        for field in (
+        for field_name in (
             "release_date",
             "overview_es",
             "overview_en",
@@ -153,7 +153,7 @@ class SeriesScrapeResult:
             "title",
             "original_title",
         ):
-            setattr(self, field, _or_none(getattr(self, field)))
+            setattr(self, field_name, _or_none(getattr(self, field_name)))
 
 
 def extract_search_title(nombre: str) -> tuple[str, int | None]:
@@ -239,16 +239,15 @@ def _pick_best_result(results: list[dict], year: int | None, date_key: str) -> d
                     pass
             return None
 
-        exact_matches = [
-            r for r in results if result_year(r) is not None and result_year(r) == year
-        ]
+        exact_matches = [r for r in results if (candidate_year := result_year(r)) == year]
         if exact_matches:
             return max(exact_matches, key=lambda r: r.get("popularity", 0))
 
         year_matches = [
             r
             for r in results
-            if result_year(r) is not None and abs(result_year(r) - year) <= YEAR_MATCH_TOLERANCE
+            if (candidate_year := result_year(r)) is not None
+            and abs(candidate_year - year) <= YEAR_MATCH_TOLERANCE
         ]
         if year_matches:
             return max(year_matches, key=lambda r: r.get("popularity", 0))
@@ -267,7 +266,7 @@ class TMDBScraper:
         url = build_url(host, port, database, user, password, async_driver=False)
         engine = get_sync_engine(url)
         self._Session = get_sync_session_factory(engine)
-        self._session = None
+        self._session: Any = None
         self.session = requests.Session()
         self.session.headers.update(
             {"Authorization": f"Bearer {TMDB_READ_TOKEN}", "Content-Type": "application/json"}
@@ -758,7 +757,7 @@ class TMDBScraper:
             tmdb_data=data,
         )
 
-    def _process_series(self, row: dict) -> ScrapeResult:
+    def _process_series(self, row: dict) -> SeriesScrapeResult:
         series_key = row["series_key"]
         serie_name = row["serie_name"]
         nombre = row["nombre"]
@@ -1240,7 +1239,7 @@ class TMDBScraper:
             except Exception as e:
                 logger.warning(f"⚠️  Error cargando cross-reference de películas: {e}")
 
-            self._series_tmdb_by_title = {}
+            self._series_tmdb_by_title: dict[str, str] = {}
             try:
                 rows = self._query(
                     "SELECT tmdb_id, title, original_title FROM series_metadata WHERE tmdb_id IS NOT NULL"

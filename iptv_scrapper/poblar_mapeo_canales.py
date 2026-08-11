@@ -20,7 +20,7 @@ from sqlalchemy import text
 scripts_dir = Path(__file__).parent
 sys.path.insert(0, str(scripts_dir))
 
-from database import ChannelMappingManager, DatabasePG
+from database import ChannelMappingManager, DatabasePG  # noqa: E402
 
 
 def load_json_files():
@@ -246,7 +246,7 @@ async def main():
 
     extras = [
         display_name
-        for display_name in canales_data.keys()
+        for display_name in canales_data
         if display_name not in display_names_procesados
     ]
 

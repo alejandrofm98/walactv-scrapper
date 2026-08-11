@@ -37,7 +37,7 @@ def decode_safe(text):
     """Decodifica base64 de forma segura"""
     try:
         return base64.b64decode(text).decode("utf-8", errors="ignore")
-    except:
+    except Exception:
         return str(text)
 
 
@@ -49,11 +49,7 @@ def is_spanish_channel(stream):
     # Formato: "ES| CANAL" o "ES | CANAL" o "ES|CANAL"
     spanish_prefixes = ["ES|", "ES |", "SPAIN|", "SPAIN |"]
 
-    for prefix in spanish_prefixes:
-        if name.upper().startswith(prefix):
-            return True
-
-    return False
+    return any(name.upper().startswith(prefix) for prefix in spanish_prefixes)
 
 
 def process_channel(stream, root, session):
@@ -95,7 +91,7 @@ def process_channel(stream, root, session):
                         ET.SubElement(prog_node, "desc", lang="es").text = desc
 
                     programas_canal += 1
-                except:
+                except Exception:
                     continue
 
             with stats_lock:
@@ -173,11 +169,9 @@ def create_xmltv_spain():
             futures.append(future)
 
         # Mostrar progreso
-        completados = 0
         total = len(spanish_streams)
 
-        for future in as_completed(futures):
-            completados += 1
+        for completados, _future in enumerate(as_completed(futures), start=1):
             if completados % 50 == 0 or completados == total:
                 elapsed = time.time() - inicio_proceso
                 tasa = completados / elapsed if elapsed > 0 else 0
