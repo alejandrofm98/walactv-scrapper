@@ -147,6 +147,8 @@ def scrape_trending():
                         INSERT INTO trending_rankings
                             (tmdb_id, media_type, rank, trending_window, scraped_at)
                         VALUES (:tmdb_id, :media_type, :rank, 'week', NOW())
+                        ON CONFLICT (tmdb_id, media_type, trending_window) DO UPDATE
+                        SET rank = EXCLUDED.rank, scraped_at = EXCLUDED.scraped_at
                     """),
                     rankings,
                 )

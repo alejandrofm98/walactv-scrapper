@@ -1,3 +1,3 @@
 # Requirements para el servicio de metadata TMDB
-iptv-db @ git+https://github.com/alejandrofm98/iptv-db.git@ba2144e
+iptv-db @ git+https://github.com/alejandrofm98/iptv-db.git@f13047ff42d6d234edc435030688350deab5afdd
 requests==2.32.3

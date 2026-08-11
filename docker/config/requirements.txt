@@ -1,6 +1,6 @@
 asyncpg==0.30.0
 beautifulsoup4==4.13.4
-iptv-db @ git+https://github.com/alejandrofm98/iptv-db.git@ba2144e
+iptv-db @ git+https://github.com/alejandrofm98/iptv-db.git@f13047ff42d6d234edc435030688350deab5afdd
 Pillow==11.3.0
 python-dotenv==1.1.1
 requests==2.32.4
