@@ -70,11 +70,11 @@ def _tmdb_headers() -> dict:
     return {}
 
 
-def _tmdb_params(extra: dict | None = None) -> dict:
+def _tmdb_params(extra: dict[str, str | int] | None = None) -> dict[str, str | int]:
     """Build query params for TMDB API."""
-    params = {"language": "es-ES"}
+    params: dict[str, str | int] = {"language": "es-ES"}
     if not TMDB_READ_TOKEN:
-        params["api_key"] = TMDB_API_KEY
+        params["api_key"] = TMDB_API_KEY or ""
     if extra:
         params.update(extra)
     return params
@@ -99,7 +99,7 @@ def scrape_trending():
     try:
         for media_type in ("movie", "tv"):
             logger.info("=== Procesando trending/%s/week ===", media_type)
-            total_inserted = 0
+            rankings: list[dict[str, str | int]] = []
 
             for page in range(1, MAX_PAGES + 1):
                 data = _fetch_trending(media_type, page)
@@ -111,34 +111,20 @@ def scrape_trending():
                     break
 
                 for idx, item in enumerate(results):
-                    tmdb_id = str(item["id"])
-                    rank = (page - 1) * PAGE_SIZE + idx + 1
-
-                    session.execute(
-                        text("""
-                            INSERT INTO trending_rankings
-                                (tmdb_id, media_type, rank, trending_window, scraped_at)
-                            VALUES (:tmdb_id, :media_type, :rank, 'week', NOW())
-                            ON CONFLICT (tmdb_id, media_type, trending_window)
-                            DO UPDATE SET
-                                rank = EXCLUDED.rank,
-                                scraped_at = NOW()
-                        """),
+                    rankings.append(
                         {
-                            "tmdb_id": tmdb_id,
+                            "tmdb_id": str(item["id"]),
                             "media_type": media_type,
-                            "rank": rank,
-                        },
+                            "rank": (page - 1) * PAGE_SIZE + idx + 1,
+                        }
                     )
-                    total_inserted += 1
 
-                session.commit()
                 logger.info(
                     "  Página %d/%d: %d items procesados (acumulado: %d)",
                     page,
                     min(total_pages, MAX_PAGES),
                     len(results),
-                    total_inserted,
+                    len(rankings),
                 )
 
                 if page >= min(total_pages, MAX_PAGES):
@@ -147,8 +133,27 @@ def scrape_trending():
                 # Small delay between pages to be respectful
                 time.sleep(DELAY_BETWEEN_PAGES)
 
+            # Replace the window so removed items cannot remain visible forever.
+            session.execute(
+                text("""
+                    DELETE FROM trending_rankings
+                    WHERE media_type = :media_type AND trending_window = 'week'
+                """),
+                {"media_type": media_type},
+            )
+            if rankings:
+                session.execute(
+                    text("""
+                        INSERT INTO trending_rankings
+                            (tmdb_id, media_type, rank, trending_window, scraped_at)
+                        VALUES (:tmdb_id, :media_type, :rank, 'week', NOW())
+                    """),
+                    rankings,
+                )
+            session.commit()
+
             logger.info(
-                "  Total para %s: %d items upsertados", media_type, total_inserted
+                "  Total para %s: %d items guardados", media_type, len(rankings)
             )
 
         logger.info("Scraping de tendencias TMDB completado exitosamente")
