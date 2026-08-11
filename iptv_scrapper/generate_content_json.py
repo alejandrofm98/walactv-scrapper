@@ -291,7 +291,8 @@ async def generar_series_json():
                     COALESCE(sc.title, '') as serie_name,
                     COALESCE(sc.title, '') as nombre_normalizado,
                     COALESCE(sc.group_normalizado, '') as grupo_normalizado,
-                    sc.year
+                    sc.year,
+                    se.imdb_id
                 FROM series_streams ss
                 JOIN series_episodes se ON se.id = ss.episode_id
                 JOIN series_catalog sc ON sc.id = se.catalog_id
@@ -316,6 +317,7 @@ async def generar_series_json():
                         "nombre_normalizado": row["nombre_normalizado"],
                         "grupo_normalizado": row["grupo_normalizado"],
                         "year": row["year"],
+                        "imdb_id": row["imdb_id"],
                     }
                 )
 

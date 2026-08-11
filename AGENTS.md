@@ -39,7 +39,8 @@ Produce los catalogos de contenido que iptv-api consume.
 | iptv-api           | Backend central      | `github.com/alejandrofm98/iptv-api`                  | Lee los JSONs que produce este scrapper              |
 | iptv-db            | ORM compartido       | `github.com/alejandrofm98/iptv-db`                   | Este scrapper importa modelos de ahi                 |
 | WalacTV (Android)  | Cliente TV           | `github.com/alejandrofm98/WalacTV`                   | Consume endpoints de iptv-api                        |
-| walactvWeb         | Cliente web          | `github.com/alejandrofm98/walactvWeb`                | Consume endpoints de iptv-api                        |
+| WalacTV-Desktop    | Cliente VOD desktop  | `github.com/alejandrofm98/WalacTV-Desktop`           | Consume endpoints de iptv-api; usa libmpv/Tauri     |
+| walactvWeb         | Solo directo/eventos | `github.com/alejandrofm98/walactvWeb`                | Fuera del alcance de IntroDB y del reproductor VOD  |
 
 ## 1. Contexto rapido
 
@@ -49,7 +50,7 @@ Produce los catalogos de contenido que iptv-api consume.
   `scripts/generate_content_json.py` (cache JSON), `scripts/poblar_mapeo_canales.py` (mapeo).
 - **BD**: PostgreSQL via SQLAlchemy 2.0 (paquete `iptv-db`). El `DatabasePG` mantiene un pool asyncpg legacy para backward compat.
 - **Docker**: 5 Dockerfiles + docker-compose.yaml. Despliegue via Ansible + Ofelia (cron).
-- **Horarios**: main.py (08:00 diario), sync_iptv.py (cada 6h), sync_replays.py (12:00 diario), tmdb (03:00 diario).
+- **Horarios**: main.py (08:00 diario), sync_iptv.py (cada 6h), sync_replays.py (12:00 diario), tmdb (03:00 diario), IntroDB (07:00 diario, opt-in).
 
 ## 2. Arquitectura
 
@@ -62,6 +63,7 @@ Produce los catalogos de contenido que iptv-api consume.
 | `sync_iptv.py` | Sync de playlists M3U del proveedor IPTV a tablas normalizadas |
 | `sync_replays.py` | Scraper de replays UFC/wrestling |
 | `scrape_tmdb_metadata.py` | Enriquecimiento de metadata via TMDB API |
+| `sync_introdb_segments.py` | Sincronizacion opt-in de intro/recap/outro via IntroDB |
 | `generate_content_json.py` | Generacion de cache JSON gzipped |
 | `poblar_mapeo_canales.py` | Poblacion de mapeo de canales |
 | `actualiza_epg.py` | Actualizador EPG (credenciales via env vars) |

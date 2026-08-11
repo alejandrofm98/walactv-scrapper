@@ -95,6 +95,7 @@ services:
     environment:
       - DOCKER_CONTAINER=true
       - PYTHONUNBUFFERED=1
+      - INTRODB_SYNC_ENABLED=${INTRODB_SYNC_ENABLED:-false}
     networks:
       - dokploy-network
       - iptv-ecosystem
