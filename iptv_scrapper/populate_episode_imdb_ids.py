@@ -69,7 +69,7 @@ def _load_parent_to_catalog(session) -> dict[str, str]:
         text("""
             SELECT sm.imdb_id, sc.id
             FROM series_metadata sm
-            JOIN series_catalog sc ON sc.id = sm.catalog_id
+            JOIN series_catalog sc ON sc.tmdb_id = sm.tmdb_id
             WHERE sm.imdb_id IS NOT NULL
         """)
     ).all()
