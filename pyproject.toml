@@ -5,6 +5,7 @@ description = "Sports event scraper and IPTV sync engine for WalacTV ecosystem"
 requires-python = ">=3.12"
 dependencies = [
     "requests>=2.32.3,<3.0",
+    "python-dotenv>=1.0,<2.0",
 ]
 
 [tool.setuptools.packages.find]
