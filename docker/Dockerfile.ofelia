@@ -1,3 +1,4 @@
 FROM mcuadros/ofelia:latest
 
+# Rebuild when the scheduler configuration changes.
 COPY docker/ofelia-config.ini /ofelia.config.ini
