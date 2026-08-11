@@ -25,3 +25,4 @@
 /.playwright-cli/
 /iptv_scrapper/.playwright-google-profile/
 *.pyc
+*.egg-info/
