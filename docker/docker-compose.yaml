@@ -16,14 +16,14 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: walactv-futboltv
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-futboltv
     restart: unless-stopped
     env_file:
       - .env
     environment:
       - IMAGES_DIR=/app/data/images
     volumes:
-      - iptv-data:/app/data
+       - iptv-data:/app/data
     networks:
       - dokploy-network
       - iptv-ecosystem
@@ -33,7 +33,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.sync
-    container_name: walactv-sync-iptv
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-sync-iptv
     restart: unless-stopped
     entrypoint: ["/app/entrypoint.sh"]
     env_file:
@@ -53,7 +53,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.replay-sync
-    container_name: walactv-sync-replays
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-sync-replays
     restart: unless-stopped
     command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
     env_file:
@@ -66,7 +66,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.ofelia
-    container_name: ofelia-scheduler
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-ofelia
     restart: unless-stopped
     depends_on:
       - walactv-futboltv
@@ -87,7 +87,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.tmdb
-    container_name: walactv-sync-tmdb-metadata
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-sync-tmdb-metadata
     restart: unless-stopped
     entrypoint: ["/app/entrypoint.sh"]
     env_file:
@@ -106,7 +106,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.tmdb
-    container_name: walactv-imdb-ratings
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-imdb-ratings
     restart: unless-stopped
     command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
     env_file:
@@ -124,7 +124,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.tmdb
-    container_name: walactv-imdb-episode-ids
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-imdb-episode-ids
     restart: unless-stopped
     command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
     env_file:
@@ -141,7 +141,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.tmdb
-    container_name: walactv-tmdb-trending
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-tmdb-trending
     restart: unless-stopped
     command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
     env_file:
@@ -156,8 +156,10 @@ services:
 networks:
   dokploy-network:
     external: true
+    name: ${DOKPLOY_NETWORK:-dokploy-network}
   iptv-ecosystem:
-    external: true
+    external: ${IPTV_ECOSYSTEM_EXTERNAL:-true}
+    name: ${IPTV_ECOSYSTEM_NETWORK:-iptv-ecosystem}
 
 volumes:
   walactv-logos:
@@ -165,4 +167,5 @@ volumes:
   walactv-m3u:
     driver: local
   iptv-data:
-    external: true
+    external: ${IPTV_DATA_EXTERNAL:-true}
+    name: ${IPTV_DATA_VOLUME:-iptv-data}

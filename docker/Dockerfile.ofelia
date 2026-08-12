@@ -1,4 +1,7 @@
 FROM mcuadros/ofelia:latest
 
 # Rebuild when the scheduler configuration changes.
-COPY docker/ofelia-config.ini /ofelia.config.ini
+COPY docker/ofelia-config.ini /ofelia.config.ini.template
+COPY docker/entrypoint-ofelia.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
