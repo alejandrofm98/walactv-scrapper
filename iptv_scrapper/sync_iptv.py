@@ -999,10 +999,11 @@ async def insert_movies_catalog(movies: list) -> bool:
                         result = await session.execute(
                             text("""
                                 INSERT INTO movies_catalog
-                                    (title, nombre_dedup_key, canonical_key, year, group_normalizado,
-                                     logo, provider_id, tmdb_id, last_sync_at)
+                                (title, nombre_dedup_key, canonical_key, year, group_normalizado,
+                                     logo, provider_id, tmdb_id, has_iptv_source, last_sync_at)
                                 VALUES (:title, :nombre_dedup_key, :canonical_key, :year,
-                                     :group_normalizado, :logo, :provider_id, :tmdb_id, :last_sync_at)
+                                      :group_normalizado, :logo, :provider_id, :tmdb_id,
+                                      TRUE, :last_sync_at)
                                 ON CONFLICT (canonical_key) DO UPDATE SET
                                     title = EXCLUDED.title,
                                     nombre_dedup_key = EXCLUDED.nombre_dedup_key,
@@ -1011,6 +1012,7 @@ async def insert_movies_catalog(movies: list) -> bool:
                                     logo = COALESCE(EXCLUDED.logo, movies_catalog.logo),
                                     provider_id = EXCLUDED.provider_id,
                                     tmdb_id = COALESCE(movies_catalog.tmdb_id, EXCLUDED.tmdb_id),
+                                    has_iptv_source = TRUE,
                                     last_sync_at = EXCLUDED.last_sync_at,
                                     not_found = FALSE,
                                     retry_count = 0
@@ -1081,7 +1083,7 @@ async def insert_movies_catalog(movies: list) -> bool:
             # Limpiar entries que desaparecieron del M3U
             result = await session.execute(
                 text(
-                    "DELETE FROM movies_catalog WHERE last_sync_at IS NULL OR last_sync_at < :cutoff"
+                    "DELETE FROM movies_catalog WHERE has_iptv_source = TRUE AND has_torrent_source = FALSE AND (last_sync_at IS NULL OR last_sync_at < :cutoff)"
                 ),
                 {"cutoff": sync_start},
             )
@@ -1166,9 +1168,10 @@ async def insert_series_catalog(series: list) -> bool:
                             text("""
                                 INSERT INTO series_catalog
                                     (title, series_key, canonical_key, year, group_normalizado,
-                                     logo, provider_id, tmdb_id, last_sync_at)
+                                     logo, provider_id, tmdb_id, has_iptv_source, last_sync_at)
                                 VALUES (:title, :series_key, :canonical_key, :year,
-                                     :group_normalizado, :logo, :provider_id, :tmdb_id, :last_sync_at)
+                                      :group_normalizado, :logo, :provider_id, :tmdb_id,
+                                      TRUE, :last_sync_at)
                                 ON CONFLICT (canonical_key) DO UPDATE SET
                                     title = EXCLUDED.title,
                                     series_key = EXCLUDED.series_key,
@@ -1177,6 +1180,7 @@ async def insert_series_catalog(series: list) -> bool:
                                     logo = COALESCE(EXCLUDED.logo, series_catalog.logo),
                                     provider_id = EXCLUDED.provider_id,
                                     tmdb_id = COALESCE(series_catalog.tmdb_id, EXCLUDED.tmdb_id),
+                                    has_iptv_source = TRUE,
                                     last_sync_at = EXCLUDED.last_sync_at,
                                     not_found = FALSE,
                                     retry_count = 0
@@ -1257,6 +1261,7 @@ async def insert_series_catalog(series: list) -> bool:
                                         pg_insert(SeriesEpisode).excluded.numero,
                                         SeriesEpisode.numero,
                                     ),
+                                    "has_iptv_source": True,
                                     "title": func.coalesce(
                                         pg_insert(SeriesEpisode).excluded.title,
                                         SeriesEpisode.title,
@@ -1324,6 +1329,12 @@ async def insert_series_catalog(series: list) -> bool:
                         "label": s.get("country"),
                         "numero": s.get("numero", 0),
                     }
+                    await session.execute(
+                        text(
+                            "UPDATE series_episodes SET has_iptv_source = TRUE WHERE id = :episode_id"
+                        ),
+                        {"episode_id": episode_id},
+                    )
                     stmt = (
                         pg_insert(SeriesStream)
                         .values(**stream_vals)
@@ -1360,7 +1371,7 @@ async def insert_series_catalog(series: list) -> bool:
             # Limpiar entries de catálogo que desaparecieron del M3U (CASCADE elimina episodios y streams)
             result = await session.execute(
                 text(
-                    "DELETE FROM series_catalog WHERE last_sync_at IS NULL OR last_sync_at < :cutoff"
+                    "DELETE FROM series_catalog WHERE has_iptv_source = TRUE AND has_torrent_source = FALSE AND (last_sync_at IS NULL OR last_sync_at < :cutoff)"
                 ),
                 {"cutoff": sync_start},
             )
