@@ -1,0 +1,153 @@
+services:
+  walactv-futboltv:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: walactv-dev-futboltv
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      IMAGES_DIR: /app/data/images
+    volumes:
+      - iptv-data-dev:/app/data
+    networks:
+      - dokploy-network
+      - iptv-ecosystem-dev
+    command: ["sh", "-c", "python main.py; trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
+
+  walactv-sync-iptv:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.sync
+    container_name: walactv-dev-sync-iptv
+    restart: unless-stopped
+    entrypoint: ["/app/entrypoint.sh"]
+    env_file:
+      - .env
+    environment:
+      DOCKER_CONTAINER: "true"
+      M3U_DIR: /app/data/m3u
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-https://dev-iptv.walerike.com}
+    volumes:
+      - walactv-m3u-dev:/app/data/m3u
+      - iptv-data-dev:/app/data
+    networks:
+      - dokploy-network
+      - iptv-ecosystem-dev
+
+  walactv-sync-replays:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.replay-sync
+    container_name: walactv-dev-sync-replays
+    restart: unless-stopped
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
+    env_file:
+      - .env
+    networks:
+      - dokploy-network
+      - iptv-ecosystem-dev
+
+  ofelia:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ofelia
+    container_name: walactv-dev-ofelia
+    restart: unless-stopped
+    depends_on:
+      - walactv-futboltv
+      - walactv-sync-iptv
+      - walactv-sync-replays
+      - walactv-sync-tmdb-metadata
+      - walactv-imdb-ratings
+      - walactv-imdb-episode-ids
+      - walactv-tmdb-trending
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      SCRAPPER_CONTAINER_PREFIX: walactv-dev
+    command: daemon --config /ofelia.config.ini
+    networks:
+      - dokploy-network
+      - iptv-ecosystem-dev
+
+  walactv-sync-tmdb-metadata:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tmdb
+    container_name: walactv-dev-sync-tmdb-metadata
+    restart: unless-stopped
+    entrypoint: ["/app/entrypoint.sh"]
+    env_file:
+      - .env
+    environment:
+      DOCKER_CONTAINER: "true"
+      PYTHONUNBUFFERED: "1"
+      INTRODB_SYNC_ENABLED: ${INTRODB_SYNC_ENABLED:-false}
+    networks:
+      - dokploy-network
+      - iptv-ecosystem-dev
+
+  walactv-imdb-ratings:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tmdb
+    container_name: walactv-dev-imdb-ratings
+    restart: unless-stopped
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
+    env_file:
+      - .env
+    environment:
+      DOCKER_CONTAINER: "true"
+      PYTHONUNBUFFERED: "1"
+    networks:
+      - dokploy-network
+      - iptv-ecosystem-dev
+
+  walactv-imdb-episode-ids:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tmdb
+    container_name: walactv-dev-imdb-episode-ids
+    restart: unless-stopped
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
+    env_file:
+      - .env
+    environment:
+      DOCKER_CONTAINER: "true"
+      PYTHONUNBUFFERED: "1"
+    networks:
+      - dokploy-network
+      - iptv-ecosystem-dev
+
+  walactv-tmdb-trending:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tmdb
+    container_name: walactv-dev-tmdb-trending
+    restart: unless-stopped
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
+    env_file:
+      - .env
+    environment:
+      DOCKER_CONTAINER: "true"
+      PYTHONUNBUFFERED: "1"
+    networks:
+      - dokploy-network
+      - iptv-ecosystem-dev
+
+networks:
+  dokploy-network:
+    external: true
+    name: dokploy-network
+  iptv-ecosystem-dev:
+    external: true
+    name: iptv-ecosystem-dev
+
+volumes:
+  iptv-data-dev:
+    external: true
+    name: walactv-dev-iptv-data
+  walactv-m3u-dev:
+    name: walactv-dev-m3u
