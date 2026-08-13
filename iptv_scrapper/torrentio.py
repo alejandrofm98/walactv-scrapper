@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -37,12 +38,15 @@ class TorrentioClient:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.proxy = os.getenv("TORRENTIO_PROXY") or None
         self.session = session or requests.Session()
         self.session.headers.update(DEFAULT_HEADERS)
 
     def get_manifest(self) -> dict[str, Any]:
         """Obtiene el manifiesto publico de la instancia."""
-        response = self.session.get(f"{self.base_url}/manifest.json", timeout=self.timeout)
+        response = self.session.get(
+            f"{self.base_url}/manifest.json", timeout=self.timeout, **self._proxy_kwargs()
+        )
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
@@ -64,6 +68,7 @@ class TorrentioClient:
         response = self.session.get(
             f"{self.base_url}/stream/{content_type}/{content_id}.json",
             timeout=self.timeout,
+            **self._proxy_kwargs(),
         )
         response.raise_for_status()
         payload = response.json()
@@ -102,3 +107,8 @@ class TorrentioClient:
             season is None or episode is None or season < 0 or episode < 0
         ):
             raise ValueError("Una serie requiere season y episode validos")
+
+    def _proxy_kwargs(self) -> dict[str, Any]:
+        if not self.proxy:
+            return {}
+        return {"proxies": {"http": self.proxy, "https": self.proxy}}

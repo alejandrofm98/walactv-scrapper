@@ -22,6 +22,11 @@ services:
       - .env
     environment:
       - IMAGES_DIR=/app/data/images
+      - TORRENTIO_BASE_URL=${TORRENTIO_BASE_URL:-https://torrentio.strem.fun}
+      - TORRENTIO_PROVIDERS=${TORRENTIO_PROVIDERS:-wolfmax4k}
+      - TORRENTIO_LANGUAGES=${TORRENTIO_LANGUAGES:-spanish,english}
+      - TORRENTIO_TIMEOUT_SECONDS=${TORRENTIO_TIMEOUT_SECONDS:-15}
+      - TORRENTIO_CACHE_TTL_SECONDS=${TORRENTIO_CACHE_TTL_SECONDS:-60}
     volumes:
        - iptv-data:/app/data
     networks:

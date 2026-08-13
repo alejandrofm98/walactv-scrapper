@@ -171,12 +171,27 @@ async def generar_movies_json():
                     COALESCE(mc.logo, '') as logo,
                     COALESCE(ms.country, '') as country,
                     COALESCE(mc.countries, '{}') as countries,
+                    mc.has_iptv_source,
+                    mc.has_torrent_source,
+                    COALESCE(mm.tmdb_data->>'original_language', '') as original_language,
                     COALESCE(mc.title, '') as nombre_normalizado,
                     COALESCE(mc.group_normalizado, '') as grupo_normalizado,
                     COALESCE(mc.nombre_dedup_key, '') as nombre_dedup_key,
                     mc.year
                 FROM movie_streams ms
                 JOIN movies_catalog mc ON mc.id = ms.movie_id
+                LEFT JOIN movies_metadata mm ON mm.tmdb_id = mc.tmdb_id
+                WHERE mc.has_torrent_source = TRUE
+                   OR (
+                       mc.has_iptv_source = TRUE
+                       AND (
+                           mc.countries && ARRAY['ES', 'EN']::varchar[]
+                           OR (
+                               mm.tmdb_data->>'original_language' = 'ja'
+                               AND mc.countries && ARRAY['JP']::varchar[]
+                           )
+                       )
+                   )
                 ORDER BY mc.year DESC, mc.title ASC
             """
 
@@ -193,6 +208,9 @@ async def generar_movies_json():
                         "logo": row["logo"],
                         "country": row["country"],
                         "countries": list(row["countries"]) if row["countries"] else [],
+                        "has_iptv_source": row["has_iptv_source"],
+                        "has_torrent_source": row["has_torrent_source"],
+                        "original_language": row["original_language"],
                         "nombre_normalizado": row["nombre_normalizado"],
                         "grupo_normalizado": row["grupo_normalizado"],
                         "nombre_dedup_key": row["nombre_dedup_key"],
@@ -287,6 +305,9 @@ async def generar_series_json():
                     COALESCE(sc.logo, '') as logo,
                     COALESCE(ss.country, '') as country,
                     COALESCE(sc.countries, '{}') as countries,
+                    sc.has_iptv_source,
+                    sc.has_torrent_source,
+                    COALESCE(sm.tmdb_data->>'original_language', '') as original_language,
                     LPAD(se.season_number::text, 2, '0') as temporada,
                     LPAD(se.episode_number::text, 2, '0') as episodio,
                     COALESCE(sc.title, '') as serie_name,
@@ -297,6 +318,18 @@ async def generar_series_json():
                 FROM series_streams ss
                 JOIN series_episodes se ON se.id = ss.episode_id
                 JOIN series_catalog sc ON sc.id = se.catalog_id
+                LEFT JOIN series_metadata sm ON sm.tmdb_id = sc.tmdb_id
+                WHERE sc.has_torrent_source = TRUE
+                   OR (
+                       sc.has_iptv_source = TRUE
+                       AND (
+                           sc.countries && ARRAY['ES', 'EN']::varchar[]
+                           OR (
+                               sm.tmdb_data->>'original_language' = 'ja'
+                               AND sc.countries && ARRAY['JP']::varchar[]
+                           )
+                       )
+                   )
                 ORDER BY sc.title ASC, sc.year DESC, se.season_number ASC, se.episode_number ASC
             """
 
@@ -312,6 +345,9 @@ async def generar_series_json():
                         "logo": row["logo"],
                         "country": row["country"],
                         "countries": list(row["countries"]) if row["countries"] else [],
+                        "has_iptv_source": row["has_iptv_source"],
+                        "has_torrent_source": row["has_torrent_source"],
+                        "original_language": row["original_language"],
                         "temporada": row["temporada"],
                         "episodio": row["episodio"],
                         "serie_name": row["serie_name"],

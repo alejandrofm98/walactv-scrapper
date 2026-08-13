@@ -98,7 +98,10 @@ def _update_batch(session, rows: list[tuple[str, str, int, int]]) -> int:
         text("""
             UPDATE series_episodes
             SET imdb_id = :imdb_id
-            WHERE catalog_id = :catalog_id AND season_number = :season_number AND episode_number = :episode_number
+            WHERE catalog_id = :catalog_id
+              AND season_number = :season_number
+              AND episode_number = :episode_number
+              AND imdb_id IS NULL
         """),
         [
             {
