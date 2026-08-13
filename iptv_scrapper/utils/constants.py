@@ -47,17 +47,6 @@ SERIES_STREAMS_TABLE = "series_streams"
 MOVIES_CATALOG_TABLE = "movies_catalog"
 MOVIE_STREAMS_TABLE = "movie_streams"
 
-# ===== Configuración M3U =====
-M3U_FILENAME_LATEST = "playlist.m3u"
-M3U_FILENAME_PREFIX = "playlist_"
-M3U_DIR_DOCKER = "/app/data/m3u"
-M3U_DIR_LOCAL_DEFAULT = "data/m3u"
-M3U_BACKUP_COPIES_DEFAULT = 1
-
-# ===== Variables de entorno M3U =====
-M3U_DIR_ENV = "M3U_DIR"
-M3U_ACCESS_TOKEN_ENV = "M3U_ACCESS_TOKEN"
-M3U_BACKUP_COPIES_ENV = "M3U_BACKUP_COPIES"
 PUBLIC_DOMAIN_ENV = "PUBLIC_DOMAIN"
 PUBLIC_DOMAIN_DEFAULT_LOCAL = "http://localhost:8000"
 PUBLIC_DOMAIN_DEFAULT_DOCKER = "https://tudominio.com"

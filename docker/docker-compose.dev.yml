@@ -27,10 +27,8 @@ services:
       - .env
     environment:
       DOCKER_CONTAINER: "true"
-      M3U_DIR: /app/data/m3u
       PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-https://dev-iptv.walerike.com}
     volumes:
-      - walactv-m3u-dev:/app/data/m3u
       - iptv-data-dev:/app/data
     networks:
       - dokploy-network
@@ -149,5 +147,3 @@ volumes:
   iptv-data-dev:
     external: true
     name: walactv-dev-iptv-data
-  walactv-m3u-dev:
-    name: walactv-dev-m3u

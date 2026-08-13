@@ -11,7 +11,6 @@ import time
 import traceback
 import unicodedata
 from datetime import datetime
-from pathlib import Path
 
 import requests
 
@@ -592,258 +591,6 @@ async def contar_registros_tabla(tabla: str) -> int:
     except Exception as e:
         print(f"  ⚠️  Error al contar registros en '{tabla}': {e}")
         return 0
-
-
-def limpiar_m3u_antiguos(m3u_dir: str):
-    """
-    Elimina TODOS los archivos M3U anteriores antes de generar nuevos.
-    Esto incluye playlist.m3u, playlist_template.m3u y todos los backups.
-    """
-    try:
-        archivos_a_eliminar = []
-
-        for filename in os.listdir(m3u_dir):
-            # Eliminar TODOS los archivos .m3u sin excepciones
-            if filename.endswith(".m3u"):
-                filepath = os.path.join(m3u_dir, filename)
-                if os.path.isfile(filepath):
-                    archivos_a_eliminar.append(filepath)
-
-        if len(archivos_a_eliminar) == 0:
-            print("  📂 Directorio limpio, no hay archivos M3U para eliminar")
-            return
-
-        # Eliminar todos los archivos
-        eliminados = 0
-        for filepath in archivos_a_eliminar:
-            try:
-                os.remove(filepath)
-                eliminados += 1
-            except Exception as e:
-                print(f"  ⚠️  No se pudo eliminar {os.path.basename(filepath)}: {e}")
-
-        print(f"  🗑️  Eliminados {eliminados} archivos M3U anteriores (limpieza total)")
-
-    except Exception as e:
-        print(f"  ⚠️  Error al limpiar archivos antiguos: {e}")
-
-
-def extraer_provider_base_url(url_source: str) -> str:
-    """
-    Extrae la URL base del proveedor desde la URL de la playlist.
-
-    Ejemplos:
-        - http://line.8kultradnscloud.ru:80/get.php?username=X&password=Y&type=m3u
-          -> http://line.8kultradnscloud.ru:80
-        - http://servidor.com:8080/playlist.m3u
-          -> http://servidor.com:8080
-
-    Returns:
-        URL base del proveedor (sin path)
-    """
-    from urllib.parse import urlparse
-
-    parsed = urlparse(url_source)
-    return f"{parsed.scheme}://{parsed.netloc}"
-
-
-def crear_template_m3u(contenido_m3u: str, provider_url: str) -> dict:
-    """
-    Procesa el M3U original y crea templates con placeholders, clasificados por tipo.
-    Filtra movies y series por idiomas: EN, ENG, ES, LA, LAT
-
-    Args:
-        contenido_m3u: Contenido del M3U original con credenciales del proveedor
-        provider_url: URL base del proveedor (ej: http://line.8kultradnscloud.ru:80)
-
-    Returns:
-        dict con:
-            - 'full': template completo (live sin filtrar + movies/series filtrados)
-            - 'live': solo canales en vivo
-            - 'movie': solo películas filtradas
-            - 'series': solo series filtradas
-            - 'counts': contador por tipo
-    """
-    lines = contenido_m3u.split("\n")
-
-    all_lines = ["#EXTM3U"]
-    live_lines = ["#EXTM3U"]
-    movie_lines = ["#EXTM3U"]
-    series_lines = ["#EXTM3U"]
-
-    counts = {"live": 0, "movie": 0, "series": 0, "full": 0}
-    filtered = {"movie": 0, "series": 0}
-
-    provider_url_escaped = re.escape(provider_url)
-
-    pattern_series = re.compile(rf"{provider_url_escaped}/series/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)")
-    pattern_movie = re.compile(rf"{provider_url_escaped}/movie/[^/]+/[^/]+/(\d+)\.(mkv|mp4|ts)")
-    pattern_live = re.compile(
-        rf"{provider_url_escaped}/(?:(?P<prefix>[^/]+)/)?[^/]+/[^/]+/(?P<id>\d+)(?P<ext>\.ts)?"
-    )
-
-    def replace_live_url(match: re.Match) -> str:
-        prefix = match.group("prefix")
-        stream_id = match.group("id")
-        ext = match.group("ext") or ""
-
-        prefix_part = f"{prefix}/" if prefix else ""
-        return f"{{{{DOMAIN}}}}/{prefix_part}{{{{USERNAME}}}}/{{{{PASSWORD}}}}/{stream_id}{ext}"
-
-    current_extinf = None
-
-    for line in lines:
-        line = line.rstrip("\r\n\t ")
-
-        if line.startswith("#EXTINF:"):
-            current_extinf = line
-            all_lines.append(line)
-            continue
-
-        if not line or line.startswith("#"):
-            all_lines.append(line)
-            continue
-
-        content_type = None
-        processed_line = line
-
-        if pattern_series.search(line):
-            processed_line = pattern_series.sub(
-                r"{{DOMAIN}}/series/{{USERNAME}}/{{PASSWORD}}/\1.\2", line
-            )
-            content_type = "series"
-        elif pattern_movie.search(line):
-            processed_line = pattern_movie.sub(
-                r"{{DOMAIN}}/movie/{{USERNAME}}/{{PASSWORD}}/\1.\2", line
-            )
-            content_type = "movie"
-        elif pattern_live.search(line):
-            processed_line = pattern_live.sub(replace_live_url, line)
-            content_type = "live"
-
-        all_lines.append(processed_line)
-
-        if content_type and current_extinf:
-            should_include = True
-
-            if content_type in ["movie", "series"] and not contains_language(current_extinf):
-                should_include = False
-                filtered[content_type] += 1
-
-            if should_include:
-                counts[content_type] += 1
-                if content_type == "live":
-                    live_lines.append(current_extinf)
-                    live_lines.append(processed_line)
-                elif content_type == "movie":
-                    movie_lines.append(current_extinf)
-                    movie_lines.append(processed_line)
-                elif content_type == "series":
-                    series_lines.append(current_extinf)
-                    series_lines.append(processed_line)
-
-            counts["full"] += 1
-
-        current_extinf = None
-
-    return {
-        "full": "\n".join(all_lines),
-        "live": "\n".join(live_lines),
-        "movie": "\n".join(movie_lines),
-        "series": "\n".join(series_lines),
-        "counts": counts,
-        "filtered": filtered,
-    }
-
-
-def guardar_m3u_local(
-    contenido_m3u: str, m3u_dir: str | None = None, provider_url: str | None = None
-):
-    """
-    Guarda archivos M3U templates separados por tipo de contenido.
-    Genera:
-        - playlist_template.m3u (completo)
-        - playlist_template_live.m3u (solo canales)
-        - playlist_template_movie.m3u (solo películas)
-        - playlist_template_series.m3u (solo series)
-    """
-    is_docker = (
-        os.path.exists(CONSTANTS.DOCKER_ENV_PATH)
-        or os.getenv(CONSTANTS.DOCKER_ENV_FLAG) == CONSTANTS.DOCKER_ENV_VALUE
-    )
-
-    if m3u_dir is None:
-        if is_docker:
-            m3u_dir = os.getenv(CONSTANTS.M3U_DIR_ENV, CONSTANTS.M3U_DIR_DOCKER)
-        else:
-            project_root = Path(__file__).parent.parent
-            m3u_dir = os.getenv(
-                CONSTANTS.M3U_DIR_ENV, str(project_root / CONSTANTS.M3U_DIR_LOCAL_DEFAULT)
-            )
-
-    target_dir = m3u_dir
-    if target_dir is None:
-        raise ValueError("No se pudo determinar el directorio M3U")
-
-    try:
-        print(f"📁 Preparando directorio: {target_dir}")
-        os.makedirs(target_dir, exist_ok=True)
-
-        print("  🧹 Limpiando archivos M3U anteriores...")
-        limpiar_m3u_antiguos(target_dir)
-
-        print("💾 Generando templates M3U...")
-        if not provider_url:
-            if not settings.iptv_source_url:
-                raise ValueError("No se puede crear template: falta URL del proveedor")
-            provider_url = extraer_provider_base_url(settings.iptv_source_url)
-
-        templates = crear_template_m3u(contenido_m3u, provider_url)
-
-        def write_atomic(content: str, filename: str):
-            path = os.path.join(target_dir, filename)
-            path_tmp = f"{path}.tmp"
-            with open(path_tmp, "w", encoding="utf-8") as f:
-                f.write(content)
-            os.rename(path_tmp, path)
-            return path
-
-        results = {}
-
-        for name, key in [
-            ("Completo", "full"),
-            ("Live", "live"),
-            ("Movie", "movie"),
-            ("Series", "series"),
-        ]:
-            content = templates[key]
-            size_mb = len(content.encode("utf-8")) / 1024 / 1024
-            filename = f"playlist_template_{key}.m3u" if key != "full" else "playlist_template.m3u"
-            path = write_atomic(content, filename)
-            results[key] = {"path": path, "filename": filename, "size_mb": size_mb}
-            print(f"    ✅ {name}: {filename} ({size_mb:.2f} MB)")
-
-        print("\n📊 Conteo por tipo:")
-        for t, c in templates["counts"].items():
-            print(f"    {t}: {c:,} items")
-
-        if "filtered" in templates:
-            print("\n🔍 Filtrados por idioma (EN, ENG, ES, LA, LAT):")
-            for t, c in templates["filtered"].items():
-                print(f"    {t}: {c:,} items excluidos")
-
-        return {
-            "template_path": results["full"]["path"],
-            "template_filename": results["full"]["filename"],
-            "size_mb": results["full"]["size_mb"],
-            "templates": results,
-            "counts": templates["counts"],
-        }
-
-    except Exception as e:
-        print(f"❌ Error al guardar M3U localmente: {e}")
-        traceback.print_exc()
-        return None
 
 
 async def limpiar_tabla_optimizada(tabla: str) -> bool:
@@ -1445,7 +1192,6 @@ async def sync_to_postgres():
     print(f"📋 Configuración inicial:\n{settings}")
     print("✅ Configuración cargada desde PostgreSQL")
 
-    provider_url: str = ""
     provider_username: str = ""
     provider_password: str = ""
     playlist_url: str = ""
@@ -1479,12 +1225,10 @@ async def sync_to_postgres():
                 print("⚠️  Proxy no configurado en config; descarga directa")
         else:
             playlist_url = str(settings.iptv_source_url) if settings.iptv_source_url else ""
-            provider_url = extraer_provider_base_url(playlist_url) if playlist_url else ""
             print("⚠️  Config incompleta en PostgreSQL, usando iptv_source_url")
 
     except Exception as e:
         playlist_url = str(settings.iptv_source_url) if settings.iptv_source_url else ""
-        provider_url = extraer_provider_base_url(playlist_url) if playlist_url else ""
         print(f"⚠️  Error leyendo config: {e}, usando iptv_source_url")
 
     if not playlist_url:
@@ -1541,13 +1285,6 @@ async def sync_to_postgres():
     if m3u_content is None:
         print("❌ No se pudo descargar la playlist M3U")
         return 1
-
-    print("\n" + "=" * 60)
-    m3u_info = guardar_m3u_local(m3u_content, provider_url=provider_url)
-    print("=" * 60 + "\n")
-
-    if not m3u_info:
-        print("⚠️  No se pudo guardar el archivo M3U, pero continuaremos con PostgreSQL")
 
     print("\n📺 FASE 2: Parseando contenido M3U...")
     inicio_parseo = time.time()
@@ -1719,9 +1456,6 @@ async def sync_to_postgres():
                 "total_canales": len(channels),
                 "total_movies": len(movies),
                 "total_series": len(series),
-                "m3u_template_path": m3u_info["template_path"] if m3u_info else None,
-                "m3u_template_filename": m3u_info["template_filename"] if m3u_info else None,
-                "m3u_size_mb": m3u_info["size_mb"] if m3u_info else None,
                 "channels_con_logo": stats["channels"]["con_logo"],
                 "channels_sin_logo": stats["channels"]["sin_logo"],
                 "movies_con_logo": stats["movies"]["con_logo"],
@@ -1737,9 +1471,6 @@ async def sync_to_postgres():
                     total_canales=metadata["total_canales"],
                     total_movies=metadata["total_movies"],
                     total_series=metadata["total_series"],
-                    m3u_template_path=metadata["m3u_template_path"],
-                    m3u_template_filename=metadata["m3u_template_filename"],
-                    m3u_size_mb=metadata["m3u_size_mb"],
                     channels_con_logo=metadata["channels_con_logo"],
                     channels_sin_logo=metadata["channels_sin_logo"],
                     movies_con_logo=metadata["movies_con_logo"],
@@ -1754,9 +1485,6 @@ async def sync_to_postgres():
                         "total_canales": metadata["total_canales"],
                         "total_movies": metadata["total_movies"],
                         "total_series": metadata["total_series"],
-                        "m3u_template_path": metadata["m3u_template_path"],
-                        "m3u_template_filename": metadata["m3u_template_filename"],
-                        "m3u_size_mb": metadata["m3u_size_mb"],
                         "channels_con_logo": metadata["channels_con_logo"],
                         "channels_sin_logo": metadata["channels_sin_logo"],
                         "movies_con_logo": metadata["movies_con_logo"],

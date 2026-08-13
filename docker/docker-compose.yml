@@ -40,10 +40,8 @@ services:
       - .env
     environment:
       - DOCKER_CONTAINER=true
-      - M3U_DIR=/app/data/m3u
       - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-https://localhost}
     volumes:
-      - walactv-m3u:/app/data/m3u
       - iptv-data:/app/data
     networks:
       - dokploy-network
@@ -164,8 +162,6 @@ networks:
 volumes:
   walactv-logos:
     external: true
-  walactv-m3u:
-    driver: local
   iptv-data:
     external: ${IPTV_DATA_EXTERNAL:-true}
     name: ${IPTV_DATA_VOLUME:-iptv-data}
