@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from iptv_scrapper.sync_iptv import (
+    construir_claves_streams,
     contains_language,
     extraer_año,
     extraer_idioma_desde_grupo,
@@ -151,3 +152,25 @@ class TestContainsLanguage:
 
     def test_grupo_sin_idioma_valido(self):
         assert contains_language('#EXTINF:-1 group-title="Fútbol General",Canal') is False
+
+
+class TestConstruirClavesStreams:
+    def test_serializa_pares(self):
+        owners, claves = construir_claves_streams(
+            [("abc-1", "123"), ("abc-1", "456"), ("abc-2", "789")]
+        )
+        assert owners == ["abc-1", "abc-2"]
+        assert set(claves) == {"abc-1:123", "abc-1:456", "abc-2:789"}
+
+    def test_dedup_owners(self):
+        owners, _ = construir_claves_streams([("abc-1", "123"), ("abc-1", "456")])
+        assert owners == ["abc-1"]
+
+    def test_provider_vacio(self):
+        _owners, claves = construir_claves_streams([("abc-1", "")])
+        assert claves == ["abc-1:"]
+
+    def test_vacio(self):
+        owners, claves = construir_claves_streams([])
+        assert owners == []
+        assert claves == []

@@ -527,6 +527,17 @@ def construir_stream_url(url: str, provider_username: str, provider_password: st
     return f"{base_url}/live/{username_placeholder}/{password_placeholder}/{provider_id}"
 
 
+def construir_claves_streams(streams_vistos: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
+    """Serializa los pares (owner_id, provider_id) vistos en esta pasada.
+
+    Devuelve (owners_uuid, claves) donde claves son textos "owner:provider"
+    para comparar con la BD en un solo parametro array.
+    """
+    owners = list(dict.fromkeys(owner for owner, _ in streams_vistos))
+    claves = {f"{owner}:{provider}" for owner, provider in streams_vistos}
+    return owners, list(claves)
+
+
 def procesar_item(item, idx, tipo, provider_username: str = "", provider_password: str = ""):
     """Procesa un item (canal/movie/serie) según su tipo"""
     item_id = str(idx)[:50]  # Truncar a máximo 50 caracteres
@@ -734,6 +745,7 @@ async def insert_movies_catalog(movies: list) -> bool:
 
             catalog_id_map: dict[str, str] = {}
             stream_count = 0
+            streams_vistos: list[tuple[str, str]] = []
 
             for m in movies:
                 dedup_key = m.get("nombre_dedup_key") or ""
@@ -806,11 +818,20 @@ async def insert_movies_catalog(movies: list) -> bool:
                     stmt = (
                         pg_insert(MovieStream)
                         .values(**stream_vals)
-                        .on_conflict_do_nothing(
-                            index_elements=[MovieStream.movie_id, MovieStream.provider_id]
+                        .on_conflict_do_update(
+                            index_elements=[MovieStream.movie_id, MovieStream.provider_id],
+                            set_={
+                                "stream_url": pg_insert(MovieStream).excluded.stream_url,
+                                "url": pg_insert(MovieStream).excluded.url,
+                                "country": pg_insert(MovieStream).excluded.country,
+                                "quality": pg_insert(MovieStream).excluded.quality,
+                                "label": pg_insert(MovieStream).excluded.label,
+                                "numero": pg_insert(MovieStream).excluded.numero,
+                            },
                         )
                     )
                     await session.execute(stmt)
+                    streams_vistos.append((str(catalog_id), provider_id or ""))
                     stream_count += 1
                 except Exception as e:
                     print(f"  ⚠️  Error insertando movie_stream: {e}")
@@ -830,6 +851,26 @@ async def insert_movies_catalog(movies: list) -> bool:
                 )
             """)
             )
+
+            # Limpiar streams que dejaron de venir en el M3U actual (mirrors
+            # muertos u obsoletos del proveedor). Solo se tocan los movies que
+            # siguen en el catalogo (los desaparecidos se borran abajo con
+            # CASCADE); de esos, se eliminan los streams cuyo par
+            # (movie_id, provider_id) ya no se lista en esta pasada.
+            # Se serializa cada par como "uuid:provider" en un array de texto
+            # (un solo parametro) para evitar el limite de parametros de
+            # Postgres con catalogos grandes.
+            if streams_vistos:
+                movies_uuid, claves_vistos = construir_claves_streams(streams_vistos)
+                await session.execute(
+                    text("""
+                        DELETE FROM movie_streams ms
+                        WHERE ms.movie_id = ANY(:movies::uuid[])
+                          AND ms.movie_id::text || ':' || COALESCE(ms.provider_id, '')
+                              != ALL(:claves::text[])
+                    """),
+                    {"movies": movies_uuid, "claves": claves_vistos},
+                )
 
             # Limpiar entries que desaparecieron del M3U
             result = await session.execute(
@@ -895,6 +936,7 @@ async def insert_series_catalog(series: list) -> bool:
             catalog_id_map: dict[str, str] = {}
             episode_map: dict[tuple, str] = {}
             stream_count = 0
+            streams_vistos: list[tuple[str, str]] = []
 
             # No se eliminan episodios preexistentes para preservar la metadata
             # enriquecida por TMDB (title, overview, air_date, still_path, etc.).
@@ -1089,14 +1131,23 @@ async def insert_series_catalog(series: list) -> bool:
                     stmt = (
                         pg_insert(SeriesStream)
                         .values(**stream_vals)
-                        .on_conflict_do_nothing(
+                        .on_conflict_do_update(
                             index_elements=[
                                 SeriesStream.episode_id,
                                 SeriesStream.provider_id,
-                            ]
+                            ],
+                            set_={
+                                "stream_url": pg_insert(SeriesStream).excluded.stream_url,
+                                "url": pg_insert(SeriesStream).excluded.url,
+                                "country": pg_insert(SeriesStream).excluded.country,
+                                "quality": pg_insert(SeriesStream).excluded.quality,
+                                "label": pg_insert(SeriesStream).excluded.label,
+                                "numero": pg_insert(SeriesStream).excluded.numero,
+                            },
                         )
                     )
                     await session.execute(stmt)
+                    streams_vistos.append((str(episode_id), s.get("provider_id") or ""))
                     stream_count += 1
                 except Exception as e:
                     print(f"  ⚠️  Error insertando series_stream: {e}")
@@ -1118,6 +1169,22 @@ async def insert_series_catalog(series: list) -> bool:
                 )
             """)
             )
+
+            # Limpiar streams que dejaron de venir en el M3U actual (mirrors
+            # muertos u obsoletos del proveedor), igual que en movies: de los
+            # episodios que siguen existiendo se borran los streams cuyo par
+            # (episode_id, provider_id) ya no se lista en esta pasada.
+            if streams_vistos:
+                episodes_uuid, claves_vistos = construir_claves_streams(streams_vistos)
+                await session.execute(
+                    text("""
+                        DELETE FROM series_streams ss
+                        WHERE ss.episode_id = ANY(:episodes::uuid[])
+                          AND ss.episode_id::text || ':' || COALESCE(ss.provider_id, '')
+                              != ALL(:claves::text[])
+                    """),
+                    {"episodes": episodes_uuid, "claves": claves_vistos},
+                )
 
             # Limpiar entries de catálogo que desaparecieron del M3U (CASCADE elimina episodios y streams)
             result = await session.execute(
