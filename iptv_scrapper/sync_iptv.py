@@ -857,19 +857,29 @@ async def insert_movies_catalog(movies: list) -> bool:
             # siguen en el catalogo (los desaparecidos se borran abajo con
             # CASCADE); de esos, se eliminan los streams cuyo par
             # (movie_id, provider_id) ya no se lista en esta pasada.
-            # Se serializa cada par como "uuid:provider" en un array de texto
-            # (un solo parametro) para evitar el limite de parametros de
-            # Postgres con catalogos grandes.
+            # Se serializa cada par como "uuid:provider" en una tabla temporal
+            # con anti-join: comparar contra un array de 36k+ claves por fila
+            # (`!= ALL(...)`) convertia la limpieza en un bloque de horas.
             if streams_vistos:
                 movies_uuid, claves_vistos = construir_claves_streams(streams_vistos)
+                await session.execute(
+                    text("CREATE TEMP TABLE IF NOT EXISTS _claves_sync(clave text PRIMARY KEY) ON COMMIT DROP"),
+                )
+                await session.execute(text("TRUNCATE _claves_sync"))
+                await session.execute(
+                    text("INSERT INTO _claves_sync(clave) SELECT unnest(CAST(:claves AS text[])) ON CONFLICT DO NOTHING"),
+                    {"claves": claves_vistos},
+                )
                 await session.execute(
                     text("""
                         DELETE FROM movie_streams ms
                         WHERE ms.movie_id = ANY(CAST(:movies AS uuid[]))
-                          AND ms.movie_id::text || ':' || COALESCE(ms.provider_id, '')
-                              != ALL(CAST(:claves AS text[]))
+                          AND NOT EXISTS (
+                              SELECT 1 FROM _claves_sync c
+                              WHERE c.clave = ms.movie_id::text || ':' || COALESCE(ms.provider_id, '')
+                          )
                     """),
-                    {"movies": movies_uuid, "claves": claves_vistos},
+                    {"movies": movies_uuid},
                 )
 
             # Limpiar entries que desaparecieron del M3U
@@ -1174,16 +1184,27 @@ async def insert_series_catalog(series: list) -> bool:
             # muertos u obsoletos del proveedor), igual que en movies: de los
             # episodios que siguen existiendo se borran los streams cuyo par
             # (episode_id, provider_id) ya no se lista en esta pasada.
+            # Anti-join con tabla temporal (el array gigante tardaba horas).
             if streams_vistos:
                 episodes_uuid, claves_vistos = construir_claves_streams(streams_vistos)
+                await session.execute(
+                    text("CREATE TEMP TABLE IF NOT EXISTS _claves_sync(clave text PRIMARY KEY) ON COMMIT DROP"),
+                )
+                await session.execute(text("TRUNCATE _claves_sync"))
+                await session.execute(
+                    text("INSERT INTO _claves_sync(clave) SELECT unnest(CAST(:claves AS text[])) ON CONFLICT DO NOTHING"),
+                    {"claves": claves_vistos},
+                )
                 await session.execute(
                     text("""
                         DELETE FROM series_streams ss
                         WHERE ss.episode_id = ANY(CAST(:episodes AS uuid[]))
-                          AND ss.episode_id::text || ':' || COALESCE(ss.provider_id, '')
-                              != ALL(CAST(:claves AS text[]))
+                          AND NOT EXISTS (
+                              SELECT 1 FROM _claves_sync c
+                              WHERE c.clave = ss.episode_id::text || ':' || COALESCE(ss.provider_id, '')
+                          )
                     """),
-                    {"episodes": episodes_uuid, "claves": claves_vistos},
+                    {"episodes": episodes_uuid},
                 )
 
             # Limpiar entries de catálogo que desaparecieron del M3U (CASCADE elimina episodios y streams)
