@@ -865,9 +865,9 @@ async def insert_movies_catalog(movies: list) -> bool:
                 await session.execute(
                     text("""
                         DELETE FROM movie_streams ms
-                        WHERE ms.movie_id = ANY(:movies::uuid[])
+                        WHERE ms.movie_id = ANY(CAST(:movies AS uuid[]))
                           AND ms.movie_id::text || ':' || COALESCE(ms.provider_id, '')
-                              != ALL(:claves::text[])
+                              != ALL(CAST(:claves AS text[]))
                     """),
                     {"movies": movies_uuid, "claves": claves_vistos},
                 )
@@ -1179,9 +1179,9 @@ async def insert_series_catalog(series: list) -> bool:
                 await session.execute(
                     text("""
                         DELETE FROM series_streams ss
-                        WHERE ss.episode_id = ANY(:episodes::uuid[])
+                        WHERE ss.episode_id = ANY(CAST(:episodes AS uuid[]))
                           AND ss.episode_id::text || ':' || COALESCE(ss.provider_id, '')
-                              != ALL(:claves::text[])
+                              != ALL(CAST(:claves AS text[]))
                     """),
                     {"episodes": episodes_uuid, "claves": claves_vistos},
                 )
