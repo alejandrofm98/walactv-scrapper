@@ -1,0 +1,175 @@
+# ESPEJO de docker-compose.yml: Dokploy despliega con -f docker-compose.yaml.
+# Mantener ambos ficheros identicos ante cualquier cambio.
+
+services:
+#  walactv-proxificaurl:
+#    build:
+#      context: ..
+#      dockerfile: docker/Dockerfile
+#    restart: unless-stopped
+#    command: ["python", "proxificaUrl.py"]
+#    ports:
+#      - "3001:3000"
+#    env_file:
+#      - .env
+#    networks:
+#      - dokploy-network
+
+  walactv-futboltv:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-futboltv
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - IMAGES_DIR=/app/data/images
+      - TORRENTIO_BASE_URL=${TORRENTIO_BASE_URL:-https://torrentio.strem.fun}
+      - TORRENTIO_PROVIDERS=${TORRENTIO_PROVIDERS:-wolfmax4k}
+      - TORRENTIO_LANGUAGES=${TORRENTIO_LANGUAGES:-spanish,english}
+      - TORRENTIO_TIMEOUT_SECONDS=${TORRENTIO_TIMEOUT_SECONDS:-15}
+      - TORRENTIO_CACHE_TTL_SECONDS=${TORRENTIO_CACHE_TTL_SECONDS:-60}
+    volumes:
+       - iptv-data:/app/data
+    networks:
+      - dokploy-network
+      - iptv-ecosystem
+    command: ["sh", "-c", "python main.py; trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
+
+  walactv-sync-iptv:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.sync
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-sync-iptv
+    restart: unless-stopped
+    entrypoint: ["/app/entrypoint.sh"]
+    env_file:
+      - .env
+    environment:
+      - DOCKER_CONTAINER=true
+      - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-https://localhost}
+    volumes:
+      - iptv-data:/app/data
+    networks:
+      - dokploy-network
+      - iptv-ecosystem
+
+  walactv-sync-replays:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.replay-sync
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-sync-replays
+    restart: unless-stopped
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
+    env_file:
+      - .env
+    networks:
+      - dokploy-network
+      - iptv-ecosystem
+
+  ofelia:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ofelia
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-ofelia
+    restart: unless-stopped
+    depends_on:
+      - walactv-futboltv
+      - walactv-sync-iptv
+      - walactv-sync-replays
+      - walactv-sync-tmdb-metadata
+      - walactv-imdb-ratings
+      - walactv-imdb-episode-ids
+      - walactv-tmdb-trending
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: daemon --config /ofelia.config.ini
+    networks:
+      - dokploy-network
+      - iptv-ecosystem
+
+  walactv-sync-tmdb-metadata:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tmdb
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-sync-tmdb-metadata
+    restart: unless-stopped
+    entrypoint: ["/app/entrypoint.sh"]
+    env_file:
+      - .env
+    environment:
+      - DOCKER_CONTAINER=true
+      - PYTHONUNBUFFERED=1
+      - INTRODB_SYNC_ENABLED=${INTRODB_SYNC_ENABLED:-false}
+    networks:
+      - dokploy-network
+      - iptv-ecosystem
+
+  # Importa ratings de IMDb (title.ratings.tsv.gz) a movies_metadata y series_metadata
+  # Se ejecuta diariamente via Ofelia; actualiza solo imdb_rating e imdb_votes.
+  walactv-imdb-ratings:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tmdb
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-imdb-ratings
+    restart: unless-stopped
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
+    env_file:
+      - .env
+    environment:
+      - DOCKER_CONTAINER=true
+      - PYTHONUNBUFFERED=1
+    networks:
+      - dokploy-network
+      - iptv-ecosystem
+
+  # Puebla series_episodes.imdb_id desde title.episode.tsv.gz
+  # Se ejecuta diariamente via Ofelia a las 06:30 UTC (despues de imdb-ratings).
+  walactv-imdb-episode-ids:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tmdb
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-imdb-episode-ids
+    restart: unless-stopped
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
+    env_file:
+      - .env
+    environment:
+      - DOCKER_CONTAINER=true
+      - PYTHONUNBUFFERED=1
+    networks:
+      - dokploy-network
+      - iptv-ecosystem
+
+  # Scrapea tendencias TMDB (movie/tv) en trending_rankings dos veces al dia via Ofelia.
+  walactv-tmdb-trending:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tmdb
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-tmdb-trending
+    restart: unless-stopped
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
+    env_file:
+      - .env
+    environment:
+      - DOCKER_CONTAINER=true
+      - PYTHONUNBUFFERED=1
+    networks:
+      - dokploy-network
+      - iptv-ecosystem
+
+networks:
+  dokploy-network:
+    external: true
+    name: ${DOKPLOY_NETWORK:-dokploy-network}
+  iptv-ecosystem:
+    external: ${IPTV_ECOSYSTEM_EXTERNAL:-true}
+    name: ${IPTV_ECOSYSTEM_NETWORK:-iptv-ecosystem}
+
+volumes:
+  walactv-logos:
+    external: true
+  iptv-data:
+    external: ${IPTV_DATA_EXTERNAL:-true}
+    name: ${IPTV_DATA_VOLUME:-iptv-data}
