@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import random
 import re
 import sys
 import time
@@ -262,7 +263,7 @@ def run_classify(batch_size: int, refresh_days: int, dry_run: bool) -> dict[str,
                 stats["errors"] += 1
                 logger.warning("Error clasificando %s %s: %s", kind, imdb_id, exc)
                 session.rollback()
-            time.sleep(1.0)  # respeto a Torrentio/Cloudflare (0.25s provoco bloqueos)
+            time.sleep(random.uniform(0.8, 2.5))  # jitter anti-bloqueo: 1s fijo parecia robotico (0.25s provoco bloqueos)
     finally:
         session.close()
 
