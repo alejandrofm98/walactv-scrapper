@@ -38,6 +38,16 @@ services:
       - iptv-ecosystem
     command: ["sh", "-c", "python main.py; trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"]
 
+  flaresolverr:
+    image: flaresolverr/flaresolverr:latest
+    container_name: ${SCRAPPER_CONTAINER_PREFIX:-walactv}-flaresolverr
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=info
+    mem_limit: 700m
+    networks:
+      - dokploy-network
+
   walactv-sync-iptv:
     build:
       context: ..
@@ -50,6 +60,8 @@ services:
     environment:
       - DOCKER_CONTAINER=true
       - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-https://localhost}
+      - TORRENTIO_PROXY=${TORRENTIO_PROXY:-}
+      - TORRENTIO_FLARESOLVERR=${TORRENTIO_FLARESOLVERR:-}
     volumes:
       - iptv-data:/app/data
     networks:

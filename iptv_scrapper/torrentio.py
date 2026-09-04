@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -39,14 +40,44 @@ class TorrentioClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.proxy = os.getenv("TORRENTIO_PROXY") or None
+        self.flaresolverr = os.getenv("TORRENTIO_FLARESOLVERR") or None
         self.session = session or requests.Session()
         self.session.headers.update(DEFAULT_HEADERS)
 
+    def _get(self, url: str) -> requests.Response:
+        """GET con escape de Cloudflare: si devuelve 403/429 y hay
+        FlareSolverr configurado, resuelve el reto (cookies cf_clearance +
+        User-Agent) y reintenta una vez."""
+        response = self.session.get(url, timeout=self.timeout, **self._proxy_kwargs())
+        if response.status_code in (403, 429) and self.flaresolverr:
+            self._solve_challenge(url)
+            response = self.session.get(url, timeout=self.timeout, **self._proxy_kwargs())
+        return response
+
+    def _solve_challenge(self, url: str) -> None:
+        """Resuelve el reto de Cloudflare via FlareSolverr y aplica las
+        cookies y el User-Agent a la sesion (van ligados)."""
+        endpoint = self.flaresolverr.rstrip("/") + "/v1"
+        payload = {"cmd": "request.get", "url": url, "maxTimeout": 60000}
+        response = requests.post(endpoint, json=payload, timeout=90)
+        response.raise_for_status()
+        solution = (response.json() or {}).get("solution") or {}
+        for cookie in solution.get("cookies") or []:
+            name = cookie.get("name")
+            value = cookie.get("value")
+            if name and value:
+                self.session.cookies.set(name, value, domain=cookie.get("domain") or "")
+        user_agent = solution.get("userAgent")
+        if user_agent:
+            self.session.headers["User-Agent"] = user_agent
+        logging.getLogger("torrentio-client").info(
+            "Reto de Cloudflare resuelto via FlareSolverr (%d cookies)",
+            len(solution.get("cookies") or []),
+        )
+
     def get_manifest(self) -> dict[str, Any]:
         """Obtiene el manifiesto publico de la instancia."""
-        response = self.session.get(
-            f"{self.base_url}/manifest.json", timeout=self.timeout, **self._proxy_kwargs()
-        )
+        response = self._get(f"{self.base_url}/manifest.json")
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
@@ -65,11 +96,7 @@ class TorrentioClient:
 
         content_id = imdb_id if content_type == "movie" else f"{imdb_id}:{season}:{episode}"
 
-        response = self.session.get(
-            f"{self.base_url}/stream/{content_type}/{content_id}.json",
-            timeout=self.timeout,
-            **self._proxy_kwargs(),
-        )
+        response = self._get(f"{self.base_url}/stream/{content_type}/{content_id}.json")
         response.raise_for_status()
         payload = response.json()
         streams = payload.get("streams", []) if isinstance(payload, dict) else []
