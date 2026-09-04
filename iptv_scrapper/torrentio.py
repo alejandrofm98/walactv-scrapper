@@ -41,6 +41,19 @@ class TorrentioClient:
         self.timeout = timeout
         self.proxy = os.getenv("TORRENTIO_PROXY") or None
         self.flaresolverr = os.getenv("TORRENTIO_FLARESOLVERR") or None
+        # Mismos filtros que usan las apps (wolfmax4k + spanish/english):
+        # si el classify mirara TODA la config de Torrentio marcaria titulos
+        # que los clientes no encuentran -> tarjetas sin enlaces.
+        providers = os.getenv("TORRENTIO_PROVIDERS", "wolfmax4k,comando,yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,magnetdl,torrentproject,ibit,filelist")
+        languages = os.getenv("TORRENTIO_LANGUAGES", "spanish,english")
+        self.config_path = ""
+        if providers or languages:
+            parts = []
+            if providers:
+                parts.append(f"providers={providers}")
+            if languages:
+                parts.append(f"language={languages}")
+            self.config_path = "/".join(parts)
         self.session = session or requests.Session()
         self.session.headers.update(DEFAULT_HEADERS)
 
@@ -96,7 +109,11 @@ class TorrentioClient:
 
         content_id = imdb_id if content_type == "movie" else f"{imdb_id}:{season}:{episode}"
 
-        response = self._get(f"{self.base_url}/stream/{content_type}/{content_id}.json")
+        response = self._get(
+            f"{self.base_url}/{self.config_path}/stream/{content_type}/{content_id}.json"
+            if self.config_path
+            else f"{self.base_url}/stream/{content_type}/{content_id}.json"
+        )
         response.raise_for_status()
         payload = response.json()
         streams = payload.get("streams", []) if isinstance(payload, dict) else []

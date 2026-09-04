@@ -26,7 +26,7 @@ services:
     environment:
       - IMAGES_DIR=/app/data/images
       - TORRENTIO_BASE_URL=${TORRENTIO_BASE_URL:-https://torrentio.strem.fun}
-      - TORRENTIO_PROVIDERS=${TORRENTIO_PROVIDERS:-wolfmax4k}
+      - TORRENTIO_PROVIDERS=${TORRENTIO_PROVIDERS:-wolfmax4k,comando,yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,magnetdl,torrentproject,ibit,filelist}
       - TORRENTIO_LANGUAGES=${TORRENTIO_LANGUAGES:-spanish,english}
       - TORRENTIO_PROXY=${TORRENTIO_PROXY:-}
       - TORRENTIO_TIMEOUT_SECONDS=${TORRENTIO_TIMEOUT_SECONDS:-15}
