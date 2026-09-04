@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import requests
 from sqlalchemy import select
 
 try:
@@ -214,6 +215,10 @@ def run_classify(batch_size: int, refresh_days: int, dry_run: bool) -> dict[str,
     session = Session()
     try:
         rows = _catalog_rows(session, refresh_days, batch_size)
+        # Circuit-breaker: con la IP bloqueada, Torrentio responde 403 a todo.
+        # Churrar 30k titulos en bucle no clasifica nada y prolonga el bloqueo:
+        # abortar el lote tras varios 403 seguidos y esperar al siguiente run.
+        consecutive_blocked = 0
         for kind, imdb_id, catalog_id in rows:
             try:
                 if kind == "movie":
@@ -224,6 +229,7 @@ def run_classify(batch_size: int, refresh_days: int, dry_run: bool) -> dict[str,
                     streams = client.get_streams(
                         imdb_id, content_type="series", season=1, episode=1
                     )
+                consecutive_blocked = 0
                 classification = classify_streams(streams)
                 stats["checked"] += 1
                 if classification.has_torrent:
@@ -234,11 +240,29 @@ def run_classify(batch_size: int, refresh_days: int, dry_run: bool) -> dict[str,
                     else:
                         _apply_series(session, catalog_id, classification)
                     session.commit()
+            except requests.HTTPError as exc:
+                status = exc.response.status_code if exc.response is not None else 0
+                if status in (403, 429):
+                    consecutive_blocked += 1
+                    stats["errors"] += 1
+                    session.rollback()
+                    if consecutive_blocked >= 10:
+                        logger.error(
+                            "IP bloqueada por Torrentio (%d fallos 403/429 seguidos): "
+                            "abortando el lote; se reintentara en la proxima ejecucion",
+                            consecutive_blocked,
+                        )
+                        break
+                    time.sleep(min(2**consecutive_blocked, 30))
+                    continue
+                stats["errors"] += 1
+                logger.warning("Error clasificando %s %s: %s", kind, imdb_id, exc)
+                session.rollback()
             except Exception as exc:
                 stats["errors"] += 1
                 logger.warning("Error clasificando %s %s: %s", kind, imdb_id, exc)
                 session.rollback()
-            time.sleep(0.25)  # respeto a Torrentio/Cloudflare
+            time.sleep(1.0)  # respeto a Torrentio/Cloudflare (0.25s provoco bloqueos)
     finally:
         session.close()
 
