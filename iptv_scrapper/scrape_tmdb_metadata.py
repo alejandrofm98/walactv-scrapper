@@ -286,6 +286,14 @@ class TMDBScraper:
         self._session.commit()
         return result.rowcount
 
+    def _rollback(self) -> None:
+        """Limpia una transaccion abortada para que un fallo puntual no
+        envenene el resto del run (InFailedSqlTransaction)."""
+        try:
+            self._session.rollback()
+        except Exception:
+            pass
+
     def _rate_limit(self):
         current_time = time.time()
         time_elapsed = current_time - self.last_request_time
@@ -581,8 +589,11 @@ class TMDBScraper:
                 )
                 # Check if this tmdb_id is already assigned to ANOTHER catalog entry.
                 # If so, merge streams into existing entry and delete duplicate.
+                # IS DISTINCT FROM es NULL-safe: las filas importadas de TMDB
+                # tienen provider_id NULL y "!=" las excluiria del merge,
+                # provocando UniqueViolation en canonical_key.
                 existing = self._query(
-                    "SELECT id FROM movies_catalog WHERE tmdb_id = :tmdb_id AND provider_id != :provider_id LIMIT 1",
+                    "SELECT id FROM movies_catalog WHERE tmdb_id = :tmdb_id AND provider_id IS DISTINCT FROM :provider_id LIMIT 1",
                     {"tmdb_id": result.tmdb_id, "provider_id": result.provider_id},
                 )
                 if existing:
@@ -629,6 +640,7 @@ class TMDBScraper:
                 )
                 logger.info(f"   💾 Guardado TMDB {result.tmdb_id} + catalog actualizado")
             except Exception as e:
+                self._rollback()
                 logger.error(f"Error guardando metadata: {e}")
         else:
             sql = """
@@ -658,6 +670,7 @@ class TMDBScraper:
                 )
                 logger.info("   💾 Guardado como no encontrado")
             except Exception as e:
+                self._rollback()
                 logger.error(f"Error guardando metadata: {e}")
 
     def _process_movie(self, row: dict) -> ScrapeResult:
@@ -915,8 +928,9 @@ class TMDBScraper:
                 )
                 # Check if this tmdb_id is already assigned to ANOTHER catalog entry.
                 # If so, merge episodes/streams into existing entry and delete duplicate.
+                # IS DISTINCT FROM es NULL-safe (ver caso peliculas arriba).
                 existing = self._query(
-                    "SELECT id FROM series_catalog WHERE tmdb_id = :tmdb_id AND series_key != :series_key LIMIT 1",
+                    "SELECT id FROM series_catalog WHERE tmdb_id = :tmdb_id AND series_key IS DISTINCT FROM :series_key LIMIT 1",
                     {"tmdb_id": result.tmdb_id, "series_key": result.series_key},
                 )
                 if existing:
@@ -1004,6 +1018,7 @@ class TMDBScraper:
                 # Procesar episodios de la serie
                 self._process_episodes_for_series(result.tmdb_id, result.series_key)
             except Exception as e:
+                self._rollback()
                 logger.error(f"Error guardando metadata de serie: {e}")
         else:
             sql = """
@@ -1033,6 +1048,7 @@ class TMDBScraper:
                 )
                 logger.info("   💾 Guardado como no encontrado")
             except Exception as e:
+                self._rollback()
                 logger.error(f"Error guardando metadata de serie: {e}")
 
     def _process_episodes_for_series(self, tmdb_id: str, series_key: str, series_name: str = ""):
@@ -1118,6 +1134,7 @@ class TMDBScraper:
                         )
 
         except Exception as e:
+            self._rollback()
             logger.error(f"Error procesando episodios para serie {series_key}: {e}")
 
     def _save_episode_metadata(self, episode_id: str, data_es: dict, data_en: dict):
@@ -1172,6 +1189,7 @@ class TMDBScraper:
                 },
             )
         except Exception as e:
+            self._rollback()
             logger.error(f"Error guardando episodio {episode_id}: {e}")
 
     def _process_batch(
