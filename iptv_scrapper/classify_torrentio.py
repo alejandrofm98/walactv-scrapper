@@ -63,6 +63,13 @@ _LANGUAGE_CODES = {"🇪🇸": "ES", "🇬🇧": "EN", "🇯🇵": "JP"}
 _EXCLUDED_LANGUAGE_MARKERS = ("🇲🇽", "latino")
 _FOREIGN_FLAGS = ("🇮🇹", "🇵🇹", "🇷🇺", "🇫🇷", "🇩🇪", "🇵🇱", "🇨🇳", "🇯🇵")
 
+# Unicos proveedores que devuelven stream con audio en español con certeza.
+# El resto puede traer subtitulos ES o la bandera ES sin que el audio sea español.
+TRUSTED_ES_AUDIO_PROVIDERS = frozenset({"mejortorrent", "wolfmax4k"})
+
+# Torrentio marca el origen del stream como "⚙️ <proveedor>".
+_PROVIDER_RE = re.compile(r"⚙️\s*(\S+)")
+
 
 @dataclass
 class Classification:
@@ -72,11 +79,37 @@ class Classification:
     languages: list[str]
 
 
-def detect_languages(title: str) -> list[str] | None:
+def extract_provider(title: str, name: str = "") -> str:
+    """Extrae el proveedor de un stream de Torrentio.
+
+    Busca el marcador `⚙️ <proveedor>` primero en el titulo y como respaldo
+    en el campo `name`. Devuelve el nombre en minusculas, o "" si no se encuentra.
+    """
+    for text in (title, name):
+        match = _PROVIDER_RE.search(text or "")
+        if match:
+            return match.group(1).strip(".,;:!?()[]").lower()
+    return ""
+
+
+def _has_strong_es_signal(lowered: str, bracketed: list[str]) -> bool:
+    """Señal textual fuerte de audio español: [ES], spanish, castellano, etc."""
+    if any(code.upper() == "ES" for code in bracketed):
+        return True
+    return bool(re.search(r"\b(spanish|castellano|castilian|español)\b", lowered))
+
+
+def detect_languages(title: str, provider: str | None = None) -> list[str] | None:
     """Detecta los idiomas presentes en el titulo de un stream de Torrentio.
 
     Devuelve None si el stream no es util (latino/idioma extranjero sin codigo).
+
+    Solo mejortorrent y wolfmax4k devuelven audio español con certeza: para el
+    resto de proveedores la bandera ES suele indicar subtitulos, no audio, asi
+    que solo se marca ES si hay señal textual fuerte ([ES], spanish, castellano).
     """
+    if provider is None:
+        provider = extract_provider(title)
     lowered = title.lower()
     if any(marker in lowered for marker in _EXCLUDED_LANGUAGE_MARKERS):
         return None
@@ -86,16 +119,19 @@ def detect_languages(title: str) -> list[str] | None:
     bracketed = re.findall(r"\[(ES|EN|JP)\]", title, re.IGNORECASE)
     if foreign_flags and not explicit and not bracketed:
         return None
-    if "🇪🇸" in title:
-        return ["ES"]
+    strong_es = _has_strong_es_signal(lowered, bracketed)
+    if "🇪🇸" in title or strong_es:
+        if (provider or "") in TRUSTED_ES_AUDIO_PROVIDERS or strong_es:
+            return ["ES"]
+        # Bandera ES de un proveedor no confiable: normalmente indica
+        # subtitulos, no audio (caso tipico: releases YTS y similares).
+        return ["EN"]
     if "🇬🇧" in title:
         return ["EN"]
     if "🇯🇵" in title or re.search(r"\b(japanese|japonesa?|japon(?:es|és)?)\b", lowered):
         return ["JP"]
     if "日本語" in title or "日本" in title:
         return ["JP"]
-    if re.search(r"\b(spanish|castellano)\b", lowered):
-        return ["ES"]
     if re.search(r"\benglish\b", lowered):
         return ["EN"]
     if explicit:
@@ -114,7 +150,8 @@ def classify_streams(streams: list[dict[str, Any]]) -> Classification:
         if not re.fullmatch(r"[a-fA-F0-9]{40}", info_hash):
             continue
         title = str(stream.get("title") or "").strip()
-        detected = detect_languages(title)
+        name = str(stream.get("name") or "").strip()
+        detected = detect_languages(title, extract_provider(title, name))
         if detected is None:
             continue
         has_valid = True
@@ -263,7 +300,9 @@ def run_classify(batch_size: int, refresh_days: int, dry_run: bool) -> dict[str,
                 stats["errors"] += 1
                 logger.warning("Error clasificando %s %s: %s", kind, imdb_id, exc)
                 session.rollback()
-            time.sleep(random.uniform(0.8, 2.5))  # jitter anti-bloqueo: 1s fijo parecia robotico (0.25s provoco bloqueos)
+            time.sleep(
+                random.uniform(0.8, 2.5)
+            )  # jitter anti-bloqueo: 1s fijo parecia robotico (0.25s provoco bloqueos)
     finally:
         session.close()
 

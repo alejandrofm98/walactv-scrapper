@@ -11,12 +11,48 @@ from iptv_scrapper.classify_torrentio import (
     Classification,
     classify_streams,
     detect_languages,
+    extract_provider,
 )
+
+
+class TestExtractProvider:
+    def test_proveedor_en_titulo(self):
+        assert extract_provider("Pelicula 1080p 🇪🇸 ⚙️ Wolfmax4k") == "wolfmax4k"
+
+    def test_proveedor_case_insensitive(self):
+        assert extract_provider("Peli 4K ⚙️ MejorTorrent") == "mejortorrent"
+
+    def test_proveedor_en_name_como_respaldo(self):
+        assert extract_provider("Pelicula 1080p", "⚙️ comando") == "comando"
+
+    def test_sin_proveedor(self):
+        assert extract_provider("Pelicula 1080p 🇪🇸") == ""
+        assert extract_provider("Pelicula 1080p 🇪🇸 ⚙️") == ""
 
 
 class TestDetectLanguages:
     def test_flag_espanol(self):
         assert detect_languages("Pelicula 1080p 🇪🇸 ⚙️ Wolfmax4k") == ["ES"]
+
+    def test_flag_espanol_mejortorrent(self):
+        assert detect_languages("Pelicula 1080p 🇪🇸 ⚙️ Mejortorrent") == ["ES"]
+
+    def test_flag_espanol_proveedor_no_confiable(self):
+        # La bandera sola en otro proveedor suele indicar subtitulos, no audio.
+        assert detect_languages("Pelicula 1080p 🇪🇸 ⚙️ YTS") == ["EN"]
+
+    def test_flag_espanol_sin_proveedor(self):
+        # Sin proveedor conocido se asume el caso conservador (no audio ES).
+        assert detect_languages("Pelicula 1080p 🇪🇸") == ["EN"]
+
+    def test_flag_espanol_con_provider_explicito(self):
+        assert detect_languages("Pelicula 1080p 🇪🇸", "wolfmax4k") == ["ES"]
+        assert detect_languages("Pelicula 1080p 🇪🇸", "rarbg") == ["EN"]
+
+    def test_senal_fuerte_es_en_proveedor_no_confiable(self):
+        assert detect_languages("Pelicula [ES] 1080p ⚙️ YTS") == ["ES"]
+        assert detect_languages("Pelicula Spanish HDR ⚙️ rarbg") == ["ES"]
+        assert detect_languages("Pelicula Castellano 1080p ⚙️ eztv") == ["ES"]
 
     def test_flag_ingles(self):
         assert detect_languages("Movie 1080p 🇬🇧 ⚙️") == ["EN"]
@@ -52,12 +88,25 @@ class TestDetectLanguages:
 class TestClassifyStreams:
     def test_mezcla_idiomas_dedup(self):
         streams = [
-            {"infoHash": "a" * 40, "title": "Pelicula 1080p 🇪🇸 ⚙️"},
+            {"infoHash": "a" * 40, "title": "Pelicula 1080p 🇪🇸 ⚙️ Wolfmax4k"},
             {"infoHash": "b" * 40, "title": "Movie 1080p 🇬🇧 ⚙️"},
-            {"infoHash": "c" * 40, "title": "Pelicula 720p 🇪🇸 ⚙️"},
+            # Bandera ES en proveedor no confiable: cuenta como torrent
+            # pero no aporta ES (normalmente son solo subtitulos).
+            {"infoHash": "c" * 40, "title": "Pelicula 720p 🇪🇸 ⚙️ YTS"},
         ]
         result = classify_streams(streams)
         assert result == Classification(has_torrent=True, languages=["EN", "ES"])
+
+    def test_proveedor_en_campo_name(self):
+        streams = [
+            {
+                "infoHash": "a" * 40,
+                "name": "⚙️ Mejortorrent",
+                "title": "Pelicula 1080p 🇪🇸",
+            },
+        ]
+        result = classify_streams(streams)
+        assert result == Classification(has_torrent=True, languages=["ES"])
 
     def test_sin_torrent_valido(self):
         streams = [
