@@ -60,6 +60,7 @@ services:
     environment:
       - DOCKER_CONTAINER=true
       - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-https://localhost}
+      - IMAGES_DIR=/app/data/images
       - TORRENTIO_PROXY=${TORRENTIO_PROXY:-}
       - TORRENTIO_FLARESOLVERR=${TORRENTIO_FLARESOLVERR:-}
     volumes:
