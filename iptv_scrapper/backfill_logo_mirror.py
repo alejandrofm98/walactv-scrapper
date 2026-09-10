@@ -123,7 +123,8 @@ async def backfill(dry_run: bool) -> int:
             await session.execute(
                 text(
                     f"UPDATE {TABLE} SET logo = data.logo FROM ("
-                    "  SELECT unnest(:ids::text[]) AS id, unnest(:logos::text[]) AS logo"
+                    "  SELECT unnest(CAST(:ids AS text[])) AS id,"
+                    "  unnest(CAST(:logos AS text[])) AS logo"
                     f") AS data WHERE {TABLE}.id = data.id"
                 ),
                 {"ids": [c[0] for c in chunk], "logos": [c[1] for c in chunk]},
