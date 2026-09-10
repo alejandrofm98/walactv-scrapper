@@ -33,6 +33,10 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 import utils.constants as CONSTANTS
 from config import get_settings
 from database import DatabasePG
+from services.logo_mirror import buscar_override
+from services.logo_mirror import parsear_paises_config
+from services.logo_mirror import premirror as premirror_logos
+from services.logo_mirror import resolver_logo
 from utils.series_keys import build_series_key
 
 # Cargar configuración
@@ -546,12 +550,27 @@ def procesar_item(item, idx, tipo, provider_username: str = "", provider_passwor
     metadata = construir_metadatos_normalizados(item["name"], item["group"], tipo)
     country = extraer_country(item["group"]) or metadata.get("language") or "UNKNOWN"
 
-    # Convertir URL del logo a HTTPS usando el proxy
-    logo_url = proxy_logo_url(item["logo"], settings.public_domain, tipo)
+    # Logo:
+    # - CHANNEL: el espejo descarga una vez y sirve URL propia; fallo -> placeholder
+    # - MOVIE/SERIES: proxy simple legacy (https directo; la app usa poster TMDB)
+    if tipo == CONSTANTS.CONTENT_TYPE_CHANNEL:
+        logo_url = resolver_logo(item["logo"], tipo, settings.public_domain)
+    else:
+        logo_url = proxy_logo_url(item["logo"], settings.public_domain, tipo)
 
     # Extraer provider_id de la URL
     provider_id = extraer_provider_id(item["url"])
     stream_url = construir_stream_url(item["url"], provider_username, provider_password)
+
+    # Override manual: si el logo quedo en placeholder y hay fichero en
+    # IMAGES_DIR/logos/overrides/ ({tvg_id}|{provider_id}|{nombre}.png), se usa
+    if tipo == CONSTANTS.CONTENT_TYPE_CHANNEL and "/placeholder/" in logo_url:
+        override = buscar_override(
+            [item.get("tvg_id", ""), provider_id, metadata.get("name_normalized", "")],
+            settings.public_domain,
+        )
+        if override:
+            logo_url = override
 
     # Extraer calidad del nombre antes de limpiar
     quality = extraer_calidad(item["name"])
@@ -1248,10 +1267,10 @@ def parsear_m3u(m3u_content: str) -> list:
 
             name = line.split(",")[-1].strip() if "," in line else "Unknown"
 
+            # Logo crudo del M3U: el espejo (services.logo_mirror) decide la URL final
             logo = ""
             if CONSTANTS.M3U_TVG_LOGO_ATTR in line:
-                raw_logo = line.split(CONSTANTS.M3U_TVG_LOGO_ATTR)[1].split('"')[0]
-                logo = proxy_logo_url(raw_logo, settings.public_domain, "channel")
+                logo = line.split(CONSTANTS.M3U_TVG_LOGO_ATTR)[1].split('"')[0].strip()
 
             tvg_id = ""
             if CONSTANTS.M3U_TVG_ID_ATTR in line:
@@ -1385,6 +1404,26 @@ async def sync_to_postgres():
     duracion_parseo = fin_parseo - inicio_parseo
     print(f"✅ Parseados {len(items_temp):,} items en total")
     print(f"  ⏱️  Tiempo de parseo: {duracion_parseo:.2f}s")
+
+    # FASE 2b: espejar logos HTTP de los canales de los paises que usan las
+    # apps (LOGO_MIRROR_COUNTRIES en config PG, default ES,UK,US,WO). El resto
+    # de paises y movies/series mantienen el proxy simple legacy (no anidado).
+    paises_config = await obtener_config_desde_postgres("LOGO_MIRROR_COUNTRIES")
+    paises_objetivo = set(parsear_paises_config(paises_config))
+    print(f"  🌍 Paises con logo espejado: {sorted(paises_objetivo) if paises_objetivo else '(todos)'}")
+    urls_logo: set[str] = set()
+    for item in items_temp:
+        if not item["logo"] or not item["logo"].startswith("http://"):
+            continue
+        if detectar_tipo_contenido(item["url"], item["name"]) != CONSTANTS.CONTENT_TYPE_CHANNEL:
+            continue
+        if paises_objetivo and extraer_country(item["group"]) not in paises_objetivo:
+            continue
+        urls_logo.add(item["logo"])
+    inicio_espejo = time.time()
+    premirror_logos(sorted(urls_logo), CONSTANTS.CONTENT_TYPE_CHANNEL)
+    duracion_espejo = time.time() - inicio_espejo
+    print(f"  ⏱️  Espejo de logos: {duracion_espejo:.1f}s")
 
     channels = []
     movies = []
