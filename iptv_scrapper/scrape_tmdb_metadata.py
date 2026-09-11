@@ -7,6 +7,7 @@ Uso:
     python scripts/scrape_tmdb_metadata.py --batch-size 50 --max-items 100
     python scripts/scrape_tmdb_metadata.py --dry-run
     python scripts/scrape_tmdb_metadata.py --retry-not-found
+    python scripts/scrape_tmdb_metadata.py --media-type series
 
 Variables de entorno requeridas:
     PG_HOST, PG_PORT, PG_DATABASE, PG_USER, PG_PASSWORD
@@ -58,6 +59,16 @@ RATE_LIMIT_WINDOW = 10  # segundos
 
 # Tolerancia en años al verificar resultados de TMDB (±1 año)
 YEAR_MATCH_TOLERANCE = 1
+
+# Tope de reintentos para items marcados not_found. Superado este umbral el
+# item queda en lista negra: el job semanal --retry-not-found lo ignora y no
+# quema mas cuota de API en titulos inexistentes en TMDB (colecciones del
+# proveedor, eventos, nombres truncados, etc.).
+MAX_NOT_FOUND_RETRIES = 5
+
+# Año minimo aceptable del proveedor. Rangos rotos tipo (1964-1066) o años
+# truncados contaminan la verificacion por año si se usan tal cual.
+TMDB_MIN_YEAR = 1900
 
 # Prefijos de idioma/calidad: EN, ES, LAT, CAST, MULTI, SD/CAM, EN/CAM, etc.
 # Soporta 2-5 letras mayúsculas separadas por / o ,
@@ -207,13 +218,29 @@ def extract_series_search_info(nombre: str, serie_name: str) -> tuple[str, int |
         year_match = re.search(r"\((\d{4})(?:\s*-\s*\d{4})?\)", cleaned)
         year = int(year_match.group(1)) if year_match else None
         search_title = clean_series_name(serie_name)
+        # Basura tipica del proveedor que clean_series_name no elimina:
+        # años truncados/pegados ("20230" -> "2023", "2019_" -> "2019").
+        search_title = re.sub(r"\b((?:19|20)\d{2})\d{1,3}\b", r"\1", search_title)
+        search_title = re.sub(r"[\W_]+$", "", search_title)
+        # Sufijo de temporada en español ("Black Mirror T7" -> "black mirror").
+        # Solo a nivel de busqueda: la series_key del catalogo no se toca.
+        search_title = re.sub(r"\s+T\d{1,2}\s*$", "", search_title, flags=re.IGNORECASE)
         if year:
             search_title = search_title.removesuffix(f" {year}")
-        return search_title, year
+        return search_title, _clamp_year(year)
     cleaned, year = extract_search_title(nombre)
     cleaned = re.sub(r"\s+[Ss]\d{1,2}\s*[Ee]\d{1,2}\s*$", "", cleaned)
     cleaned = re.sub(r"\s+[Ss]\d{1,2}\s*$", "", cleaned)
-    return cleaned, year
+    return cleaned, _clamp_year(year)
+
+
+def _clamp_year(year: int | None) -> int | None:
+    """Descarta años imposibles del proveedor para no contaminar el matching."""
+    if year is None:
+        return None
+    if TMDB_MIN_YEAR <= year <= datetime.now().year + 1:
+        return year
+    return None
 
 
 def _pick_best_result(results: list[dict], year: int | None, date_key: str) -> dict | None:
@@ -309,31 +336,49 @@ class TMDBScraper:
             self.last_request_time = current_time
         self.request_count += 1
 
+    def _search_request(self, endpoint: str, title: str) -> list[dict] | None:
+        """GET a search/* con un reintento ante HTTP 429.
+
+        Devuelve la lista de resultados o None ante error definitivo.
+        Sin este reintento, un 429 transitorio marcaba el item como
+        not_found, que ahora es persistente (el sync ya no lo resetea).
+        """
+        for attempt in (1, 2):
+            self._rate_limit()
+            try:
+                response = self.session.get(
+                    f"{TMDB_BASE_URL}{endpoint}",
+                    params={"api_key": TMDB_API_KEY, "query": title, "language": "es-ES"},
+                    timeout=10,
+                )
+                if response.status_code == 429 and attempt == 1:
+                    try:
+                        retry_after = int(response.headers.get("Retry-After", "5"))
+                    except (TypeError, ValueError):
+                        retry_after = 5
+                    logger.warning(f"HTTP 429 buscando '{title}'. Esperando {retry_after}s...")
+                    time.sleep(retry_after)
+                    continue
+                response.raise_for_status()
+                return response.json().get("results", [])
+            except Exception as e:
+                logger.warning(f"Error buscando '{title}': {e}")
+                return None
+        return None
+
     def _search_movie(self, title: str, year: int | None = None) -> dict | None:
         """Busca película en TMDB y elige el mejor resultado usando el año como verificación."""
-        self._rate_limit()
-        params = {"api_key": TMDB_API_KEY, "query": title, "language": "es-ES"}
-        try:
-            response = self.session.get(f"{TMDB_BASE_URL}/search/movie", params=params, timeout=10)
-            response.raise_for_status()
-            results = response.json().get("results", [])
-            return _pick_best_result(results, year, date_key="release_date")
-        except Exception as e:
-            logger.warning(f"Error buscando película '{title}': {e}")
+        results = self._search_request("/search/movie", title)
+        if results is None:
             return None
+        return _pick_best_result(results, year, date_key="release_date")
 
     def _search_tv(self, title: str, year: int | None = None) -> dict | None:
         """Busca serie en TMDB y elige el mejor resultado usando el año como verificación."""
-        self._rate_limit()
-        params = {"api_key": TMDB_API_KEY, "query": title, "language": "es-ES"}
-        try:
-            response = self.session.get(f"{TMDB_BASE_URL}/search/tv", params=params, timeout=10)
-            response.raise_for_status()
-            results = response.json().get("results", [])
-            return _pick_best_result(results, year, date_key="first_air_date")
-        except Exception as e:
-            logger.warning(f"Error buscando serie '{title}': {e}")
+        results = self._search_request("/search/tv", title)
+        if results is None:
             return None
+        return _pick_best_result(results, year, date_key="first_air_date")
 
     def _get_movie_details(self, tmdb_id: str) -> dict | None:
         self._rate_limit()
@@ -452,7 +497,7 @@ class TMDBScraper:
         WHERE tmdb_id IS NULL
           AND not_found = FALSE
           AND COALESCE(provider_id, '') <> ''
-        ORDER BY year DESC NULLS LAST, provider_id ASC
+        ORDER BY (last_error IS NULL) DESC, year DESC NULLS LAST, provider_id ASC
         LIMIT :limit
         """
         return self._query(sql, {"limit": limit})
@@ -465,7 +510,7 @@ class TMDBScraper:
         WHERE tmdb_id IS NULL
           AND not_found = FALSE
           AND COALESCE(series_key, '') <> ''
-        ORDER BY year DESC NULLS LAST, series_key ASC
+        ORDER BY (last_error IS NULL) DESC, year DESC NULLS LAST, series_key ASC
         LIMIT :limit
         """
         return self._query(sql, {"limit": limit})
@@ -476,11 +521,12 @@ class TMDBScraper:
                nombre_dedup_key
         FROM movies_catalog
         WHERE not_found = TRUE
+          AND retry_count < :max_retries
           AND COALESCE(provider_id, '') <> ''
         ORDER BY retry_count ASC, year DESC NULLS LAST, provider_id ASC
         LIMIT :limit
         """
-        return self._query(sql, {"limit": limit})
+        return self._query(sql, {"limit": limit, "max_retries": MAX_NOT_FOUND_RETRIES})
 
     def _get_series_not_found(self, limit: int = 100) -> list[dict]:
         sql = """
@@ -488,11 +534,12 @@ class TMDBScraper:
                year, title AS nombre_normalizado
         FROM series_catalog
         WHERE not_found = TRUE
+          AND retry_count < :max_retries
           AND COALESCE(series_key, '') <> ''
         ORDER BY retry_count ASC, year DESC NULLS LAST, series_key ASC
         LIMIT :limit
         """
-        return self._query(sql, {"limit": limit})
+        return self._query(sql, {"limit": limit, "max_retries": MAX_NOT_FOUND_RETRIES})
 
     def _get_series_with_episodes_without_metadata(
         self, limit: int = 100, retry_not_found: bool = False
@@ -1218,7 +1265,11 @@ class TMDBScraper:
         return total_processed, total_found, total_not_found
 
     def run(
-        self, batch_size: int = 100, max_items: int | None = None, retry_not_found: bool = False
+        self,
+        batch_size: int = 100,
+        max_items: int | None = None,
+        retry_not_found: bool = False,
+        media_type: str = "all",
     ):
         logger.info("=" * 60)
         logger.info(f"Scraper TMDB - {datetime.now()}")
@@ -1226,6 +1277,7 @@ class TMDBScraper:
             logger.info("MODO: Reintentando items no encontrados anteriormente")
         else:
             logger.info("MODO: Procesando items sin metadata")
+        logger.info(f"MEDIA: {media_type}")
         logger.info("=" * 60)
 
         if self.dry_run:
@@ -1272,70 +1324,84 @@ class TMDBScraper:
             except Exception as e:
                 logger.warning(f"⚠️  Error cargando cross-reference de series: {e}")
 
-            # -- Películas --
-            logger.info("\n🎬 PROCESANDO PELÍCULAS")
-            logger.info("-" * 60)
-            while True:
+            # -- Películas y series en round-robin por lotes --
+            # Antes se drenaban TODAS las películas antes de tocar la primera
+            # serie; con 6k+ películas pendientes las series morían de
+            # inanición dentro del mismo run. Alternar un lote de cada tipo
+            # garantiza progreso de ambos aunque el backlog sea enorme.
+            do_movies = media_type in ("all", "movies")
+            do_series = media_type in ("all", "series")
+            movies_done = not do_movies
+            series_done = not do_series
+            if do_movies:
+                logger.info("\n🎬 PROCESANDO PELÍCULAS")
+                logger.info("-" * 60)
+            if do_series:
+                logger.info("\n📺 PROCESANDO SERIES")
+                logger.info("-" * 60)
+            while not (movies_done and series_done):
                 if max_items and total_processed >= max_items:
                     break
-                movies = get_movies_fn(batch_size)
-                if not movies:
-                    logger.info("No hay más películas")
-                    break
-                logger.info(f"Lote de {len(movies)} películas")
-                total_processed, total_found, total_not_found = self._process_batch(
-                    movies,
-                    self._process_movie,
-                    self._save_metadata,
-                    total_processed,
-                    total_found,
-                    total_not_found,
-                    max_items,
-                )
-
-            # -- Series --
-            logger.info("\n📺 PROCESANDO SERIES")
-            logger.info("-" * 60)
-            while True:
+                if not movies_done:
+                    movies = get_movies_fn(batch_size)
+                    if not movies:
+                        logger.info("No hay más películas")
+                        movies_done = True
+                    else:
+                        logger.info(f"Lote de {len(movies)} películas")
+                        total_processed, total_found, total_not_found = self._process_batch(
+                            movies,
+                            self._process_movie,
+                            self._save_metadata,
+                            total_processed,
+                            total_found,
+                            total_not_found,
+                            max_items,
+                        )
                 if max_items and total_processed >= max_items:
                     break
-                series = get_series_fn(batch_size)
-                if not series:
-                    logger.info("No hay más series")
-                    break
-                logger.info(f"Lote de {len(series)} series")
-                total_processed, total_found, total_not_found = self._process_batch(
-                    series,
-                    self._process_series,
-                    self._save_series_metadata,
-                    total_processed,
-                    total_found,
-                    total_not_found,
-                    max_items,
-                )
+                if not series_done:
+                    series = get_series_fn(batch_size)
+                    if not series:
+                        logger.info("No hay más series")
+                        series_done = True
+                    else:
+                        logger.info(f"Lote de {len(series)} series")
+                        total_processed, total_found, total_not_found = self._process_batch(
+                            series,
+                            self._process_series,
+                            self._save_series_metadata,
+                            total_processed,
+                            total_found,
+                            total_not_found,
+                            max_items,
+                        )
 
             # -- Episodios sin metadata TMDB --
-            if retry_not_found:
-                logger.info("\n📺 PROCESANDO EPISODIOS SIN METADATA TMDB (MODO RETRY)")
-            else:
-                logger.info("\n📺 PROCESANDO EPISODIOS SIN METADATA TMDB")
-            logger.info("-" * 60)
-            episodes_processed = 0
-            while True:
-                series_with_missing = self._get_series_with_episodes_without_metadata(
-                    batch_size, retry_not_found
-                )
-                if not series_with_missing:
-                    logger.info("No hay más series con episodios sin metadata")
-                    break
-                logger.info(f"Lote de {len(series_with_missing)} series con episodios sin metadata")
-                for s in series_with_missing:
-                    self._process_episodes_for_series(
-                        s["tmdb_id"], s["series_key"], s["title"] or ""
+            if media_type in ("all", "episodes"):
+                if retry_not_found:
+                    logger.info("\n📺 PROCESANDO EPISODIOS SIN METADATA TMDB (MODO RETRY)")
+                else:
+                    logger.info("\n📺 PROCESANDO EPISODIOS SIN METADATA TMDB")
+                logger.info("-" * 60)
+                episodes_processed = 0
+                while True:
+                    series_with_missing = self._get_series_with_episodes_without_metadata(
+                        batch_size, retry_not_found
                     )
-                    episodes_processed += 1
-                    time.sleep(0.05)
-            logger.info(f"   Total series procesadas: {episodes_processed}")
+                    if not series_with_missing:
+                        logger.info("No hay más series con episodios sin metadata")
+                        break
+                    logger.info(
+                        f"Lote de {len(series_with_missing)} series con episodios sin metadata"
+                    )
+                    for s in series_with_missing:
+                        self._process_episodes_for_series(
+                            s["tmdb_id"], s["series_key"], s["title"] or ""
+                        )
+                        episodes_processed += 1
+                        time.sleep(0.05)
+                logger.info(f"   Total series procesadas: {episodes_processed}")
 
             self._session = None
 
@@ -1360,6 +1426,12 @@ def main():
         action="store_true",
         help="Reintentar items que anteriormente no se encontraron en TMDB",
     )
+    parser.add_argument(
+        "--media-type",
+        choices=["all", "movies", "series", "episodes"],
+        default="all",
+        help="Limita el run a un tipo de contenido (por defecto: all, en round-robin)",
+    )
     args = parser.parse_args()
 
     scraper = TMDBScraper(dry_run=args.dry_run)
@@ -1367,6 +1439,7 @@ def main():
         batch_size=args.batch_size,
         max_items=args.max_items,
         retry_not_found=args.retry_not_found,
+        media_type=args.media_type,
     )
 
 

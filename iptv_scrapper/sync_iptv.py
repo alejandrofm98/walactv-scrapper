@@ -795,9 +795,11 @@ async def insert_movies_catalog(movies: list) -> bool:
                                     provider_id = EXCLUDED.provider_id,
                                     tmdb_id = COALESCE(movies_catalog.tmdb_id, EXCLUDED.tmdb_id),
                                     has_iptv_source = TRUE,
-                                    last_sync_at = EXCLUDED.last_sync_at,
-                                    not_found = FALSE,
-                                    retry_count = 0
+                                    last_sync_at = EXCLUDED.last_sync_at
+                                    -- NOTA: no se tocan not_found/retry_count/last_error.
+                                    -- Son estado del scraper TMDB; resetearlos aqui
+                                    -- provocaba reintentos infinitos y retry_count
+                                    -- permanentemente a 0.
                                 RETURNING id
                             """),
                             {
@@ -1003,9 +1005,9 @@ async def insert_series_catalog(series: list) -> bool:
                                     provider_id = EXCLUDED.provider_id,
                                     tmdb_id = COALESCE(series_catalog.tmdb_id, EXCLUDED.tmdb_id),
                                     has_iptv_source = TRUE,
-                                    last_sync_at = EXCLUDED.last_sync_at,
-                                    not_found = FALSE,
-                                    retry_count = 0
+                                    last_sync_at = EXCLUDED.last_sync_at
+                                    -- NOTA: no se tocan not_found/retry_count/last_error
+                                    -- (estado del scraper TMDB, ver movies arriba).
                                 RETURNING id
                             """),
                             {
