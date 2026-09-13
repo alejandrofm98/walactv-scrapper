@@ -50,7 +50,7 @@ Produce los catalogos de contenido que iptv-api consume.
   `scripts/generate_content_json.py` (cache JSON), `scripts/poblar_mapeo_canales.py` (mapeo).
 - **BD**: PostgreSQL via SQLAlchemy 2.0 (paquete `iptv-db`). El `DatabasePG` mantiene un pool asyncpg legacy para backward compat.
 - **Docker**: 5 Dockerfiles + docker-compose.yaml. Despliegue via Ansible + Ofelia (cron).
-- **Horarios**: main.py (08:00 diario), sync_iptv.py (cada 6h), sync_replays.py (12:00 diario), tmdb (03:00 diario), IntroDB (07:00 diario, opt-in).
+- **Horarios**: main.py (08:00 diario), sync_iptv.py (cada 6h), sync_replays.py (12:00 diario), tmdb (03:00 diario), IntroDB (07:00 diario, opt-in), acestream hashes (06:40 diario).
 
 ## 2. Arquitectura
 
@@ -64,6 +64,7 @@ Produce los catalogos de contenido que iptv-api consume.
 | `sync_replays.py` | Scraper de replays UFC/wrestling |
 | `scrape_tmdb_metadata.py` | Enriquecimiento de metadata via TMDB API |
 | `sync_introdb_segments.py` | Sincronizacion opt-in de intro/recap/outro via IntroDB |
+| `sync_acestream_hashes.py` | Lista comunitaria de canales Acestream (IPNS hashes.json) a `data/json/acestream_channels.json` |
 | `generate_content_json.py` | Generacion de cache JSON gzipped |
 | `poblar_mapeo_canales.py` | Poblacion de mapeo de canales |
 | `actualiza_epg.py` | Actualizador EPG (credenciales via env vars) |
