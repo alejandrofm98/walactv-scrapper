@@ -39,15 +39,25 @@ else
     echo "⚠️  Scrape inicial falló (código: $SCRAPE_STATUS), pero continuamos..."
 fi
 
+echo "Ejecutando enriquecimiento inicial de Cinemeta..."
+python iptv_scrapper/scrape_cinemeta_metadata.py --batch-size 100
+CINEMETA_STATUS=$?
+if [ $CINEMETA_STATUS -eq 0 ]; then
+    echo "Enriquecimiento Cinemeta completado"
+else
+    echo "Enriquecimiento Cinemeta falló (código: $CINEMETA_STATUS), pero continuamos..."
+fi
+
 echo ""
 echo "📋 Programación:"
-echo "   - Ofelia ejecutará scrape 4 veces al día (3:30, 9:30, 15:30, 21:30)"
+echo "   - Ofelia ejecutará metadata IPTV 4 veces al día y Cinemeta cada 6 horas"
 echo "   - Contenedor se mantiene activo para recibir comandos"
 echo ""
 echo "💡 Comandos manuales:"
 echo "   - Scrape completo: docker exec walactv-sync-tmdb-metadata python iptv_scrapper/scrape_tmdb_metadata.py"
 echo "   - Scrape dry-run: docker exec walactv-sync-tmdb-metadata python iptv_scrapper/scrape_tmdb_metadata.py --dry-run"
 echo "   - Scrape limitado: docker exec walactv-sync-tmdb-metadata python iptv_scrapper/scrape_tmdb_metadata.py --max-items 10"
+echo "   - Scrape Cinemeta: docker exec walactv-sync-tmdb-metadata python iptv_scrapper/scrape_cinemeta_metadata.py --batch-size 10"
 echo ""
 
 # Mantener contenedor vivo para Ofelia

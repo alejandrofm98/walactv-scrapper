@@ -22,13 +22,14 @@ SCRIPTS_DIR = Path(__file__).parent.parent / "iptv_scrapper"
 # (e.g. "from database import ...") resolve correctly.
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-# Cron scripts from docker/ofelia-config.ini (all 6 Ofelia jobs)
+# Cron scripts from docker/ofelia-config.ini
 # plus poblar_mapeo_canales.py (run via run-sync.sh within iptv-sync job).
 CRON_SCRIPTS = [
     "main",  # futbol-daily: python main.py
     "sync_iptv",  # iptv-sync: /app/run-sync.sh
     "sync_replays",  # sync-replays: python iptv_scrapper/sync_replays.py
     "scrape_tmdb_metadata",  # tmdb-metadata-sync: python iptv_scrapper/scrape_tmdb_metadata.py --batch-size 100
+    "scrape_cinemeta_metadata",  # cinemeta-tmdb-es: periodic Spanish metadata enrichment
     "import_imdb_ratings",  # imdb-ratings: python iptv_scrapper/import_imdb_ratings.py --batch-size 10000
     "populate_episode_imdb_ids",  # imdb-episode-ids: python iptv_scrapper/populate_episode_imdb_ids.py --batch-size 5000
     "poblar_mapeo_canales",  # iptv-sync (via run-sync.sh): python iptv_scrapper/poblar_mapeo_canales.py

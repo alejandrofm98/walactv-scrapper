@@ -46,11 +46,12 @@ Produce los catalogos de contenido que iptv-api consume.
 
 - **Stack**: Python 3.12, SQLAlchemy 2.0 + psycopg3 (via iptv-db), BeautifulSoup4, requests, Pillow, python-dotenv.
 - **Entry points**: `scripts/main.py` (scraper principal), `scripts/sync_iptv.py` (sync IPTV),
-  `scripts/sync_replays.py` (replays), `scripts/scrape_tmdb_metadata.py` (TMDB),
+  `scripts/sync_replays.py` (replays), `scripts/scrape_tmdb_metadata.py` (TMDB IPTV),
+  `scripts/scrape_cinemeta_metadata.py` (sinopsis TMDB para Cinemeta),
   `scripts/generate_content_json.py` (cache JSON), `scripts/poblar_mapeo_canales.py` (mapeo).
 - **BD**: PostgreSQL via SQLAlchemy 2.0 (paquete `iptv-db`). El `DatabasePG` mantiene un pool asyncpg legacy para backward compat.
 - **Docker**: 5 Dockerfiles + docker-compose.yaml. Despliegue via Ansible + Ofelia (cron).
-- **Horarios**: main.py (08:00 diario), sync_iptv.py (cada 6h), sync_replays.py (12:00 diario), tmdb (03:00 diario), IntroDB (07:00 diario, opt-in).
+- **Horarios**: main.py (08:00 diario), sync_iptv.py (cada 6h), sync_replays.py (12:00 diario), metadata TMDB IPTV (03:30, 09:30, 15:30, 21:30), sinopsis Cinemeta (cada 6h), IntroDB (07:00 diario, opt-in).
 
 ## 2. Arquitectura
 
