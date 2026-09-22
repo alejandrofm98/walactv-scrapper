@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir -r requirements-tmdb.txt
 # Copiar código del scraper
 COPY iptv_scrapper/scrape_tmdb_metadata.py iptv_scrapper/
 COPY iptv_scrapper/scrape_cinemeta_metadata.py iptv_scrapper/
+COPY iptv_scrapper/scrape_cinemeta_catalog.py iptv_scrapper/
 COPY iptv_scrapper/import_tmdb_catalog.py iptv_scrapper/
 COPY iptv_scrapper/scrape_tmdb_trending.py iptv_scrapper/
 COPY iptv_scrapper/import_imdb_ratings.py iptv_scrapper/

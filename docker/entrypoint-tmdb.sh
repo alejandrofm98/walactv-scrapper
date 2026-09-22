@@ -39,18 +39,27 @@ else
     echo "⚠️  Scrape inicial falló (código: $SCRAPE_STATUS), pero continuamos..."
 fi
 
-echo "Ejecutando enriquecimiento inicial de Cinemeta..."
-python iptv_scrapper/scrape_cinemeta_metadata.py --batch-size 100
+echo "Importando catálogos Cinemeta directamente..."
+python iptv_scrapper/scrape_cinemeta_catalog.py
+CINEMETA_CATALOG_STATUS=$?
+if [ $CINEMETA_CATALOG_STATUS -eq 0 ]; then
+    echo "Importación de catálogos Cinemeta completada"
+else
+    echo "Importación de catálogos Cinemeta falló (código: $CINEMETA_CATALOG_STATUS), se reintentará con Ofelia"
+fi
+
+echo "Enriqueciendo con TMDB las fichas Cinemeta recién importadas..."
+python iptv_scrapper/scrape_cinemeta_metadata.py --batch-size 500
 CINEMETA_STATUS=$?
 if [ $CINEMETA_STATUS -eq 0 ]; then
     echo "Enriquecimiento Cinemeta completado"
 else
-    echo "Enriquecimiento Cinemeta falló (código: $CINEMETA_STATUS), pero continuamos..."
+    echo "Enriquecimiento Cinemeta falló (código: $CINEMETA_STATUS), se reintentará con Ofelia"
 fi
 
 echo ""
 echo "📋 Programación:"
-echo "   - Ofelia ejecutará metadata IPTV 4 veces al día y Cinemeta cada 6 horas"
+echo "   - Ofelia ejecutará metadata IPTV 4 veces al día, Cinemeta cada 6 horas y catálogo Cinemeta diariamente"
 echo "   - Contenedor se mantiene activo para recibir comandos"
 echo ""
 echo "💡 Comandos manuales:"

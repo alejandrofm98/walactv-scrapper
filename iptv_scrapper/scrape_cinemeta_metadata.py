@@ -1,4 +1,4 @@
-"""Guarda en PostgreSQL las sinopsis españolas TMDB de fichas Cinemeta solicitadas."""
+"""Guarda en PostgreSQL las sinopsis españolas TMDB del catálogo Cinemeta importado."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ logger = logging.getLogger("cinemeta-tmdb-scraper")
 
 
 class CinemetaMetadataScraper:
-    """Enriquece fichas Cinemeta cacheadas sin bloquear las peticiones de la app."""
+    """Enriquece las fichas Cinemeta importadas por el scraper, sin depender de la app."""
 
     def __init__(
         self,
@@ -91,7 +91,6 @@ class CinemetaMetadataScraper:
                     SELECT c.content_type, c.imdb_id, MAX(c.moviedb_id) AS moviedb_id
                     FROM external_catalog_items AS c
                     WHERE c.moviedb_id IS NOT NULL AND c.moviedb_id > 0
-                      AND c.updated_at < CURRENT_TIMESTAMP - INTERVAL '6 hours'
                       AND NOT EXISTS (
                           SELECT 1
                           FROM external_catalog_items AS localized
@@ -186,7 +185,7 @@ def _create_session_factory() -> Any:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Enriquece Cinemeta con sinopsis TMDB en español")
-    parser.add_argument("--batch-size", type=int, default=100)
+    parser.add_argument("--batch-size", type=int, default=500)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if args.batch_size < 1:
