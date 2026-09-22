@@ -139,11 +139,12 @@ class CinemetaCatalogScraper:
             text(
                 """
                 INSERT INTO external_catalog_items (
-                    content_type, catalog_id, catalog_position, imdb_id, moviedb_id,
+                    id, content_type, catalog_id, catalog_position, imdb_id, moviedb_id,
                     title, description_en, poster, backdrop, rating, year,
                     imported_at, last_seen_at, updated_at
                 ) VALUES (
-                    :content_type, :catalog_id, :catalog_position, :imdb_id, :moviedb_id,
+                    gen_random_uuid(), :content_type, :catalog_id, :catalog_position,
+                    :imdb_id, :moviedb_id,
                     :title, :description_en, :poster, :backdrop, :rating, :year,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
