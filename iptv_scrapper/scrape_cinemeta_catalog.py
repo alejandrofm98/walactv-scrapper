@@ -89,7 +89,13 @@ class CinemetaCatalogScraper:
             path += f"/genre={requests.utils.quote(genre, safe='')}"
         if skip:
             path += f"/skip={skip}"
-        metas = self._get_json(f"{path}.json").get("metas", [])
+        try:
+            metas = self._get_json(f"{path}.json").get("metas", [])
+        except requests.HTTPError as exc:
+            # Cinemeta devuelve 404 (no una lista vacía) al agotar un filtro.
+            if skip > 0 and exc.response is not None and exc.response.status_code == 404:
+                return []
+            raise
         if not isinstance(metas, list):
             raise ValueError(f"Cinemeta devolvió una página inválida: {content_type}/{source_id}")
         return [item for item in metas if isinstance(item, dict) and item.get("id")]

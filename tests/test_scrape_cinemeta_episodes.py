@@ -76,5 +76,5 @@ def test_first_run_requeues_previously_synced_episodes_missing_spanish():
     queries = [str(call.args[0]) for call in db.execute.call_args_list]
     assert any("SET episodes_checked_at = NULL" in query for query in queries)
     assert any("cinemeta_episodes_es_v2" in query for query in queries)
-    assert any("MAX(episodes_synced_at) IS NOT NULL" in query for query in queries)
+    assert any("WHEN MAX(moviedb_id) IS NOT NULL" in query for query in queries)
     db.commit.assert_called_once()

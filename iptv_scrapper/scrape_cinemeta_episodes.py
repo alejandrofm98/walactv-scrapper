@@ -230,8 +230,7 @@ class CinemetaEpisodeScraper:
                            )
                        )
                     ORDER BY CASE
-                                 WHEN MAX(episodes_checked_at) IS NULL
-                                      AND MAX(episodes_synced_at) IS NOT NULL
+                                 WHEN MAX(moviedb_id) IS NOT NULL
                                       AND EXISTS (
                                           SELECT 1 FROM external_catalog_episodes AS missing
                                           WHERE missing.imdb_id = external_catalog_items.imdb_id

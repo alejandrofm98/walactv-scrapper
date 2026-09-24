@@ -1,3 +1,8 @@
+from unittest.mock import Mock
+
+import pytest
+import requests
+
 from iptv_scrapper.scrape_cinemeta_catalog import CinemetaCatalogScraper, _catalog_variants
 
 
@@ -55,3 +60,14 @@ def test_upsert_generates_the_required_database_uuid():
     assert inserted == 1
     assert "gen_random_uuid()" in db.statement
     assert db.parameters[0]["imdb_id"] == "tt1234567"
+
+
+def test_404_after_last_catalog_page_is_not_an_import_failure():
+    scraper = CinemetaCatalogScraper(session_factory=None)
+    scraper._get_json = Mock(
+        side_effect=requests.HTTPError(response=Mock(status_code=404))
+    )
+
+    assert scraper._catalog_page("series", "year", 29, "1979") == []
+    with pytest.raises(requests.HTTPError):
+        scraper._catalog_page("series", "year", 0, "1979")
