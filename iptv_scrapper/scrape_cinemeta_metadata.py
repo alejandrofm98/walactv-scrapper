@@ -100,7 +100,10 @@ class CinemetaMetadataScraper:
                             AND localized.overview_es <> ''
                       )
                     GROUP BY c.content_type, c.imdb_id
-                    ORDER BY MIN(c.updated_at), c.content_type, c.imdb_id
+                    HAVING MAX(c.localized_checked_at) IS NULL
+                        OR MAX(c.localized_checked_at) < CURRENT_TIMESTAMP - INTERVAL '30 days'
+                    ORDER BY MAX(c.localized_checked_at) NULLS FIRST,
+                             c.content_type, c.imdb_id
                     LIMIT :batch_size
                     """
                     ),
@@ -126,6 +129,7 @@ class CinemetaMetadataScraper:
                                 UPDATE external_catalog_items
                                 SET title_es = COALESCE(:title_es, title_es),
                                     overview_es = COALESCE(:overview_es, overview_es),
+                                    localized_checked_at = CURRENT_TIMESTAMP,
                                     updated_at = CURRENT_TIMESTAMP
                                 WHERE content_type = :content_type AND imdb_id = :imdb_id
                                 """

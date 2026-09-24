@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import re
@@ -22,6 +23,12 @@ logger = logging.getLogger("cinemeta-catalog-scraper")
 
 def _slug(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]+", "_", value).strip("_")[:40]
+
+
+def _string_list(value: Any) -> str | None:
+    if not isinstance(value, list):
+        return None
+    return json.dumps([str(item) for item in value if item])
 
 
 def _catalog_variants(manifest: dict[str, Any]) -> Iterator[tuple[str, str, str, str | None]]:
@@ -129,6 +136,9 @@ class CinemetaCatalogScraper:
                     "description_en": item.get("description") or meta.get("description"),
                     "poster": item.get("poster") or meta.get("poster"),
                     "backdrop": item.get("background") or meta.get("background"),
+                    "logo": item.get("logo") or meta.get("logo"),
+                    "genres": _string_list(item.get("genres") or meta.get("genres")),
+                    "cast": _string_list(item.get("cast") or meta.get("cast")),
                     "rating": rating,
                     "year": int(year_match.group(0)) if year_match else None,
                 }
@@ -140,21 +150,35 @@ class CinemetaCatalogScraper:
                 """
                 INSERT INTO external_catalog_items (
                     id, content_type, catalog_id, catalog_position, imdb_id, moviedb_id,
-                    title, description_en, poster, backdrop, rating, year,
+                    title, description_en, poster, backdrop, logo, genres, "cast", rating, year,
                     imported_at, last_seen_at, updated_at
                 ) VALUES (
                     gen_random_uuid(), :content_type, :catalog_id, :catalog_position,
                     :imdb_id, :moviedb_id,
-                    :title, :description_en, :poster, :backdrop, :rating, :year,
+                    :title, :description_en, :poster, :backdrop, :logo,
+                    CAST(:genres AS jsonb), CAST(:cast AS jsonb), :rating, :year,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
                 ON CONFLICT ON CONSTRAINT uq_external_catalog_items_identity DO UPDATE SET
                     catalog_position = EXCLUDED.catalog_position,
                     moviedb_id = COALESCE(EXCLUDED.moviedb_id, external_catalog_items.moviedb_id),
+                    episodes_checked_at = CASE
+                        WHEN external_catalog_items.moviedb_id IS NULL AND EXCLUDED.moviedb_id IS NOT NULL
+                            THEN NULL
+                        ELSE external_catalog_items.episodes_checked_at
+                    END,
+                    episodes_synced_at = CASE
+                        WHEN external_catalog_items.moviedb_id IS NULL AND EXCLUDED.moviedb_id IS NOT NULL
+                            THEN NULL
+                        ELSE external_catalog_items.episodes_synced_at
+                    END,
                     title = COALESCE(EXCLUDED.title, external_catalog_items.title),
                     description_en = COALESCE(EXCLUDED.description_en, external_catalog_items.description_en),
                     poster = COALESCE(EXCLUDED.poster, external_catalog_items.poster),
                     backdrop = COALESCE(EXCLUDED.backdrop, external_catalog_items.backdrop),
+                    logo = COALESCE(EXCLUDED.logo, external_catalog_items.logo),
+                    genres = COALESCE(EXCLUDED.genres, external_catalog_items.genres),
+                    "cast" = COALESCE(EXCLUDED."cast", external_catalog_items."cast"),
                     rating = COALESCE(EXCLUDED.rating, external_catalog_items.rating),
                     year = COALESCE(EXCLUDED.year, external_catalog_items.year),
                     last_seen_at = CURRENT_TIMESTAMP

@@ -31,6 +31,7 @@ CRON_SCRIPTS = [
     "scrape_tmdb_metadata",  # tmdb-metadata-sync: python iptv_scrapper/scrape_tmdb_metadata.py --batch-size 100
     "scrape_cinemeta_metadata",  # cinemeta-tmdb-es: periodic Spanish metadata enrichment
     "scrape_cinemeta_catalog",  # cinemeta-catalog-sync: full catalog import independent of users
+    "scrape_cinemeta_episodes",  # cinemeta-episode-sync: background episode localization
     "import_imdb_ratings",  # imdb-ratings: python iptv_scrapper/import_imdb_ratings.py --batch-size 10000
     "populate_episode_imdb_ids",  # imdb-episode-ids: python iptv_scrapper/populate_episode_imdb_ids.py --batch-size 5000
     "poblar_mapeo_canales",  # iptv-sync (via run-sync.sh): python iptv_scrapper/poblar_mapeo_canales.py

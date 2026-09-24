@@ -33,8 +33,10 @@ def test_get_movie_streams_uses_imdb_identifier():
     streams = client.get_streams("tt0111161")
 
     assert streams == [{"name": "provider", "url": "https://x"}]
+    prefix = client.base_url + (f"/{client.config_path}" if client.config_path else "")
     session.get.assert_called_once_with(
-        "https://torrentio.strem.fun/stream/movie/tt0111161.json", timeout=15.0
+        f"{prefix}/stream/movie/tt0111161.json",
+        timeout=15.0,
     )
 
 
@@ -45,8 +47,10 @@ def test_get_series_streams_includes_season_and_episode():
 
     client.get_streams("tt0903747", content_type="series", season=1, episode=2)
 
+    prefix = client.base_url + (f"/{client.config_path}" if client.config_path else "")
     session.get.assert_called_once_with(
-        "https://torrentio.strem.fun/stream/series/tt0903747:1:2.json", timeout=15.0
+        f"{prefix}/stream/series/tt0903747:1:2.json",
+        timeout=15.0,
     )
 
 
