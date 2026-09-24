@@ -78,3 +78,14 @@ def test_first_run_requeues_previously_synced_episodes_missing_spanish():
     assert any("cinemeta_episodes_es_v2" in query for query in queries)
     assert any("WHEN MAX(moviedb_id) IS NOT NULL" in query for query in queries)
     db.commit.assert_called_once()
+
+
+def test_can_select_a_single_series_for_backfill():
+    session_factory = MagicMock()
+    db = session_factory.return_value.__enter__.return_value
+    db.execute.return_value.scalar.return_value = 1
+    db.execute.return_value.mappings.return_value.all.return_value = []
+    scraper = CinemetaEpisodeScraper(session_factory=session_factory, read_token="token")
+
+    assert scraper.run(imdb_id="tt0434706") == (0, 0, 0)
+    assert db.execute.call_args.args[1]["imdb_id"] == "tt0434706"

@@ -164,7 +164,9 @@ class CinemetaEpisodeScraper:
             )
         return rows, had_tmdb_error
 
-    def run(self, batch_size: int = 25, dry_run: bool = False) -> tuple[int, int, int]:
+    def run(
+        self, batch_size: int = 25, dry_run: bool = False, imdb_id: str | None = None
+    ) -> tuple[int, int, int]:
         """Procesa títulos pendientes o antiguos con commits independientes por serie."""
         with self.session_factory() as db:
             # Una sola vez tras activar este enriquecimiento: las revisiones antiguas
@@ -203,9 +205,9 @@ class CinemetaEpisodeScraper:
                         """
                     SELECT imdb_id, MAX(moviedb_id) AS moviedb_id
                     FROM external_catalog_items
-                    WHERE content_type = 'series'
+                    WHERE content_type = 'series' AND (:imdb_id IS NULL OR imdb_id = :imdb_id)
                     GROUP BY imdb_id
-                    HAVING (
+                    HAVING :imdb_id IS NOT NULL OR (
                         MAX(episodes_synced_at) IS NULL
                         AND (MAX(episodes_checked_at) IS NULL
                              OR MAX(episodes_checked_at) < CURRENT_TIMESTAMP - INTERVAL '1 day')
@@ -245,7 +247,7 @@ class CinemetaEpisodeScraper:
                     LIMIT :batch_size
                     """
                     ),
-                    {"batch_size": batch_size},
+                    {"batch_size": batch_size, "imdb_id": imdb_id},
                 )
                 .mappings()
                 .all()
@@ -377,9 +379,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Importa episodios Cinemeta con sinopsis TMDB")
     parser.add_argument("--batch-size", type=int, default=25)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--imdb-id", help="Sincronizar una serie concreta sin esperar al barrido")
     args = parser.parse_args()
     if args.batch_size < 1:
         parser.error("--batch-size debe ser mayor que cero")
+    if args.imdb_id and not (args.imdb_id.startswith("tt") and args.imdb_id[2:].isdigit()):
+        parser.error("--imdb-id debe tener formato tt1234567")
     if not os.getenv("TMDB_API_KEY") and not os.getenv("TMDB_READ_TOKEN"):
         parser.error("Configura TMDB_API_KEY o TMDB_READ_TOKEN")
 
@@ -396,7 +401,7 @@ def main() -> None:
         get_sync_session_factory(get_sync_engine(url)),
         api_key=os.getenv("TMDB_API_KEY", ""),
         read_token=os.getenv("TMDB_READ_TOKEN", ""),
-    ).run(batch_size=args.batch_size, dry_run=args.dry_run)
+    ).run(batch_size=args.batch_size, dry_run=args.dry_run, imdb_id=args.imdb_id)
 
 
 if __name__ == "__main__":

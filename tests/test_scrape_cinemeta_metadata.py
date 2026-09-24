@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 from iptv_scrapper.scrape_cinemeta_metadata import CinemetaMetadataScraper
 
@@ -72,3 +72,13 @@ def test_prefers_spanish_raster_logo():
     scraper = CinemetaMetadataScraper(Mock(), read_token="token", http_session=http_session)
 
     assert scraper._fetch_logo("movie", 278) == "https://image.tmdb.org/t/p/w500/spanish.png"
+
+
+def test_can_select_a_single_title_for_backfill():
+    session_factory = MagicMock()
+    db = session_factory.return_value.__enter__.return_value
+    db.execute.return_value.mappings.return_value.all.return_value = []
+    scraper = CinemetaMetadataScraper(session_factory, read_token="token")
+
+    assert scraper.run(imdb_id="tt0434706") == (0, 0, 0)
+    assert db.execute.call_args.args[1]["imdb_id"] == "tt0434706"

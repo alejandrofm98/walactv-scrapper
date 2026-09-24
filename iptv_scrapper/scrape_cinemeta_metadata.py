@@ -124,7 +124,9 @@ class CinemetaMetadataScraper:
             "overview_es": str(overview).strip() if overview and str(overview).strip() else None,
         }
 
-    def run(self, batch_size: int = 100, dry_run: bool = False) -> tuple[int, int, int]:
+    def run(
+        self, batch_size: int = 100, dry_run: bool = False, imdb_id: str | None = None
+    ) -> tuple[int, int, int]:
         """Procesa fichas pendientes y devuelve procesadas, traducidas y fallidas."""
         with self.session_factory() as db:
             rows = (
@@ -135,19 +137,20 @@ class CinemetaMetadataScraper:
                            BOOL_OR(NULLIF(c.overview_es, '') IS NOT NULL) AS has_overview_es,
                            MAX(NULLIF(c.logo, '')) AS existing_logo
                     FROM external_catalog_items AS c
+                    WHERE (:imdb_id IS NULL OR c.imdb_id = :imdb_id)
                     GROUP BY c.content_type, c.imdb_id
-                    HAVING (MAX(c.localized_checked_at) IS NULL
+                    HAVING :imdb_id IS NOT NULL OR ((MAX(c.localized_checked_at) IS NULL
                         OR MAX(c.localized_checked_at) < CURRENT_TIMESTAMP - INTERVAL '30 days')
                        AND (MAX(c.moviedb_id) IS NULL
                             OR NOT BOOL_OR(NULLIF(c.overview_es, '') IS NOT NULL)
                             OR MAX(NULLIF(c.logo, '')) IS NULL
-                            OR MAX(NULLIF(c.logo, '')) NOT LIKE 'https://image.tmdb.org/t/p/%')
+                            OR MAX(NULLIF(c.logo, '')) NOT LIKE 'https://image.tmdb.org/t/p/%'))
                     ORDER BY MAX(c.localized_checked_at) NULLS FIRST,
                              c.content_type, c.imdb_id
                     LIMIT :batch_size
                     """
                     ),
-                    {"batch_size": batch_size},
+                    {"batch_size": batch_size, "imdb_id": imdb_id},
                 )
                 .mappings()
                 .all()
@@ -254,9 +257,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Enriquece Cinemeta con sinopsis TMDB en español")
     parser.add_argument("--batch-size", type=int, default=500)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--imdb-id", help="Enriquecer una ficha concreta sin esperar al barrido")
     args = parser.parse_args()
     if args.batch_size < 1:
         parser.error("--batch-size debe ser mayor que cero")
+    if args.imdb_id and not (args.imdb_id.startswith("tt") and args.imdb_id[2:].isdigit()):
+        parser.error("--imdb-id debe tener formato tt1234567")
 
     api_key = os.getenv("TMDB_API_KEY", "")
     read_token = os.getenv("TMDB_READ_TOKEN", "")
@@ -267,7 +273,7 @@ def main() -> None:
     scraper = CinemetaMetadataScraper(
         _create_session_factory(), api_key=api_key, read_token=read_token
     )
-    scraper.run(batch_size=args.batch_size, dry_run=args.dry_run)
+    scraper.run(batch_size=args.batch_size, dry_run=args.dry_run, imdb_id=args.imdb_id)
 
 
 if __name__ == "__main__":
