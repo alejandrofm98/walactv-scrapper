@@ -176,7 +176,7 @@ class CinemetaCatalogScraper:
                     description_en = COALESCE(EXCLUDED.description_en, external_catalog_items.description_en),
                     poster = COALESCE(EXCLUDED.poster, external_catalog_items.poster),
                     backdrop = COALESCE(EXCLUDED.backdrop, external_catalog_items.backdrop),
-                    logo = COALESCE(EXCLUDED.logo, external_catalog_items.logo),
+                    logo = COALESCE(external_catalog_items.logo, EXCLUDED.logo),
                     genres = COALESCE(EXCLUDED.genres, external_catalog_items.genres),
                     "cast" = COALESCE(EXCLUDED."cast", external_catalog_items."cast"),
                     rating = COALESCE(EXCLUDED.rating, external_catalog_items.rating),

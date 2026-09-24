@@ -111,21 +111,41 @@ class CinemetaEpisodeScraper:
                         if number is not None:
                             localized.setdefault((season, number), {})[language] = entry
 
+                # TMDB puede tener textos en es-MX donde es-ES está vacío.
+                missing_spanish = any(
+                    key_season == season
+                    and not _clean(localized.get((season, number), {}).get("es", {}).get("overview"))
+                    for key_season, number in by_key
+                )
+                if missing_spanish:
+                    try:
+                        payload = self._tmdb_season(tmdb_id, season, "es-MX")
+                    except (requests.RequestException, ValueError) as exc:
+                        had_tmdb_error = True
+                        logger.warning("TMDB %s temporada %s/es-MX falló: %s", imdb_id, season, exc)
+                    else:
+                        for entry in payload.get("episodes", []):
+                            if isinstance(entry, dict):
+                                number = _number(entry.get("episode_number"))
+                                if number is not None:
+                                    localized.setdefault((season, number), {})["mx"] = entry
+
         rows = []
         for (season, episode), video in by_key.items():
             translations = localized.get((season, episode), {})
             es = translations.get("es", {})
+            mx = translations.get("mx", {})
             en = translations.get("en", {})
-            still_path = _clean(es.get("still_path") or en.get("still_path"))
+            still_path = _clean(es.get("still_path") or mx.get("still_path") or en.get("still_path"))
             rows.append(
                 {
                     "imdb_id": imdb_id,
                     "season": season,
                     "episode": episode,
                     "video_id": _clean(video.get("id")) or f"{imdb_id}:{season}:{episode}",
-                    "title_es": _clean(es.get("name")),
+                    "title_es": _clean(es.get("name") or mx.get("name")),
                     "title_en": _clean(en.get("name") or video.get("name") or video.get("title")),
-                    "overview_es": _clean(es.get("overview")),
+                    "overview_es": _clean(es.get("overview") or mx.get("overview")),
                     "overview_en": _clean(
                         en.get("overview") or video.get("overview") or video.get("description")
                     ),
@@ -147,6 +167,36 @@ class CinemetaEpisodeScraper:
     def run(self, batch_size: int = 25, dry_run: bool = False) -> tuple[int, int, int]:
         """Procesa títulos pendientes o antiguos con commits independientes por serie."""
         with self.session_factory() as db:
+            # Una sola vez tras activar este enriquecimiento: las revisiones antiguas
+            # daban por completos episodios sin español y no entrarían hasta 30 días.
+            if not dry_run and not db.execute(
+                text("SELECT 1 FROM sync_metadata WHERE id = 'cinemeta_episodes_es_v2'")
+            ).scalar():
+                db.execute(
+                    text(
+                        """
+                        UPDATE external_catalog_items AS item
+                        SET episodes_checked_at = NULL
+                        WHERE item.content_type = 'series'
+                          AND item.moviedb_id IS NOT NULL
+                          AND EXISTS (
+                              SELECT 1 FROM external_catalog_episodes AS episode
+                              WHERE episode.imdb_id = item.imdb_id
+                                AND NULLIF(episode.overview_es, '') IS NULL
+                          )
+                        """
+                    )
+                )
+                db.execute(
+                    text(
+                        """
+                        INSERT INTO sync_metadata (id, created_at, updated_at)
+                        VALUES ('cinemeta_episodes_es_v2', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        ON CONFLICT (id) DO NOTHING
+                        """
+                    )
+                )
+                db.commit()
             pending = (
                 db.execute(
                     text(
@@ -160,7 +210,27 @@ class CinemetaEpisodeScraper:
                         AND (MAX(episodes_checked_at) IS NULL
                              OR MAX(episodes_checked_at) < CURRENT_TIMESTAMP - INTERVAL '1 day')
                     ) OR MAX(episodes_synced_at) < CURRENT_TIMESTAMP - INTERVAL '90 days'
-                    ORDER BY MAX(episodes_synced_at) NULLS FIRST,
+                       OR (
+                           MAX(moviedb_id) IS NOT NULL
+                           AND MAX(episodes_checked_at) < CURRENT_TIMESTAMP - INTERVAL '1 day'
+                           AND EXISTS (
+                               SELECT 1 FROM external_catalog_episodes AS missing
+                               WHERE missing.imdb_id = external_catalog_items.imdb_id
+                                 AND NULLIF(missing.overview_en, '') IS NULL
+                           )
+                       )
+                       OR (
+                           MAX(moviedb_id) IS NOT NULL
+                           AND (MAX(episodes_checked_at) IS NULL
+                                OR MAX(episodes_checked_at) < CURRENT_TIMESTAMP - INTERVAL '30 days')
+                           AND EXISTS (
+                               SELECT 1 FROM external_catalog_episodes AS missing
+                               WHERE missing.imdb_id = external_catalog_items.imdb_id
+                                 AND NULLIF(missing.overview_es, '') IS NULL
+                           )
+                       )
+                    ORDER BY CASE WHEN MAX(moviedb_id) IS NULL THEN 1 ELSE 0 END,
+                             MAX(episodes_synced_at) NULLS FIRST,
                              MIN(CASE WHEN catalog_id = 'top' THEN catalog_position ELSE 1000000 END),
                              imdb_id
                     LIMIT :batch_size
@@ -259,16 +329,17 @@ class CinemetaEpisodeScraper:
                                 "cast": json.dumps(meta["cast"])
                                 if isinstance(meta.get("cast"), list)
                                 else None,
-                                "complete": not had_tmdb_error,
+                                "complete": bool(tmdb_id) and bool(rows) and not had_tmdb_error,
                             },
                         )
                         db.commit()
                     processed += 1
                     episodes_saved += len(rows)
                     logger.info(
-                        "%s: %s episodios%s",
+                        "%s: %s episodios, %s con ES%s",
                         imdb_id,
                         len(rows),
+                        sum(bool(row["overview_es"]) for row in rows),
                         " (TMDB incompleto)" if had_tmdb_error else "",
                     )
                 except (requests.RequestException, ValueError, TypeError) as exc:
