@@ -1,3 +1,4 @@
 # Requirements para el servicio de metadata TMDB
 iptv-db @ git+https://github.com/alejandrofm98/iptv-db.git@4c8a0f168cba0bf3f73d1643864b3490e25d07dd
+greenlet>=3.0,<4.0
 requests==2.32.3
