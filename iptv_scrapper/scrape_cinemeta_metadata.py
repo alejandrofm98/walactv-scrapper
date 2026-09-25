@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import time
+import unicodedata
 from typing import Any
 
 import requests
@@ -124,6 +126,71 @@ class CinemetaMetadataScraper:
             "overview_es": str(overview).strip() if overview and str(overview).strip() else None,
         }
 
+    def _search_spanish_synopsis_backup(
+        self,
+        content_type: str,
+        title: str | None,
+        year: int | None,
+        canonical_id: int,
+    ) -> str | None:
+        """Busca solo una sinopsis alternativa; nunca sustituye la ficha canónica."""
+        if not title or not year:
+            return None
+
+        resource = "tv" if content_type == "series" else "movie"
+        year_parameter = "first_air_date_year" if content_type == "series" else "year"
+        try:
+            payload = self._get_json(
+                f"search/{resource}",
+                {"query": title, year_parameter: str(year), "language": "es-ES"},
+            )
+        except (requests.RequestException, ValueError, TypeError):
+            logger.warning("Búsqueda de sinopsis TMDB alternativa para %s falló", title)
+            return None
+        results = payload.get("results") or []
+        if not isinstance(results, list):
+            return None
+
+        def words(value: str) -> set[str]:
+            normalized = unicodedata.normalize("NFKD", value.casefold())
+            ascii_text = "".join(char for char in normalized if not unicodedata.combining(char))
+            return set(re.findall(r"[a-z0-9]+", ascii_text))
+
+        title_words = words(title)
+        if not title_words:
+            return None
+        date_key = "first_air_date" if content_type == "series" else "release_date"
+        candidates = []
+        for result in results:
+            if not isinstance(result, dict) or result.get("id") == canonical_id:
+                continue
+            candidate_date = str(result.get(date_key) or "")
+            if candidate_date[:4] != str(year):
+                continue
+            candidate_words = words(
+                f"{result.get('name') or result.get('title') or ''} "
+                f"{result.get('original_name') or result.get('original_title') or ''}"
+            )
+            if not title_words.intersection(candidate_words):
+                continue
+            candidates.append(result)
+
+        for candidate in candidates:
+            try:
+                spanish = self._fetch_spanish(content_type, int(candidate["id"]))
+            except (requests.RequestException, ValueError, TypeError):
+                logger.warning("Sinopsis TMDB alternativa %s no disponible", candidate.get("id"))
+                continue
+            if spanish["overview_es"]:
+                logger.info(
+                    "Sinopsis ES alternativa para %s mediante TMDB %s; se conserva el ID %s",
+                    title,
+                    candidate["id"],
+                    canonical_id,
+                )
+                return spanish["overview_es"]
+        return None
+
     def run(
         self, batch_size: int = 100, dry_run: bool = False, imdb_id: str | None = None
     ) -> tuple[int, int, int]:
@@ -134,6 +201,7 @@ class CinemetaMetadataScraper:
                     text(
                         """
                     SELECT c.content_type, c.imdb_id, MAX(c.moviedb_id) AS moviedb_id,
+                           MAX(c.title) AS title, MAX(c.year) AS year,
                            BOOL_OR(NULLIF(c.overview_es, '') IS NOT NULL) AS has_overview_es,
                            MAX(NULLIF(c.logo, '')) AS existing_logo
                     FROM external_catalog_items AS c
@@ -166,6 +234,15 @@ class CinemetaMetadataScraper:
                     logo = None
                     if moviedb_id and not row["has_overview_es"]:
                         spanish = self._fetch_spanish(content_type, int(moviedb_id))
+                        if not spanish["overview_es"]:
+                            backup_overview = self._search_spanish_synopsis_backup(
+                                content_type,
+                                row["title"],
+                                row["year"],
+                                int(moviedb_id),
+                            )
+                            if backup_overview:
+                                spanish["overview_es"] = backup_overview
                     if moviedb_id and not str(row["existing_logo"] or "").startswith(
                         "https://image.tmdb.org/t/p/"
                     ):
