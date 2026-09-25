@@ -205,9 +205,10 @@ class CinemetaEpisodeScraper:
                         """
                     SELECT imdb_id, MAX(moviedb_id) AS moviedb_id
                     FROM external_catalog_items
-                    WHERE content_type = 'series' AND (:imdb_id IS NULL OR imdb_id = :imdb_id)
+                    WHERE content_type = 'series'
+                      AND (CAST(:imdb_id AS TEXT) IS NULL OR imdb_id = :imdb_id)
                     GROUP BY imdb_id
-                    HAVING :imdb_id IS NOT NULL OR (
+                    HAVING CAST(:imdb_id AS TEXT) IS NOT NULL OR (
                         MAX(episodes_synced_at) IS NULL
                         AND (MAX(episodes_checked_at) IS NULL
                              OR MAX(episodes_checked_at) < CURRENT_TIMESTAMP - INTERVAL '1 day')

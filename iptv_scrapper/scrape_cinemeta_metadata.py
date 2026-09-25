@@ -137,9 +137,9 @@ class CinemetaMetadataScraper:
                            BOOL_OR(NULLIF(c.overview_es, '') IS NOT NULL) AS has_overview_es,
                            MAX(NULLIF(c.logo, '')) AS existing_logo
                     FROM external_catalog_items AS c
-                    WHERE (:imdb_id IS NULL OR c.imdb_id = :imdb_id)
+                    WHERE (CAST(:imdb_id AS TEXT) IS NULL OR c.imdb_id = :imdb_id)
                     GROUP BY c.content_type, c.imdb_id
-                    HAVING :imdb_id IS NOT NULL OR ((MAX(c.localized_checked_at) IS NULL
+                    HAVING CAST(:imdb_id AS TEXT) IS NOT NULL OR ((MAX(c.localized_checked_at) IS NULL
                         OR MAX(c.localized_checked_at) < CURRENT_TIMESTAMP - INTERVAL '30 days')
                        AND (MAX(c.moviedb_id) IS NULL
                             OR NOT BOOL_OR(NULLIF(c.overview_es, '') IS NOT NULL)
